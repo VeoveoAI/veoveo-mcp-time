@@ -37,6 +37,7 @@ use validation::*;
 
 /// Time's migrations in `migrations/`. The server applies them in its schema under its
 /// group role; their history lives in `time._sqlx_migrations`.
+#[cfg(any(test, feature = "mcp"))]
 pub(crate) fn migrator() -> sqlx::migrate::Migrator {
     sqlx::migrate!()
 }
