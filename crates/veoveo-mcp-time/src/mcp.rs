@@ -535,18 +535,14 @@ mod tests {
         for root in [uris::CALENDARS_URI, uris::EPOCHS_URI, uris::EVENTS_URI] {
             assert!(roots.iter().any(|resource| resource.uri == root));
         }
-        let templates = SERVER_SETUP.resource_templates();
-        for template in [
-            uris::CALENDARS_TEMPLATE,
-            uris::EPOCHS_TEMPLATE,
-            uris::EVENTS_TEMPLATE,
-        ] {
-            assert!(
-                templates
-                    .iter()
-                    .any(|resource| resource.template().as_str() == template)
-            );
-        }
+        // Collections continue through `nextCursor` and a `?cursor=` query on their
+        // root, so no advertised template carries a query operator.
+        assert!(
+            SERVER_SETUP
+                .resource_templates()
+                .iter()
+                .all(|resource| !resource.template().as_str().contains("{?"))
+        );
     }
 
     #[test]

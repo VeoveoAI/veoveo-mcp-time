@@ -30,22 +30,18 @@ impl TimeKnowledgeCollection {
     }
     pub fn descriptor(self) -> CollectionDescriptor {
         let (id, kind, enumerate) = match self {
-            Self::Calendars => (
-                "time.calendars",
-                "calendar-version",
-                uris::CALENDARS_TEMPLATE,
-            ),
-            Self::Epochs => ("time.epochs", "epoch-version", uris::EPOCHS_TEMPLATE),
-            Self::Events => ("time.events", "event", uris::EVENTS_TEMPLATE),
+            Self::Calendars => ("time.calendars", "calendar-version", uris::CALENDARS_URI),
+            Self::Epochs => ("time.epochs", "epoch-version", uris::EPOCHS_URI),
+            Self::Events => ("time.events", "event", uris::EVENTS_URI),
             Self::AuthorityReleases => (
                 "time.authority-releases",
                 "authority-release",
-                uris::AUTHORITY_RELEASES_TEMPLATE,
+                uris::AUTHORITY_RELEASES_URI,
             ),
             Self::BootstrapAuthorities => (
                 "time.bootstrap-authorities",
                 "authority-release",
-                uris::BOOTSTRAP_AUTHORITIES_TEMPLATE,
+                uris::BOOTSTRAP_AUTHORITIES_URI,
             ),
         };
         let (freshness, signal) = if self == Self::Events {

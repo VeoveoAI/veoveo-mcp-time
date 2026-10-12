@@ -86,6 +86,14 @@ fn resources() -> Result<Vec<McpResource<TimeResource>>, McpSetupError> {
         (TimeResource::ClockCurrent, "Current authoritative time"),
         (TimeResource::ClockQuality, "Clock quality"),
         (TimeResource::AuthoritiesCurrent, "Active time authorities"),
+    ] {
+        resources.push(json_descriptor(
+            address,
+            title,
+            "Authorized Time domain resource.",
+        )?);
+    }
+    for (address, title) in [
         (
             TimeResource::AuthorityReleases { cursor: None },
             "Acquired time authorities",
@@ -104,7 +112,7 @@ fn resources() -> Result<Vec<McpResource<TimeResource>>, McpSetupError> {
         resources.push(json_descriptor(
             address,
             title,
-            "Authorized Time domain resource.",
+            "The first page of up to 100 entries. Read a later page by adding the page's `nextCursor` as the `cursor` query parameter.",
         )?);
     }
     Ok(resources)
@@ -164,18 +172,6 @@ fn template(
 fn resource_templates() -> Result<Vec<McpResourceTemplate>, McpSetupError> {
     [
         (
-            uris::AUTHORITY_RELEASES_TEMPLATE,
-            "Acquired authority page",
-            "Tenant-scoped authority references.",
-            "application/json",
-        ),
-        (
-            uris::BOOTSTRAP_AUTHORITIES_TEMPLATE,
-            "Packaged authority page",
-            "Packaged authority references.",
-            "application/json",
-        ),
-        (
             uris::BOOTSTRAP_AUTHORITY_TEMPLATE,
             "Packaged authority",
             "Immutable packaged compiler provenance.",
@@ -185,24 +181,6 @@ fn resource_templates() -> Result<Vec<McpResourceTemplate>, McpSetupError> {
             uris::EPOCH_VERSION_TEMPLATE,
             "Epoch version",
             "One immutable epoch version.",
-            "application/json",
-        ),
-        (
-            uris::CALENDARS_TEMPLATE,
-            "Calendar page",
-            "A page of 100 calendar versions.",
-            "application/json",
-        ),
-        (
-            uris::EPOCHS_TEMPLATE,
-            "Epoch page",
-            "A page of 100 epoch versions.",
-            "application/json",
-        ),
-        (
-            uris::EVENTS_TEMPLATE,
-            "Event page",
-            "A page of 100 owner-scoped events.",
             "application/json",
         ),
         (
