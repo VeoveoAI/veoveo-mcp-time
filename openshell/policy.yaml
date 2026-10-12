@@ -60,11 +60,11 @@ network_policies:
     binaries:
       - path: /sandbox/run/veoveo-mcp-time-*
       - path: /sandbox/run/acceptance-*/**
-  # The SurrealDB endpoint the registration response names.
+  # The installation's PostgreSQL server, which the registration's database grant names.
   local_database:
     endpoints:
       - host: host.openshell.internal
-        port: 8000
+        port: 5432
         protocol: tcp
     binaries:
       - path: /sandbox/run/veoveo-mcp-time-*
