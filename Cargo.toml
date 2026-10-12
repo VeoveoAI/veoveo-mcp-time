@@ -10,12 +10,43 @@ license = "Apache-2.0"
 repository = "https://github.com/VeoveoAI/veoveo-mcp-time"
 publish = false
 
-[workspace.lints.rust]
-unsafe_code = "forbid"
-unused_qualifications = "warn"
+[workspace.dependencies]
+# veoveo-core, pinned to one revision for every core crate.
+veoveo-gateway-contract = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "2c9c7fe483211c7d761d59f3aafe5b7fa339108a" }
+veoveo-mcp-apps-extension = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "2c9c7fe483211c7d761d59f3aafe5b7fa339108a" }
+veoveo-mcp-contract = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "2c9c7fe483211c7d761d59f3aafe5b7fa339108a", default-features = false }
+veoveo-mcp-knowledge-extension = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "2c9c7fe483211c7d761d59f3aafe5b7fa339108a", default-features = false }
+veoveo-modules = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "2c9c7fe483211c7d761d59f3aafe5b7fa339108a", default-features = false }
+veoveo-platform-store = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "2c9c7fe483211c7d761d59f3aafe5b7fa339108a" }
+veoveo-task-runtime = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "2c9c7fe483211c7d761d59f3aafe5b7fa339108a" }
+veoveo-test-fixtures = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "2c9c7fe483211c7d761d59f3aafe5b7fa339108a" }
+veoveo-types = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "2c9c7fe483211c7d761d59f3aafe5b7fa339108a" }
 
-[workspace.lints.clippy]
-all = { level = "warn", priority = -1 }
-dbg_macro = "deny"
-todo = "deny"
-unimplemented = "deny"
+anyhow = "=1.0.104"
+axum = "0.8.9"
+clap = { version = "4.6.6", features = ["derive", "env"] }
+dotenvy = "0.15.7"
+flate2 = "1.1.9"
+futures = "0.3.34"
+iri-string = { version = "=0.7.14", default-features = false, features = ["std"] }
+hex = "=0.4.3"
+hifitime = { version = "4.3.1", default-features = false, features = ["std"] }
+jsonschema = "=0.51.0"
+jiff = { version = "0.2.35", features = ["tz-system"] }
+rangemap = "1.8.0"
+reqwest = { version = "=0.13.5", default-features = false }
+rmcp = { version = "=3.5.0", git = "https://github.com/VeoveoAI/rust-sdk", rev = "917e7914c93975fc1eddbff8792f1e2de933bc17" }
+rustls = { version = "0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+schemars = "1.2.2"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+secrecy = "0.10.3"
+sha2 = "=0.11.0"
+tokio = "1.53.1"
+tokio-util = "0.7.19"
+thiserror = "=2.0.21"
+tar = "0.4.46"
+tempfile = "=3.27.0"
+tracing = "0.1.44"
+url = "=2.5.8"
+uuid = { version = "1.24.1", features = ["serde", "v4", "v5", "v7"] }

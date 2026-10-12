@@ -1,0 +1,1430 @@
+mod windows;
+
+#[derive(Debug, thiserror::Error)]
+#[error("temporal calculation stopped")]
+pub(crate) struct CalculationStopped;
+
+fn calculation_checkpoint(stop: &tokio_util::sync::CancellationToken) -> Result<()> {
+    if stop.is_cancelled() {
+        return Err(CalculationStopped.into());
+    }
+    Ok(())
+}
+
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    str::FromStr,
+    sync::{Arc, RwLock},
+};
+
+use anyhow::{Context, Result, bail};
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, TimeZone as _, Utc};
+use hifitime::{Epoch, TimeScale as HifiTimeScale};
+use jiff::{Timestamp, civil, tz};
+
+use crate::{
+    authority::AuthorityContext,
+    contract::{
+        ConvertTimeOutput, ConvertTimeRequest, Disambiguation, EvaluateWindowsOutput,
+        EvaluateWindowsRequest, ExpandScheduleOutput, ExpandScheduleRequest, MissionEpoch,
+        MissionEpochId, RecurrenceFrequency, ResolveTimeOutput, ResolveTimeRequest,
+        ScaleRepresentation, ScheduleOccurrence, SubsecondNanoseconds, TimeExpression, TimeInstant,
+        TimeScale, TimeWindow, TimelineViolation, ValidateTimelineOutput, ValidateTimelineRequest,
+        Weekday, ZonedRepresentation,
+    },
+};
+
+const NANOS_PER_SECOND: i128 = 1_000_000_000;
+const SECONDS_PER_WEEK: f64 = 604_800.0;
+const GPS_EPOCH_TAI_SECONDS_SINCE_1970: i64 = 315_964_819;
+const JULIAN_DAY_AT_1970_TAI: f64 = 2_440_587.5;
+
+#[derive(Clone)]
+pub struct TemporalEngine {
+    authority: Arc<AuthorityContext>,
+    epochs: Arc<RwLock<BTreeMap<MissionEpochId, MissionEpoch>>>,
+}
+
+impl TemporalEngine {
+    pub fn new(authority: AuthorityContext) -> Self {
+        Self {
+            authority: Arc::new(authority),
+            epochs: Arc::new(RwLock::new(BTreeMap::new())),
+        }
+    }
+
+    pub fn authority(&self) -> &AuthorityContext {
+        &self.authority
+    }
+
+    pub fn fork(&self) -> Self {
+        Self::new(self.authority.as_ref().clone())
+    }
+
+    pub fn replace_epochs(&self, epochs: impl IntoIterator<Item = MissionEpoch>) {
+        let mut active = self.epochs.write().expect("mission epoch lock poisoned");
+        active.clear();
+        for epoch in epochs {
+            let key = epoch.epoch_id.clone();
+            match active.get(&key) {
+                Some(current) if current.version >= epoch.version => {}
+                _ => {
+                    active.insert(key, epoch);
+                }
+            }
+        }
+    }
+
+    pub fn resolve(&self, request: &ResolveTimeRequest) -> Result<ResolveTimeOutput> {
+        let mut instant = self.resolve_expression(&request.expression)?;
+        instant.uncertainty_nanoseconds = instant
+            .uncertainty_nanoseconds
+            .checked_add(request.additional_uncertainty_nanoseconds)
+            .context("time uncertainty exceeds the supported unsigned 64-bit nanoseconds range")?;
+        self.project(instant)
+    }
+
+    pub fn convert(&self, request: &ConvertTimeRequest) -> Result<ConvertTimeOutput> {
+        self.ensure_authority(&request.instant)?;
+        let canonical = self.project(request.instant.clone())?;
+        let (utc_timestamp, utc_is_leap_second) =
+            timestamp_from_instant(&request.instant, &self.authority)?;
+        let mut zoned = Vec::with_capacity(request.zone_ids.len());
+        for zone_id in &request.zone_ids {
+            validate_zone_id(zone_id)?;
+            let zone = self.authority.tzdb().get(zone_id)?;
+            zoned.push(ZonedRepresentation {
+                zone_id: zone_id.clone(),
+                rfc9557: render_leap_second(
+                    utc_timestamp.to_zoned(zone).to_string(),
+                    utc_is_leap_second,
+                )?,
+            });
+        }
+        let tai_julian_day = julian_day_tai(&request.instant);
+        let epoch = Epoch::from_jde_tai(tai_julian_day);
+        let scales = request
+            .scales
+            .iter()
+            .copied()
+            .map(|scale| scale_representation(scale, epoch, &canonical))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(ConvertTimeOutput {
+            canonical,
+            zoned,
+            scales,
+        })
+    }
+
+    pub fn evaluate_windows(
+        &self,
+        request: &EvaluateWindowsRequest,
+    ) -> Result<EvaluateWindowsOutput> {
+        windows::evaluate(self.authority.binding(), request)
+    }
+
+    pub fn expand_schedule(&self, request: &ExpandScheduleRequest) -> Result<ExpandScheduleOutput> {
+        self.expand_schedule_with_stop(request, &tokio_util::sync::CancellationToken::new())
+    }
+
+    pub(crate) fn expand_schedule_with_stop(
+        &self,
+        request: &ExpandScheduleRequest,
+        stop: &tokio_util::sync::CancellationToken,
+    ) -> Result<ExpandScheduleOutput> {
+        calculation_checkpoint(stop)?;
+        self.ensure_authority(request.horizon.start())?;
+        if request.maximum_occurrences == 0 || request.maximum_occurrences > 1_000_000 {
+            bail!("maximum_occurrences must be in 1..=1000000");
+        }
+        if request.calendar.name.trim().is_empty() {
+            bail!("calendar name must be set");
+        }
+        validate_zone_id(&request.calendar.zone_id)?;
+        let zone = self.authority.tzdb().get(&request.calendar.zone_id)?;
+        let excluded: BTreeSet<_> = request
+            .calendar
+            .excluded_dates
+            .iter()
+            .map(|value| {
+                NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                    .map(|date| date.format("%Y-%m-%d").to_string())
+                    .context("calendar excluded dates must use YYYY-MM-DD")
+            })
+            .collect::<Result<_>>()?;
+        let mut occurrences = Vec::new();
+        let mut truncated = false;
+        for calendar_window in &request.calendar.windows {
+            calculation_checkpoint(stop)?;
+            if calendar_window.recurrence.interval == 0 {
+                bail!("calendar recurrence interval must be positive");
+            }
+            if calendar_window.recurrence.count == Some(0) {
+                bail!("calendar recurrence count must be positive");
+            }
+            if let Some(until) = &calendar_window.recurrence.until {
+                self.ensure_authority(until)?;
+            }
+            let start = parse_local_datetime(&calendar_window.start_local)?;
+            let end = parse_local_datetime(&calendar_window.end_local)?;
+            if end <= start {
+                bail!("calendar window end must follow its start");
+            }
+            let duration = end - start;
+            let mut local = start;
+            let mut emitted = 0_u32;
+            let mut examined_days = 0_u64;
+            loop {
+                calculation_checkpoint(stop)?;
+                if examined_days > 3_660_000 {
+                    bail!("calendar expansion exceeds the ten-thousand-year safety horizon");
+                }
+                let include = recurrence_matches(
+                    start,
+                    local,
+                    calendar_window.recurrence.frequency,
+                    calendar_window.recurrence.interval,
+                    &calendar_window.recurrence.weekdays,
+                );
+                if include && !excluded.contains(&local.date().format("%Y-%m-%d").to_string()) {
+                    let start_instant =
+                        civil_to_instant(local, &zone, Disambiguation::Reject, &self.authority)?;
+                    let end_instant = civil_to_instant(
+                        local + duration,
+                        &zone,
+                        Disambiguation::Reject,
+                        &self.authority,
+                    )?;
+                    if calendar_window
+                        .recurrence
+                        .until
+                        .as_ref()
+                        .is_some_and(|until| {
+                            start_instant.total_nanoseconds() > until.total_nanoseconds()
+                        })
+                    {
+                        break;
+                    }
+                    emitted += 1;
+                    if calendar_window
+                        .recurrence
+                        .count
+                        .is_some_and(|count| emitted > count)
+                    {
+                        break;
+                    }
+                    let window = TimeWindow::new(start_instant, end_instant)?;
+                    if window.start().total_nanoseconds()
+                        >= request.horizon.end().total_nanoseconds()
+                    {
+                        break;
+                    }
+                    if let Some(window) = window.intersection(&request.horizon)? {
+                        if occurrences.len() >= request.maximum_occurrences as usize {
+                            truncated = true;
+                            break;
+                        }
+                        occurrences.push(ScheduleOccurrence {
+                            sequence: 0,
+                            window,
+                            labels: calendar_window.labels.clone(),
+                        });
+                    }
+                }
+                local += Duration::days(1);
+                examined_days += 1;
+            }
+            if truncated {
+                break;
+            }
+        }
+        calculation_checkpoint(stop)?;
+        occurrences.sort_by_key(|occurrence| occurrence.window.start().total_nanoseconds());
+        for (index, occurrence) in occurrences.iter_mut().enumerate() {
+            calculation_checkpoint(stop)?;
+            occurrence.sequence = index.try_into().unwrap_or(u32::MAX);
+        }
+        Ok(ExpandScheduleOutput {
+            occurrences,
+            truncated,
+        })
+    }
+
+    pub fn validate_timeline(
+        &self,
+        request: &ValidateTimelineRequest,
+    ) -> Result<ValidateTimelineOutput> {
+        self.validate_timeline_with_stop(request, &tokio_util::sync::CancellationToken::new())
+    }
+
+    pub(crate) fn validate_timeline_with_stop(
+        &self,
+        request: &ValidateTimelineRequest,
+        stop: &tokio_util::sync::CancellationToken,
+    ) -> Result<ValidateTimelineOutput> {
+        calculation_checkpoint(stop)?;
+        if request.points.len() > 100_000 || request.constraints.len() > 1_000_000 {
+            bail!("timeline exceeds the supported point or constraint limit");
+        }
+        let mut points = BTreeMap::new();
+        for point in &request.points {
+            calculation_checkpoint(stop)?;
+            if point.name.trim().is_empty() || points.contains_key(&point.name) {
+                bail!("timeline point names must be non-empty and unique");
+            }
+            points.insert(point.name.clone(), self.resolve_expression(&point.at)?);
+        }
+        let mut violations = Vec::new();
+        for (index, constraint) in request.constraints.iter().enumerate() {
+            calculation_checkpoint(stop)?;
+            if constraint
+                .maximum_separation_nanoseconds
+                .is_some_and(|maximum| maximum < constraint.minimum_separation_nanoseconds)
+            {
+                bail!("timeline maximum separation must not be below its minimum");
+            }
+            let Some(predecessor) = points.get(&constraint.predecessor) else {
+                bail!("timeline constraint references an unknown predecessor");
+            };
+            let Some(successor) = points.get(&constraint.successor) else {
+                bail!("timeline constraint references an unknown successor");
+            };
+            let separation = successor.total_nanoseconds() - predecessor.total_nanoseconds();
+            if separation < i128::from(constraint.minimum_separation_nanoseconds) {
+                violations.push(TimelineViolation {
+                    constraint_index: index.try_into().unwrap_or(u32::MAX),
+                    message: "minimum separation is not satisfied".to_owned(),
+                });
+            } else if constraint
+                .maximum_separation_nanoseconds
+                .is_some_and(|maximum| separation > i128::from(maximum))
+            {
+                violations.push(TimelineViolation {
+                    constraint_index: index.try_into().unwrap_or(u32::MAX),
+                    message: "maximum separation is exceeded".to_owned(),
+                });
+            }
+        }
+        Ok(crate::ValidateTimelineOutputValue {
+            valid: violations.is_empty(),
+            violations,
+        }
+        .build()?)
+    }
+
+    fn resolve_expression(&self, expression: &TimeExpression) -> Result<TimeInstant> {
+        let (tai_seconds_since_1970, nanosecond) = match &**expression {
+            crate::TimeExpressionValue::Rfc3339 { value } => {
+                let timestamp = Timestamp::from_str(value).context("invalid RFC 3339 timestamp")?;
+                instant_parts_from_timestamp(timestamp, &self.authority)?
+            }
+            crate::TimeExpressionValue::Rfc9557 {
+                value,
+                disambiguation,
+            } => {
+                let parser = jiff::fmt::temporal::DateTimeParser::new()
+                    .disambiguation(to_jiff_disambiguation(*disambiguation));
+                let zoned = parser
+                    .parse_zoned_with(self.authority.tzdb(), value)
+                    .context("invalid RFC 9557 timestamp")?;
+                instant_parts_from_timestamp(zoned.timestamp(), &self.authority)?
+            }
+            crate::TimeExpressionValue::Civil { value } => {
+                if &value.tzdb_release_id != self.authority.binding().tzdb_release_id() {
+                    bail!("civil time references a non-active TZDB authority");
+                }
+                validate_zone_id(&value.zone_id)?;
+                let zone = self.authority.tzdb().get(&value.zone_id)?;
+                let datetime = civil::DateTime::from_str(&value.local_datetime)
+                    .context("invalid civil datetime")?;
+                let zoned = zone
+                    .to_ambiguous_zoned(datetime)
+                    .disambiguate(to_jiff_disambiguation(value.disambiguation))?;
+                instant_parts_from_timestamp(zoned.timestamp(), &self.authority)?
+            }
+            crate::TimeExpressionValue::Unix {
+                seconds,
+                nanosecond,
+            } => (
+                seconds
+                    .checked_add(self.authority.leap_seconds().offset_for_utc(*seconds)?)
+                    .context("Unix timestamp exceeds the supported range")?,
+                *nanosecond,
+            ),
+            crate::TimeExpressionValue::Tai {
+                seconds_since_1970,
+                nanosecond,
+            } => (*seconds_since_1970, *nanosecond),
+            crate::TimeExpressionValue::Gps {
+                week,
+                seconds_of_week,
+            } => {
+                let total = f64::from(*week) * SECONDS_PER_WEEK + seconds_of_week.get();
+                split_fractional_seconds(total, GPS_EPOCH_TAI_SECONDS_SINCE_1970)?
+            }
+            crate::TimeExpressionValue::JulianTai { day } => {
+                if !day.is_finite() {
+                    bail!("Julian TAI day must be finite");
+                }
+                let epoch = Epoch::from_jde_tai(*day);
+                let validated_day = epoch.to_jde_tai_days();
+                split_fractional_seconds((validated_day - JULIAN_DAY_AT_1970_TAI) * 86_400.0, 0)?
+            }
+            crate::TimeExpressionValue::MilitaryDtg { value } => {
+                let timestamp = crate::contract::admission::parse_military_dtg(value)?;
+                instant_parts_from_unix(
+                    timestamp.timestamp(),
+                    SubsecondNanoseconds::new(timestamp.timestamp_subsec_nanos())?,
+                    &self.authority,
+                )?
+            }
+            crate::TimeExpressionValue::EpochRelative {
+                epoch_id,
+                offset_nanoseconds,
+            } => {
+                let epochs = self.epochs.read().expect("mission epoch lock poisoned");
+                let epoch = epochs
+                    .get(epoch_id)
+                    .context("mission epoch is not active")?;
+                self.ensure_authority(&epoch.instant)?;
+                let total = epoch.instant.total_nanoseconds() + i128::from(*offset_nanoseconds);
+                return Ok(TimeInstant::from_total_nanoseconds(
+                    total,
+                    epoch.instant.uncertainty_nanoseconds,
+                    epoch.instant.authority.clone(),
+                )?);
+            }
+        };
+        Ok(TimeInstant {
+            tai_seconds_since_1970,
+            nanosecond,
+            uncertainty_nanoseconds: 0,
+            authority: self.authority.binding().clone(),
+        })
+    }
+
+    fn project(&self, instant: TimeInstant) -> Result<ResolveTimeOutput> {
+        self.ensure_authority(&instant)?;
+        let utc_coordinate = self
+            .authority
+            .leap_seconds()
+            .utc_from_tai(instant.tai_seconds_since_1970)?;
+        let utc_seconds = utc_coordinate.unix_seconds;
+        let timestamp = Timestamp::new(utc_seconds, instant.nanosecond.get() as i32)?;
+        let gps_seconds = instant.tai_seconds_since_1970 - GPS_EPOCH_TAI_SECONDS_SINCE_1970;
+        let (gps_week, gps_seconds_of_week) = if gps_seconds < 0 {
+            (None, None)
+        } else {
+            (
+                Some((gps_seconds / SECONDS_PER_WEEK as i64) as u32),
+                Some(
+                    (gps_seconds % SECONDS_PER_WEEK as i64) as f64
+                        + f64::from(instant.nanosecond.get()) / 1_000_000_000.0,
+                ),
+            )
+        };
+        let utc = Utc
+            .timestamp_opt(utc_seconds, instant.nanosecond.get())
+            .single()
+            .context("instant is outside the UTC projection range")?;
+        let julian_day_tai = julian_day_tai(&instant);
+        Ok(ResolveTimeOutput::new(
+            instant,
+            self.authority.effective().clone(),
+            crate::TimeProjectionValue {
+                utc_rfc3339: render_leap_second(
+                    timestamp.to_string(),
+                    utc_coordinate.is_leap_second,
+                )?,
+                utc_is_leap_second: utc_coordinate.is_leap_second,
+                military_dtg: utc.format("%d%H%MZ%b%y").to_string().to_uppercase(),
+                unix_seconds: utc_seconds,
+                gps_week,
+                gps_seconds_of_week: gps_seconds_of_week
+                    .map(crate::contract::admission::GpsSecondsOfWeek::new)
+                    .transpose()?,
+                julian_day_tai,
+            }
+            .build()?,
+        )?)
+    }
+
+    fn ensure_authority(&self, instant: &TimeInstant) -> Result<()> {
+        if &instant.authority != self.authority.binding() {
+            bail!("instant references a non-active temporal authority");
+        }
+        Ok(())
+    }
+}
+
+fn to_jiff_disambiguation(value: Disambiguation) -> tz::Disambiguation {
+    match value {
+        Disambiguation::Reject => tz::Disambiguation::Reject,
+        Disambiguation::Earlier => tz::Disambiguation::Earlier,
+        Disambiguation::Later => tz::Disambiguation::Later,
+    }
+}
+
+fn validate_zone_id(value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 128
+        || value.starts_with('/')
+        || value.contains("..")
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'_' | b'-' | b'+'))
+    {
+        bail!("invalid IANA zone identifier");
+    }
+    Ok(())
+}
+
+fn instant_parts_from_timestamp(
+    timestamp: Timestamp,
+    authority: &AuthorityContext,
+) -> Result<(i64, SubsecondNanoseconds)> {
+    let total = timestamp.as_nanosecond();
+    let utc_seconds = total.div_euclid(NANOS_PER_SECOND) as i64;
+    let nanosecond = SubsecondNanoseconds::new(total.rem_euclid(NANOS_PER_SECOND) as u32)?;
+    instant_parts_from_unix(utc_seconds, nanosecond, authority)
+}
+
+fn instant_parts_from_unix(
+    utc_seconds: i64,
+    nanosecond: SubsecondNanoseconds,
+    authority: &AuthorityContext,
+) -> Result<(i64, SubsecondNanoseconds)> {
+    Ok((
+        utc_seconds
+            .checked_add(authority.leap_seconds().offset_for_utc(utc_seconds)?)
+            .context("timestamp exceeds the supported range")?,
+        nanosecond,
+    ))
+}
+
+fn timestamp_from_instant(
+    instant: &TimeInstant,
+    authority: &AuthorityContext,
+) -> Result<(Timestamp, bool)> {
+    let coordinate = authority
+        .leap_seconds()
+        .utc_from_tai(instant.tai_seconds_since_1970)?;
+    Ok((
+        Timestamp::new(coordinate.unix_seconds, instant.nanosecond.get() as i32)?,
+        coordinate.is_leap_second,
+    ))
+}
+
+fn render_leap_second(mut value: String, is_leap_second: bool) -> Result<String> {
+    if !is_leap_second {
+        return Ok(value);
+    }
+    let time = value
+        .find('T')
+        .context("UTC projection has no time component")?;
+    let seconds = time + 7;
+    if value.get(seconds..seconds + 2) != Some("59") {
+        bail!("leap-second projection does not follow second 59");
+    }
+    value.replace_range(seconds..seconds + 2, "60");
+    Ok(value)
+}
+
+fn split_fractional_seconds(seconds: f64, base: i64) -> Result<(i64, SubsecondNanoseconds)> {
+    if !seconds.is_finite() {
+        bail!("time coordinate must be finite");
+    }
+    let whole = seconds.floor();
+    // i64::MAX rounds up to 2^63 in f64; that upper endpoint is excluded.
+    if whole < i64::MIN as f64 || whole >= i64::MAX as f64 {
+        bail!("time coordinate exceeds the supported range");
+    }
+    let mut nanosecond = ((seconds - whole) * 1_000_000_000.0).round() as i64;
+    let mut whole = whole as i64;
+    if nanosecond == 1_000_000_000 {
+        whole = whole.checked_add(1).context("time coordinate overflow")?;
+        nanosecond = 0;
+    }
+    Ok((
+        base.checked_add(whole)
+            .context("time coordinate overflow")?,
+        SubsecondNanoseconds::new(nanosecond as u32)?,
+    ))
+}
+
+fn julian_day_tai(instant: &TimeInstant) -> f64 {
+    JULIAN_DAY_AT_1970_TAI
+        + instant.tai_seconds_since_1970 as f64 / 86_400.0
+        + f64::from(instant.nanosecond.get()) / 86_400_000_000_000.0
+}
+
+fn scale_representation(
+    scale: TimeScale,
+    epoch: Epoch,
+    canonical: &ResolveTimeOutput,
+) -> Result<ScaleRepresentation> {
+    let (seconds, reference_epoch) = match scale {
+        TimeScale::Utc => (
+            canonical.projection().unix_seconds as f64
+                + f64::from(canonical.instant().nanosecond.get()) / 1e9,
+            "1970-01-01T00:00:00Z",
+        ),
+        TimeScale::Tai => (
+            canonical.instant().tai_seconds_since_1970 as f64
+                + f64::from(canonical.instant().nanosecond.get()) / 1e9,
+            "1970-01-01T00:00:00 TAI",
+        ),
+        TimeScale::Tt => (
+            epoch.to_time_scale(HifiTimeScale::TT).duration.to_seconds(),
+            "J1900 TT",
+        ),
+        TimeScale::Tdb => (
+            epoch
+                .to_time_scale(HifiTimeScale::TDB)
+                .duration
+                .to_seconds(),
+            "J2000 TDB",
+        ),
+        TimeScale::Gpst => (epoch.to_gpst_seconds(), "1980-01-06T00:00:00 GPST"),
+        TimeScale::Gst => (
+            epoch
+                .to_time_scale(HifiTimeScale::GST)
+                .duration
+                .to_seconds(),
+            "1999-08-22T00:00:00 GST",
+        ),
+    };
+    crate::ScaleRepresentationValue {
+        scale,
+        seconds,
+        reference_epoch: reference_epoch.to_owned(),
+    }
+    .build()
+    .map_err(Into::into)
+}
+
+fn parse_local_datetime(value: &str) -> Result<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S")
+        .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S%.f"))
+        .context("calendar local datetime must use ISO 8601 without an offset")
+}
+
+fn civil_to_instant(
+    local: NaiveDateTime,
+    zone: &tz::TimeZone,
+    disambiguation: Disambiguation,
+    authority: &AuthorityContext,
+) -> Result<TimeInstant> {
+    let datetime = civil::DateTime::from_str(&local.format("%Y-%m-%dT%H:%M:%S%.f").to_string())?;
+    let zoned = zone
+        .to_ambiguous_zoned(datetime)
+        .disambiguate(to_jiff_disambiguation(disambiguation))?;
+    let (tai_seconds_since_1970, nanosecond) =
+        instant_parts_from_timestamp(zoned.timestamp(), authority)?;
+    Ok(TimeInstant {
+        tai_seconds_since_1970,
+        nanosecond,
+        uncertainty_nanoseconds: 0,
+        authority: authority.binding().clone(),
+    })
+}
+
+fn recurrence_matches(
+    start: NaiveDateTime,
+    candidate: NaiveDateTime,
+    frequency: RecurrenceFrequency,
+    interval: u32,
+    weekdays: &[Weekday],
+) -> bool {
+    let elapsed_days = (candidate.date() - start.date()).num_days();
+    match frequency {
+        RecurrenceFrequency::Daily => elapsed_days % i64::from(interval) == 0,
+        RecurrenceFrequency::Weekly => {
+            let week = elapsed_days.div_euclid(7);
+            week % i64::from(interval) == 0
+                && (weekdays.is_empty() && candidate.weekday() == start.weekday()
+                    || weekdays
+                        .iter()
+                        .any(|weekday| chrono_weekday(*weekday) == candidate.weekday()))
+        }
+    }
+}
+
+fn chrono_weekday(weekday: Weekday) -> chrono::Weekday {
+    match weekday {
+        Weekday::Monday => chrono::Weekday::Mon,
+        Weekday::Tuesday => chrono::Weekday::Tue,
+        Weekday::Wednesday => chrono::Weekday::Wed,
+        Weekday::Thursday => chrono::Weekday::Thu,
+        Weekday::Friday => chrono::Weekday::Fri,
+        Weekday::Saturday => chrono::Weekday::Sat,
+        Weekday::Sunday => chrono::Weekday::Sun,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        authority::LeapSecondTable,
+        contract::{
+            AuthorityDatasetKind, AuthorityReleaseId, CalendarId, EffectiveTimeAuthority,
+            MissionEpochId, TimeAuthorityReference, TimeAuthorityReleaseUri, TimeAuthoritySource,
+            TimelineConstraint, TimelinePoint, WindowOperation,
+        },
+    };
+
+    const LEAPS: &str = "2272060800 10\n2287785600 11\n2303683200 12\n2335219200 13\n2366755200 14\n2398291200 15\n2429913600 16\n2461449600 17\n2492985600 18\n2524521600 19\n2571782400 20\n2603318400 21\n2634854400 22\n2698012800 23\n2776982400 24\n2840140800 25\n2871676800 26\n2918937600 27\n2950473600 28\n2982009600 29\n3029443200 30\n3076704000 31\n3124137600 32\n3345062400 33\n3439756800 34\n3550089600 35\n3644697600 36\n3692217600 37\n";
+
+    fn engine() -> TemporalEngine {
+        let tzdb_release_id = AuthorityReleaseId::parse("time-release-tzdb-test").unwrap();
+        let leap_release_id = AuthorityReleaseId::parse("time-release-leaps-test").unwrap();
+        let authority = AuthorityContext::from_paths(
+            EffectiveTimeAuthority::new(
+                test_authority_reference(tzdb_release_id, AuthorityDatasetKind::Tzdb),
+                test_authority_reference(leap_release_id, AuthorityDatasetKind::LeapSeconds),
+            )
+            .unwrap(),
+            "/usr/share/zoneinfo",
+            LeapSecondTable::from_iana_content(LEAPS).unwrap(),
+        )
+        .unwrap();
+        TemporalEngine::new(authority)
+    }
+
+    fn test_authority_reference(
+        release_id: AuthorityReleaseId,
+        dataset_kind: AuthorityDatasetKind,
+    ) -> TimeAuthorityReference {
+        TimeAuthorityReference::new(
+            TimeAuthorityReleaseUri::bootstrap(&release_id),
+            dataset_kind,
+            TimeAuthoritySource::Bootstrap {},
+            veoveo_types::Sha256Digest::from_hex("a".repeat(64)).unwrap(),
+            release_id.to_string(),
+        )
+        .unwrap()
+    }
+
+    fn update_recurrence(
+        request: &mut ExpandScheduleRequest,
+        update: impl FnOnce(&mut crate::RecurrenceRuleValue),
+    ) {
+        let mut calendar = crate::OperationalCalendarValue::from(request.calendar.clone());
+        let mut window = crate::CalendarWindowValue::from(calendar.windows.remove(0));
+        let mut rule = crate::RecurrenceRuleValue::from(window.recurrence);
+        update(&mut rule);
+        window.recurrence = rule.build().unwrap();
+        calendar.windows.insert(0, window.build().unwrap());
+        request.calendar = calendar.build().unwrap();
+    }
+    #[test]
+    fn resolves_rfc3339_gps_and_military_dtg_to_one_instant() {
+        let engine = engine();
+        let rfc = engine
+            .resolve(&ResolveTimeRequest {
+                expression: crate::TimeExpressionValue::Rfc3339 {
+                    value: "2024-06-01T12:30:00Z".to_owned(),
+                }
+                .build()
+                .unwrap(),
+                additional_uncertainty_nanoseconds: 0,
+            })
+            .unwrap();
+        let dtg = engine
+            .resolve(&ResolveTimeRequest {
+                expression: crate::TimeExpressionValue::MilitaryDtg {
+                    value: "011230ZJUN24".to_owned(),
+                }
+                .build()
+                .unwrap(),
+                additional_uncertainty_nanoseconds: 0,
+            })
+            .unwrap();
+        assert_eq!(rfc.instant(), dtg.instant());
+        let gps = engine
+            .resolve(&ResolveTimeRequest {
+                expression: crate::TimeExpressionValue::Gps {
+                    week: rfc.projection().gps_week.unwrap(),
+                    seconds_of_week: rfc.projection().gps_seconds_of_week.unwrap(),
+                }
+                .build()
+                .unwrap(),
+                additional_uncertainty_nanoseconds: 0,
+            })
+            .unwrap();
+        assert_eq!(rfc.instant(), gps.instant());
+    }
+
+    #[test]
+    fn deterministic_resolution_contains_authorities_but_no_live_clock_observation() {
+        let output = engine()
+            .resolve(&ResolveTimeRequest {
+                expression: crate::TimeExpressionValue::Rfc3339 {
+                    value: "2024-06-01T12:30:00Z".to_owned(),
+                }
+                .build()
+                .unwrap(),
+                additional_uncertainty_nanoseconds: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            output.instant().authority,
+            output.effective_authority().binding()
+        );
+        assert_eq!(
+            serde_json::from_value::<ResolveTimeOutput>(serde_json::to_value(&output).unwrap())
+                .unwrap(),
+            output
+        );
+        let value = serde_json::to_value(output).unwrap();
+
+        assert!(value["effectiveAuthority"]["tzdb"]["sourceDigest"].is_string());
+        let schema = serde_json::to_value(schemars::schema_for!(ResolveTimeOutput)).unwrap();
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        assert!(validator.is_valid(&value));
+        for (path, current, retired) in [
+            ("", "effectiveAuthority", "effective_authority"),
+            ("", "utcRfc3339", "utc_rfc3339"),
+            ("/instant", "taiSecondsSince1970", "tai_seconds_since_1970"),
+            ("/instant/authority", "tzdbReleaseId", "tzdb_release_id"),
+            ("/effectiveAuthority", "leapSeconds", "leap_seconds"),
+            ("/effectiveAuthority/tzdb", "sourceDigest", "source_digest"),
+        ] {
+            for mixed in [false, true] {
+                let mut bad = value.clone();
+                let object = bad.pointer_mut(path).unwrap().as_object_mut().unwrap();
+                let field = object[current].clone();
+                if !mixed {
+                    object.remove(current);
+                }
+                object.insert(retired.into(), field);
+                assert!(!validator.is_valid(&bad), "{path}/{retired} mixed={mixed}");
+                assert!(
+                    serde_json::from_value::<ResolveTimeOutput>(bad).is_err(),
+                    "{path}/{retired} mixed={mixed}"
+                );
+            }
+        }
+
+        assert!(value.get("clockQuality").is_none());
+        assert!(value.get("effectivePolicy").is_none());
+    }
+
+    #[test]
+    fn rejects_dst_fold_without_an_explicit_choice() {
+        let engine = engine();
+        let request = ResolveTimeRequest {
+            expression: crate::TimeExpressionValue::Civil {
+                value: crate::CivilTimeValue {
+                    local_datetime: "2024-11-03T01:30:00".to_owned(),
+                    zone_id: "America/New_York".to_owned(),
+                    tzdb_release_id: engine.authority.binding().tzdb_release_id().clone(),
+                    disambiguation: Disambiguation::Reject,
+                }
+                .build()
+                .unwrap(),
+            }
+            .build()
+            .unwrap(),
+            additional_uncertainty_nanoseconds: 0,
+        };
+        assert!(engine.resolve(&request).is_err());
+    }
+
+    #[test]
+    fn half_open_window_algebra_coalesces_adjacent_ranges() {
+        let engine = engine();
+        let authority = engine.authority.binding().clone();
+        let instant = |seconds| TimeInstant {
+            tai_seconds_since_1970: seconds,
+            nanosecond: SubsecondNanoseconds::ZERO,
+            uncertainty_nanoseconds: 0,
+            authority: authority.clone(),
+        };
+        let output = engine
+            .evaluate_windows(&EvaluateWindowsRequest {
+                operation: WindowOperation::Union,
+                left: vec![TimeWindow::new(instant(100), instant(200)).unwrap()],
+                right: vec![TimeWindow::new(instant(200), instant(300)).unwrap()],
+            })
+            .unwrap();
+        assert_eq!(output.windows.len(), 1);
+        assert_eq!(output.windows[0].start().tai_seconds_since_1970, 100);
+        assert_eq!(output.windows[0].end().tai_seconds_since_1970, 300);
+    }
+
+    #[test]
+    fn expands_local_schedule_across_a_dst_transition() {
+        let engine = engine();
+        let resolve = |value: &str| {
+            engine
+                .resolve(&ResolveTimeRequest {
+                    expression: crate::TimeExpressionValue::Rfc3339 {
+                        value: value.to_owned(),
+                    }
+                    .build()
+                    .unwrap(),
+                    additional_uncertainty_nanoseconds: 0,
+                })
+                .unwrap()
+                .into_instant()
+        };
+        let output = engine
+            .expand_schedule(&ExpandScheduleRequest {
+                calendar: crate::OperationalCalendarValue {
+                    calendar_id: CalendarId::parse("calendar-dst-test").unwrap(),
+                    version: crate::TimeVersion::new(1).unwrap(),
+                    name: "Eastern operations".to_owned(),
+                    zone_id: "America/New_York".to_owned(),
+                    windows: vec![
+                        crate::CalendarWindowValue {
+                            start_local: "2024-03-08T09:00:00".to_owned(),
+                            end_local: "2024-03-08T17:00:00".to_owned(),
+                            recurrence: crate::RecurrenceRuleValue {
+                                frequency: RecurrenceFrequency::Daily,
+                                interval: 1,
+                                weekdays: Vec::new(),
+                                count: Some(4),
+                                until: None,
+                            }
+                            .build()
+                            .unwrap(),
+                            labels: vec!["day-shift".to_owned()],
+                        }
+                        .build()
+                        .unwrap(),
+                    ],
+                    excluded_dates: Vec::new(),
+                }
+                .build()
+                .unwrap(),
+                horizon: TimeWindow::new(
+                    resolve("2024-03-08T00:00:00Z"),
+                    resolve("2024-03-13T00:00:00Z"),
+                )
+                .unwrap(),
+                maximum_occurrences: 10,
+            })
+            .unwrap();
+        let starts: Vec<_> = output
+            .occurrences
+            .iter()
+            .map(|occurrence| {
+                engine
+                    .project(occurrence.window.start().clone())
+                    .unwrap()
+                    .projection()
+                    .utc_rfc3339
+                    .clone()
+            })
+            .collect();
+        assert_eq!(output.occurrences.len(), 4);
+        assert_eq!(starts[0], "2024-03-08T14:00:00Z");
+        assert_eq!(starts[1], "2024-03-09T14:00:00Z");
+        assert_eq!(starts[2], "2024-03-10T13:00:00Z");
+        assert_eq!(starts[3], "2024-03-11T13:00:00Z");
+    }
+
+    #[test]
+    fn schedule_clips_bounds_and_keeps_limits_and_authority_checks() {
+        let engine = engine();
+        let resolve = |value: &str, uncertainty| {
+            engine
+                .resolve(&ResolveTimeRequest {
+                    expression: crate::TimeExpressionValue::Rfc3339 {
+                        value: value.to_owned(),
+                    }
+                    .build()
+                    .unwrap(),
+                    additional_uncertainty_nanoseconds: uncertainty,
+                })
+                .unwrap()
+                .into_instant()
+        };
+        let horizon =
+            |start: &str, end: &str| TimeWindow::new(resolve(start, 7), resolve(end, 11)).unwrap();
+        let mut request = ExpandScheduleRequest {
+            calendar: crate::OperationalCalendarValue {
+                calendar_id: CalendarId::parse("calendar-clipping-test").unwrap(),
+                version: crate::TimeVersion::FIRST,
+                name: "UTC shifts".into(),
+                zone_id: "UTC".into(),
+                windows: vec![
+                    crate::CalendarWindowValue {
+                        start_local: "2024-06-01T08:00:00".into(),
+                        end_local: "2024-06-01T18:00:00".into(),
+                        recurrence: crate::RecurrenceRuleValue {
+                            frequency: RecurrenceFrequency::Daily,
+                            interval: 1,
+                            weekdays: vec![],
+                            count: Some(2),
+                            until: None,
+                        }
+                        .build()
+                        .unwrap(),
+                        labels: vec!["day-shift".into()],
+                    }
+                    .build()
+                    .unwrap(),
+                ],
+                excluded_dates: vec![],
+            }
+            .build()
+            .unwrap(),
+            horizon: horizon("2024-06-01T10:00:00Z", "2024-06-02T12:00:00Z"),
+            maximum_occurrences: 2,
+        };
+        let output = engine.expand_schedule(&request).unwrap();
+        let stop = tokio_util::sync::CancellationToken::new();
+        assert_eq!(
+            engine.expand_schedule_with_stop(&request, &stop).unwrap(),
+            output
+        );
+        stop.cancel();
+        assert!(
+            engine
+                .expand_schedule_with_stop(&request, &stop)
+                .unwrap_err()
+                .is::<CalculationStopped>()
+        );
+        assert!(!output.truncated);
+        assert_eq!(
+            output.occurrences,
+            vec![
+                ScheduleOccurrence {
+                    sequence: 0,
+                    window: TimeWindow::new(
+                        request.horizon.start().clone(),
+                        resolve("2024-06-01T18:00:00Z", 0)
+                    )
+                    .unwrap(),
+                    labels: vec!["day-shift".into()],
+                },
+                ScheduleOccurrence {
+                    sequence: 1,
+                    window: TimeWindow::new(
+                        resolve("2024-06-02T08:00:00Z", 0),
+                        request.horizon.end().clone()
+                    )
+                    .unwrap(),
+                    labels: vec!["day-shift".into()],
+                },
+            ]
+        );
+        request.maximum_occurrences = 1;
+        let limited = engine.expand_schedule(&request).unwrap();
+        assert!(limited.truncated);
+        assert_eq!(limited.occurrences, output.occurrences[..1]);
+        request.maximum_occurrences = 2;
+        update_recurrence(&mut request, |rule| rule.count = Some(1));
+        let counted = engine.expand_schedule(&request).unwrap();
+        assert!(!counted.truncated);
+        assert_eq!(counted.occurrences, output.occurrences[..1]);
+        update_recurrence(&mut request, |rule| rule.count = Some(2));
+        update_recurrence(&mut request, |rule| {
+            rule.until = Some(resolve("2024-06-01T08:00:00Z", 0))
+        });
+        assert_eq!(
+            engine.expand_schedule(&request).unwrap().occurrences,
+            output.occurrences[..1]
+        );
+        update_recurrence(&mut request, |rule| rule.until = None);
+
+        request.horizon = horizon("2024-06-01T00:00:00Z", "2024-06-02T00:00:00Z");
+        let enclosed = engine.expand_schedule(&request).unwrap();
+        assert_eq!(enclosed.occurrences.len(), 1);
+        assert_eq!(
+            enclosed.occurrences[0].window,
+            TimeWindow::new(
+                resolve("2024-06-01T08:00:00Z", 0),
+                resolve("2024-06-01T18:00:00Z", 0)
+            )
+            .unwrap()
+        );
+        for (start, end) in [
+            ("2024-06-01T00:00:00Z", "2024-06-01T08:00:00Z"),
+            ("2024-06-01T18:00:00Z", "2024-06-02T08:00:00Z"),
+        ] {
+            request.horizon = horizon(start, end);
+            assert!(
+                engine
+                    .expand_schedule(&request)
+                    .unwrap()
+                    .occurrences
+                    .is_empty()
+            );
+        }
+
+        let mut foreign_start = request.horizon.start().clone();
+        let mut foreign_end = request.horizon.end().clone();
+        foreign_start.authority = crate::AuthorityBinding::new(
+            AuthorityReleaseId::parse("time-release-foreign-tzdb").unwrap(),
+            AuthorityReleaseId::parse("time-release-foreign-leaps").unwrap(),
+        )
+        .unwrap();
+        foreign_end.authority = foreign_start.authority.clone();
+        update_recurrence(&mut request, |rule| {
+            rule.until = Some(foreign_start.clone())
+        });
+        assert!(engine.expand_schedule(&request).is_err());
+        update_recurrence(&mut request, |rule| rule.until = None);
+        request.horizon = TimeWindow::new(foreign_start, foreign_end).unwrap();
+        assert!(engine.expand_schedule(&request).is_err());
+    }
+
+    #[test]
+    fn timeline_cooperative_stop_is_distinct_from_validation_failure() {
+        let engine = engine();
+        let request = crate::ValidateTimelineRequestValue {
+            points: vec![],
+            constraints: vec![],
+        }
+        .build()
+        .unwrap();
+        let stop = tokio_util::sync::CancellationToken::new();
+        assert_eq!(
+            engine.validate_timeline_with_stop(&request, &stop).unwrap(),
+            engine.validate_timeline(&request).unwrap()
+        );
+        stop.cancel();
+        assert!(
+            engine
+                .validate_timeline_with_stop(&request, &stop)
+                .unwrap_err()
+                .is::<CalculationStopped>()
+        );
+    }
+
+    #[test]
+    fn reports_timeline_separation_violations() {
+        let engine = engine();
+        let output = engine
+            .validate_timeline(
+                &crate::ValidateTimelineRequestValue {
+                    points: vec![
+                        TimelinePoint {
+                            name: "depart".to_owned(),
+                            at: crate::TimeExpressionValue::Rfc3339 {
+                                value: "2024-06-01T12:00:00Z".to_owned(),
+                            }
+                            .build()
+                            .unwrap(),
+                        },
+                        TimelinePoint {
+                            name: "arrive".to_owned(),
+                            at: crate::TimeExpressionValue::Rfc3339 {
+                                value: "2024-06-01T12:05:00Z".to_owned(),
+                            }
+                            .build()
+                            .unwrap(),
+                        },
+                    ],
+                    constraints: vec![TimelineConstraint {
+                        predecessor: "depart".to_owned(),
+                        successor: "arrive".to_owned(),
+                        minimum_separation_nanoseconds: 600_000_000_000,
+                        maximum_separation_nanoseconds: Some(900_000_000_000),
+                    }],
+                }
+                .build()
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(!output.valid);
+        assert_eq!(output.violations.len(), 1);
+        assert_eq!(output.violations[0].constraint_index, 0);
+    }
+
+    #[test]
+    fn mission_relative_resolution_selects_the_highest_epoch_version() {
+        let engine = engine();
+        let authority = engine.authority.binding().clone();
+        let epoch = |version, seconds| MissionEpoch {
+            epoch_id: MissionEpochId::parse("epoch-launch").unwrap(),
+            name: "Launch".to_owned(),
+            instant: TimeInstant {
+                tai_seconds_since_1970: seconds,
+                nanosecond: SubsecondNanoseconds::ZERO,
+                uncertainty_nanoseconds: 0,
+                authority: authority.clone(),
+            },
+            version: crate::TimeVersion::new(version).unwrap(),
+        };
+        engine.replace_epochs([epoch(4, 4_000), epoch(2, 2_000), epoch(3, 3_000)]);
+        let resolved = engine
+            .resolve(&ResolveTimeRequest {
+                expression: crate::TimeExpressionValue::EpochRelative {
+                    epoch_id: MissionEpochId::parse("epoch-launch").unwrap(),
+                    offset_nanoseconds: 1_000_000_000,
+                }
+                .build()
+                .unwrap(),
+                additional_uncertainty_nanoseconds: 0,
+            })
+            .unwrap();
+        assert_eq!(resolved.instant().tai_seconds_since_1970, 4_001);
+    }
+
+    #[test]
+    fn projects_the_positive_leap_second_without_collapsing_its_identity() {
+        let engine = engine();
+        let midnight = engine
+            .resolve(&ResolveTimeRequest {
+                expression: crate::TimeExpressionValue::Rfc3339 {
+                    value: "2017-01-01T00:00:00Z".to_owned(),
+                }
+                .build()
+                .unwrap(),
+                additional_uncertainty_nanoseconds: 0,
+            })
+            .unwrap();
+        let leap = TimeInstant {
+            tai_seconds_since_1970: midnight.instant().tai_seconds_since_1970 - 1,
+            nanosecond: SubsecondNanoseconds::new(500_000_000).unwrap(),
+            uncertainty_nanoseconds: 0,
+            authority: engine.authority.binding().clone(),
+        };
+        let projected = engine
+            .convert(&ConvertTimeRequest {
+                instant: leap,
+                zone_ids: vec!["UTC".to_owned(), "America/New_York".to_owned()],
+                scales: vec![TimeScale::Tai],
+            })
+            .unwrap();
+        assert!(projected.canonical.projection().utc_is_leap_second);
+        assert_eq!(
+            projected.canonical.projection().utc_rfc3339,
+            "2016-12-31T23:59:60.5Z"
+        );
+        assert!(projected.zoned[0].rfc9557.contains("23:59:60.5"));
+        assert!(projected.zoned[1].rfc9557.contains("18:59:60.5"));
+    }
+
+    #[test]
+    fn epoch_resolution_preserves_uncertainty_and_rejects_foreign_authority() {
+        let engine = engine();
+        let base = engine
+            .resolve(&ResolveTimeRequest {
+                expression: crate::TimeExpressionValue::Rfc3339 {
+                    value: "2024-06-01T00:00:00Z".into(),
+                }
+                .build()
+                .unwrap(),
+                additional_uncertainty_nanoseconds: 7,
+            })
+            .unwrap()
+            .into_instant();
+        let id = MissionEpochId::parse("epoch-uncertain-launch").unwrap();
+        let epoch = |instant| MissionEpoch {
+            epoch_id: id.clone(),
+            name: "launch".into(),
+            instant,
+            version: crate::TimeVersion::FIRST,
+        };
+        engine.replace_epochs([epoch(base.clone())]);
+        for offset in [-1, 0, 1] {
+            let output = engine
+                .resolve(&ResolveTimeRequest {
+                    expression: crate::TimeExpressionValue::EpochRelative {
+                        epoch_id: id.clone(),
+                        offset_nanoseconds: offset,
+                    }
+                    .build()
+                    .unwrap(),
+                    additional_uncertainty_nanoseconds: 11,
+                })
+                .unwrap();
+            assert_eq!(
+                output.instant().total_nanoseconds(),
+                base.total_nanoseconds() + i128::from(offset)
+            );
+            assert_eq!(output.instant().uncertainty_nanoseconds, 18);
+            assert_eq!(output.instant().authority, base.authority);
+            assert_eq!(
+                output.instant().authority,
+                output.effective_authority().binding()
+            );
+            let converted = engine
+                .convert(&ConvertTimeRequest {
+                    instant: output.instant().clone(),
+                    zone_ids: vec!["UTC".into()],
+                    scales: vec![TimeScale::Tai],
+                })
+                .unwrap();
+            assert_eq!(converted.canonical, output);
+        }
+        let mut foreign = base;
+        foreign.authority = crate::AuthorityBinding::new(
+            AuthorityReleaseId::parse("time-release-sensitive-tzdb").unwrap(),
+            AuthorityReleaseId::parse("time-release-sensitive-leaps").unwrap(),
+        )
+        .unwrap();
+        engine.replace_epochs([epoch(foreign)]);
+        let expression = crate::TimeExpressionValue::EpochRelative {
+            epoch_id: id,
+            offset_nanoseconds: 0,
+        }
+        .build()
+        .unwrap();
+        let error = engine
+            .resolve(&ResolveTimeRequest {
+                expression: expression.clone(),
+                additional_uncertainty_nanoseconds: 0,
+            })
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "instant references a non-active temporal authority"
+        );
+        assert!(
+            engine
+                .validate_timeline(
+                    &crate::ValidateTimelineRequestValue {
+                        points: vec![TimelinePoint {
+                            name: "launch".into(),
+                            at: expression
+                        }],
+                        constraints: vec![],
+                    }
+                    .build()
+                    .unwrap()
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn uncertainty_addition_rejects_overflow_without_changing_the_epoch() {
+        let engine = engine();
+        let id = MissionEpochId::parse("epoch-uncertainty-limit").unwrap();
+        let base = engine
+            .resolve(&ResolveTimeRequest {
+                expression: crate::TimeExpressionValue::Rfc3339 {
+                    value: "2024-06-01T00:00:00Z".into(),
+                }
+                .build()
+                .unwrap(),
+                additional_uncertainty_nanoseconds: u64::MAX - 1,
+            })
+            .unwrap()
+            .into_instant();
+        engine.replace_epochs([MissionEpoch {
+            epoch_id: id.clone(),
+            name: "uncertain".into(),
+            instant: base,
+            version: crate::TimeVersion::FIRST,
+        }]);
+        let mut request = ResolveTimeRequest {
+            expression: crate::TimeExpressionValue::EpochRelative {
+                epoch_id: id,
+                offset_nanoseconds: 0,
+            }
+            .build()
+            .unwrap(),
+            additional_uncertainty_nanoseconds: 1,
+        };
+        assert_eq!(
+            engine
+                .resolve(&request)
+                .unwrap()
+                .instant()
+                .uncertainty_nanoseconds,
+            u64::MAX
+        );
+        request.additional_uncertainty_nanoseconds = 2;
+        assert!(
+            engine
+                .resolve(&request)
+                .unwrap_err()
+                .to_string()
+                .contains("time uncertainty exceeds")
+        );
+        request.additional_uncertainty_nanoseconds = 0;
+        assert_eq!(
+            engine
+                .resolve(&request)
+                .unwrap()
+                .instant()
+                .uncertainty_nanoseconds,
+            u64::MAX - 1
+        );
+    }
+
+    #[test]
+    fn epoch_relative_coordinates_reject_seconds_overflow() {
+        let engine = engine();
+        let id = crate::MissionEpochId::parse("epoch-coordinate-limit").unwrap();
+        for (seconds, nanos, overflow_offset) in [
+            (i64::MAX, SubsecondNanoseconds::MAX, 1),
+            (i64::MIN, SubsecondNanoseconds::ZERO, -1),
+        ] {
+            let instant = TimeInstant {
+                tai_seconds_since_1970: seconds,
+                nanosecond: nanos,
+                uncertainty_nanoseconds: 0,
+                authority: engine.authority.binding().clone(),
+            };
+            let total = instant.total_nanoseconds();
+            engine.replace_epochs([MissionEpoch {
+                epoch_id: id.clone(),
+                name: "limit".into(),
+                instant,
+                version: crate::TimeVersion::FIRST,
+            }]);
+            let overflow = crate::TimeExpressionValue::EpochRelative {
+                epoch_id: id.clone(),
+                offset_nanoseconds: overflow_offset,
+            }
+            .build()
+            .unwrap();
+            assert!(
+                engine
+                    .resolve_expression(&overflow)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("signed 64-bit seconds range")
+            );
+            let valid = engine
+                .resolve_expression(
+                    &crate::TimeExpressionValue::EpochRelative {
+                        epoch_id: id.clone(),
+                        offset_nanoseconds: -overflow_offset,
+                    }
+                    .build()
+                    .unwrap(),
+                )
+                .unwrap();
+            assert_eq!(
+                valid.total_nanoseconds(),
+                total - i128::from(overflow_offset)
+            );
+        }
+    }
+
+    #[test]
+    fn fractional_coordinates_round_without_saturating_or_wrapping() {
+        assert_eq!(
+            split_fractional_seconds(-0.25, 0).unwrap(),
+            (-1, SubsecondNanoseconds::new(750_000_000).unwrap())
+        );
+        assert_eq!(
+            split_fractional_seconds(0.999_999_999_6, 0).unwrap(),
+            (1, SubsecondNanoseconds::ZERO)
+        );
+        assert_eq!(
+            split_fractional_seconds(i64::MIN as f64, 0).unwrap(),
+            (i64::MIN, SubsecondNanoseconds::ZERO)
+        );
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, i64::MAX as f64] {
+            assert!(split_fractional_seconds(value, 0).is_err());
+        }
+        let last_float = f64::from_bits((i64::MAX as f64).to_bits() - 1);
+        assert_eq!(
+            split_fractional_seconds(last_float, 0).unwrap().0,
+            last_float as i64
+        );
+        assert!(split_fractional_seconds(1.0, i64::MAX).is_err());
+        assert!(split_fractional_seconds(-1.0, i64::MIN).is_err());
+    }
+}

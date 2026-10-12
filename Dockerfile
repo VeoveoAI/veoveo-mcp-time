@@ -16,6 +16,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
         cargo-hack@0.6.45 \
         cargo-semver-checks@0.51.0 \
         cargo-insta@1.49.0
+# Native Store tests run one SurrealDB server process per fixture; no container runtime enters the sandbox.
+COPY --from=surrealdb/surrealdb:v3.3.0@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20 /surreal /usr/local/bin/surreal
 COPY env/profile.d/rust.sh /etc/profile.d/rust.sh
 # A development environment installs toolchains, components and crates, so the sandbox user owns them.
 RUN useradd --create-home --uid 1000 --shell /bin/bash sandbox \
@@ -40,9 +42,19 @@ RUN cargo build --locked --release --bin "${COMPONENT}" \
 
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS runtime
 ARG COMPONENT
-RUN useradd --system --uid 10001 --no-create-home component
+# Time compiles IANA zone releases with zic and reads the leap-second table at runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/* /var/log/apt /var/log/dpkg.log \
+    && test -x /usr/sbin/zic \
+    && test -f /usr/share/zoneinfo/tzdata.zi \
+    && test -f /usr/share/zoneinfo/leap-seconds.list \
+    && useradd --system --uid 10001 --create-home --home-dir /var/lib/veoveo component \
+    && mkdir -p /var/lib/veoveo/time/acquisitions /var/lib/veoveo/time/releases \
+    && chown -R component:component /var/lib/veoveo/time
 COPY --from=build /home/sandbox/component /usr/local/bin/component
 USER component
+EXPOSE 8800
 ENTRYPOINT ["/usr/local/bin/component"]
 LABEL org.opencontainers.image.source="https://github.com/VeoveoAI/veoveo-mcp-time" \
       org.opencontainers.image.licenses="Apache-2.0"

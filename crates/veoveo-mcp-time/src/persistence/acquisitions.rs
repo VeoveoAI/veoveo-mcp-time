@@ -1,0 +1,154 @@
+use super::*;
+
+impl TimePersistence {
+    pub(crate) async fn create_time_acquisition(
+        &self,
+        draft: TimeAcquisitionDraft,
+    ) -> Result<TimeAcquisitionRecord, PersistenceError> {
+        validate_acquisition(&draft)?;
+        if let Some(existing) = self
+            .time_acquisition_for_idempotency(
+                draft.identity.tenant_id,
+                draft.identity.principal_id,
+                &draft.idempotency_key,
+            )
+            .await?
+        {
+            if existing.source_key == draft.source_key.as_str()
+                && existing.expected_source_digest_sha256.as_deref()
+                    == draft
+                        .expected_source_digest_sha256
+                        .as_ref()
+                        .map(AuthoritySourceDigest::as_hex)
+            {
+                return Ok(existing);
+            }
+            return Err(conflict(
+                "acquisition idempotency key",
+                draft.idempotency_key,
+            ));
+        }
+        let now = Utc::now();
+        let content = TimeAcquisitionContent {
+            tenant: draft.identity.tenant_id.record_id(),
+            owner: draft.identity.principal_id.record_id(),
+            acquisition_key: draft.acquisition_key.to_string(),
+            source_key: draft.source_key.to_string(),
+            expected_source_digest_sha256: draft.expected_source_digest_sha256.map(String::from),
+            idempotency_key: draft.idempotency_key,
+            status: draft.status,
+            phase: draft.phase,
+            staged_release_key: draft.staged_release_key.map(String::from),
+            canonical_json: draft.canonical_json,
+            record_version: 1,
+            created_at: now,
+            updated_at: now,
+        };
+        create_only(
+            self,
+            time_record("time_acquisition", &draft.acquisition_key),
+            content,
+        )
+        .await?;
+        self.time_acquisition(draft.identity.tenant_id, &draft.acquisition_key)
+            .await?
+            .ok_or(PersistenceError::MissingRecord {
+                operation: "time acquisition creation readback",
+            })
+    }
+
+    pub(crate) async fn time_acquisition(
+        &self,
+        tenant_id: TenantId,
+        key: &TimeAcquisitionId,
+    ) -> Result<Option<TimeAcquisitionRecord>, PersistenceError> {
+        validate_key("acquisition_key", key, "time-acquisition-")?;
+        select_one(self, time_record("time_acquisition", key), tenant_id).await
+    }
+
+    pub(crate) async fn list_time_acquisitions(
+        &self,
+        tenant_id: TenantId,
+    ) -> Result<Vec<TimeAcquisitionRecord>, PersistenceError> {
+        select_list(
+            self,
+            include_str!("queries/list_acquisitions.surql"),
+            tenant_id,
+        )
+        .await
+    }
+
+    pub(crate) async fn time_acquisition_for_release(
+        &self,
+        tenant_id: TenantId,
+        release_key: &AuthorityReleaseId,
+    ) -> Result<Option<TimeAcquisitionRecord>, PersistenceError> {
+        validate_key("staged_release_key", release_key, "time-release-")?;
+        let mut response = self
+            .client()
+            .query(include_str!("queries/acquisition_for_release.surql"))
+            .bind(("tenant", tenant_id.record_id()))
+            .bind(("release_key", release_key.to_string()))
+            .await?
+            .check()?;
+        let records: Vec<TimeAcquisitionRecord> = response.take(0)?;
+        Ok(records.into_iter().next())
+    }
+
+    pub(crate) async fn update_time_acquisition(
+        &self,
+        update: TimeAcquisitionUpdate,
+    ) -> Result<TimeAcquisitionRecord, PersistenceError> {
+        validate_key(
+            "acquisition_key",
+            &update.acquisition_key,
+            "time-acquisition-",
+        )?;
+
+        validate_json(&update.canonical_json)?;
+        if let Some(release) = &update.staged_release_key {
+            validate_key("staged_release_key", release, "time-release-")?;
+        }
+        let mut response = self
+            .client()
+            .query(include_str!("queries/update_acquisition.surql"))
+            .bind((
+                "record",
+                time_record("time_acquisition", &update.acquisition_key),
+            ))
+            .bind(("tenant", update.tenant_id.record_id()))
+            .bind(("status", update.status))
+            .bind(("phase", update.phase.as_str().to_owned()))
+            .bind(("staged", update.staged_release_key.map(String::from)))
+            .bind(("canonical_json", update.canonical_json))
+            .bind(("expected", update.expected_record_version.get() as i64))
+            .bind((
+                "next",
+                update.expected_record_version.checked_next()?.get() as i64,
+            ))
+            .await?
+            .check()?;
+        response
+            .take::<Option<TimeAcquisitionRecord>>(0)?
+            .ok_or_else(|| conflict("acquisition", update.acquisition_key.to_string()))
+    }
+
+    pub(crate) async fn time_acquisition_for_idempotency(
+        &self,
+        tenant_id: TenantId,
+        owner: veoveo_platform_store::PrincipalId,
+        key: &str,
+    ) -> Result<Option<TimeAcquisitionRecord>, PersistenceError> {
+        validate_text("idempotency_key", key, 256)?;
+        let mut response = self
+            .client()
+            .query(include_str!("queries/acquisition_by_idempotency.surql"))
+            .bind(("tenant", tenant_id.record_id()))
+            .bind(("owner", owner.record_id()))
+            .bind(("key", key.to_owned()))
+            .await?
+            .check()?;
+        let records: Vec<TimeAcquisitionRecord> = response.take(0)?;
+        Ok(records.into_iter().next())
+    }
+}
