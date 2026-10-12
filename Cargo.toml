@@ -12,15 +12,15 @@ publish = false
 
 [workspace.dependencies]
 # veoveo-core, pinned to one revision for every core crate.
-veoveo-gateway-contract = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "75c05e6786feda6fc619ffba17dca3ba6efcb915" }
-veoveo-mcp-contract = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "75c05e6786feda6fc619ffba17dca3ba6efcb915", default-features = false }
-veoveo-mcp-ext-knowledge = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "75c05e6786feda6fc619ffba17dca3ba6efcb915", default-features = false }
-veoveo-mcp-ext-registration = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "75c05e6786feda6fc619ffba17dca3ba6efcb915", default-features = false }
-veoveo-oauth-client = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "75c05e6786feda6fc619ffba17dca3ba6efcb915" }
-veoveo-platform-store = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "75c05e6786feda6fc619ffba17dca3ba6efcb915" }
-veoveo-task-runtime = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "75c05e6786feda6fc619ffba17dca3ba6efcb915" }
-veoveo-test-fixtures = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "75c05e6786feda6fc619ffba17dca3ba6efcb915" }
-veoveo-types = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "75c05e6786feda6fc619ffba17dca3ba6efcb915" }
+veoveo-gateway-contract = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "fff4fe69932de081c5813e78a21258f077fc4529" }
+veoveo-mcp-contract = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "fff4fe69932de081c5813e78a21258f077fc4529", default-features = false }
+veoveo-mcp-ext-knowledge = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "fff4fe69932de081c5813e78a21258f077fc4529", default-features = false }
+veoveo-mcp-ext-registration = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "fff4fe69932de081c5813e78a21258f077fc4529", default-features = false }
+veoveo-oauth-client = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "fff4fe69932de081c5813e78a21258f077fc4529" }
+veoveo-platform-store = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "fff4fe69932de081c5813e78a21258f077fc4529" }
+veoveo-task-runtime = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "fff4fe69932de081c5813e78a21258f077fc4529" }
+veoveo-test-fixtures = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "fff4fe69932de081c5813e78a21258f077fc4529" }
+veoveo-types = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "fff4fe69932de081c5813e78a21258f077fc4529" }
 
 anyhow = "=1.0.104"
 axum = "0.8.9"
@@ -53,15 +53,3 @@ tempfile = "=3.27.0"
 tracing = "0.1.44"
 url = "=2.5.8"
 uuid = { version = "1.24.1", features = ["serde", "v4", "v5", "v7"] }
-
-# Development against unmerged veoveo-core; replaced by a pinned revision once core lands.
-[patch."https://github.com/VeoveoAI/veoveo-core"]
-veoveo-gateway-contract = { path = "/Users/rozgo/VeoveoAI/veoveo-core/platform/gateway/contract" }
-veoveo-mcp-contract = { path = "/Users/rozgo/VeoveoAI/veoveo-core/mcp/contract" }
-veoveo-mcp-ext-knowledge = { path = "/Users/rozgo/VeoveoAI/veoveo-core/mcp/ext-knowledge" }
-veoveo-mcp-ext-registration = { path = "/Users/rozgo/VeoveoAI/veoveo-core/mcp/ext-registration" }
-veoveo-oauth-client = { path = "/Users/rozgo/VeoveoAI/veoveo-core/platform/oauth" }
-veoveo-platform-store = { path = "/Users/rozgo/VeoveoAI/veoveo-core/platform/store" }
-veoveo-task-runtime = { path = "/Users/rozgo/VeoveoAI/veoveo-core/platform/task-runtime" }
-veoveo-test-fixtures = { path = "/Users/rozgo/VeoveoAI/veoveo-core/testing/fixtures/library" }
-veoveo-types = { path = "/Users/rozgo/VeoveoAI/veoveo-core/platform/types" }
