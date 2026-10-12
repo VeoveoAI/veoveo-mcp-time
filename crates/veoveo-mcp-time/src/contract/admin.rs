@@ -80,7 +80,7 @@ pub struct AuthorityReleaseValue {
     pub dataset_kind: AuthorityDatasetKind,
     pub version_label: String,
     pub source_url: String,
-    pub source_digest_sha256: super::AuthoritySourceDigest,
+    pub source_digest: veoveo_types::Sha256Digest,
     pub artifact_path: String,
     pub state: AuthorityReleaseState,
     pub retrieved_at: DateTime<Utc>,
@@ -124,7 +124,7 @@ pub enum TimeAcquisitionPhase {
 pub struct TimeAcquisition {
     pub acquisition_id: TimeAcquisitionId,
     pub source_id: TimeSourceId,
-    pub expected_source_digest_sha256: Option<super::AuthoritySourceDigest>,
+    pub expected_source_digest: Option<veoveo_types::Sha256Digest>,
     pub status: TimeAcquisitionStatus,
     pub phase: TimeAcquisitionPhase,
     pub staged_release_id: Option<AuthorityReleaseId>,
@@ -157,7 +157,7 @@ pub struct ReplaceSourceRequest {
 #[serde(deny_unknown_fields)]
 pub struct CreateAcquisitionRequestValue {
     pub source_id: TimeSourceId,
-    pub expected_source_digest_sha256: Option<super::AuthoritySourceDigest>,
+    pub expected_source_digest: Option<veoveo_types::Sha256Digest>,
     pub idempotency_key: String,
 }
 
@@ -497,7 +497,7 @@ impl veoveo_types::Check for TimeAcquisition {
 struct AcquisitionWire {
     acquisition_id: TimeAcquisitionId,
     source_id: TimeSourceId,
-    expected_source_digest_sha256: Option<super::AuthoritySourceDigest>,
+    expected_source_digest: Option<veoveo_types::Sha256Digest>,
     status: TimeAcquisitionStatus,
     phase: TimeAcquisitionPhase,
     staged_release_id: Option<AuthorityReleaseId>,
@@ -512,7 +512,7 @@ impl<'de> Deserialize<'de> for TimeAcquisition {
         let result = Self {
             acquisition_id: value.acquisition_id,
             source_id: value.source_id,
-            expected_source_digest_sha256: value.expected_source_digest_sha256,
+            expected_source_digest: value.expected_source_digest,
             status: value.status,
             phase: value.phase,
             staged_release_id: value.staged_release_id,
@@ -713,7 +713,7 @@ mod acquisition_admission_tests {
             .unwrap(),
             source_id: TimeSourceId::parse("time-source-00000000-0000-7000-8000-000000000001")
                 .unwrap(),
-            expected_source_digest_sha256: None,
+            expected_source_digest: None,
             status: TimeAcquisitionStatus::Queued,
             phase: TimeAcquisitionPhase::Queued,
             staged_release_id: None,

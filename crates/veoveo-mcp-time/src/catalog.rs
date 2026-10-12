@@ -185,7 +185,7 @@ impl TimeCatalog {
                 state: release_state(release.state),
                 version_label: release.version_label.clone(),
                 source_url: release.source_url.clone(),
-                source_digest_sha256: release.source_digest_sha256.clone(),
+                source_digest: release.source_digest.clone(),
                 artifact_path: release.artifact_path.clone(),
                 retrieved_at: release.retrieved_at,
                 validated_at: release.validated_at,
@@ -277,7 +277,7 @@ impl TimeCatalog {
                 source_id: release.source_id.clone(),
                 acquisition_id: acquisition.acquisition_id,
             },
-            release.source_digest_sha256.canonical().clone(),
+            release.source_digest.clone(),
             release.version_label.clone(),
         )?)
     }
@@ -296,7 +296,7 @@ impl TimeCatalog {
                 identity: scope.identity.clone(),
                 acquisition_key: acquisition.acquisition_id.clone(),
                 source_key: acquisition.source_id.clone(),
-                expected_source_digest_sha256: acquisition.expected_source_digest_sha256.clone(),
+                expected_source_digest: acquisition.expected_source_digest.clone(),
                 idempotency_key,
                 status: acquisition_state(acquisition.status),
                 phase: acquisition.phase,
@@ -373,8 +373,7 @@ impl TimeCatalog {
             .context("unknown Time acquisition")?;
         anyhow::ensure!(
             acquisition.source_id == current.source_id
-                && acquisition.expected_source_digest_sha256
-                    == current.expected_source_digest_sha256
+                && acquisition.expected_source_digest == current.expected_source_digest
                 && acquisition.created_at == current.created_at,
             "an acquisition update cannot change its source, expected digest or creation time"
         );

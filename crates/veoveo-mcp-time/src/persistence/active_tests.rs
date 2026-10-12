@@ -58,7 +58,7 @@ async fn release(
                 state: AuthorityReleaseState::Staged,
                 version_label: "test".into(),
                 source_url: source.url.clone(),
-                source_digest_sha256: "a".repeat(64).parse().unwrap(),
+                source_digest: veoveo_types::Sha256Digest::from_hex("a".repeat(64)).unwrap(),
                 artifact_path: "/tmp/time-authority-test".into(),
                 retrieved_at: now,
                 validated_at: now,

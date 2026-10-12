@@ -127,7 +127,7 @@ pub(super) async fn create_acquisition(
             .start(
                 scope,
                 source,
-                request.expected_source_digest_sha256,
+                request.expected_source_digest,
                 request.idempotency_key,
             )
             .await?,

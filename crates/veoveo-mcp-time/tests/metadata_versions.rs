@@ -45,13 +45,13 @@ fn lifecycle_metadata_admits_only_positive_storage_versions() {
     check::<AuthorityRelease>(
         json!({"releaseId":"time-release-fixture", "sourceId":"time-source-fixture",
         "datasetKind":"tzdb", "versionLabel":"fixture", "sourceUrl":"https://example.test/data",
-        "sourceDigestSha256":"a".repeat(64), "artifactPath":"/tmp/fixture", "state":"staged",
+        "sourceDigest":format!("sha256:{}", "a".repeat(64)), "artifactPath":"/tmp/fixture", "state":"staged",
         "retrievedAt":"2026-01-01T00:00:00Z", "validatedAt":"2026-01-01T00:00:00Z", "recordVersion":1}),
         "recordVersion",
     );
     check::<TimeAcquisition>(
         json!({"acquisitionId":"time-acquisition-fixture", "sourceId":"time-source-fixture",
-        "expectedSourceDigestSha256":null, "status":"queued", "phase":"queued", "stagedReleaseId":null,
+        "expectedSourceDigest":null, "status":"queued", "phase":"queued", "stagedReleaseId":null,
         "message":"", "createdAt":"2026-01-01T00:00:00Z", "updatedAt":"2026-01-01T00:00:00Z", "recordVersion":1}),
         "recordVersion",
     );
@@ -109,7 +109,7 @@ fn active_selection() -> Value {
     json!({"pointerVersion":1,"release":{
         "releaseId":"time-release-fixture", "sourceId":"time-source-fixture",
         "datasetKind":"tzdb", "versionLabel":"fixture", "sourceUrl":"https://example.test/data",
-        "sourceDigestSha256":"a".repeat(64), "artifactPath":"/tmp/fixture", "state":"active",
+        "sourceDigest":format!("sha256:{}", "a".repeat(64)), "artifactPath":"/tmp/fixture", "state":"active",
         "retrievedAt":"2026-01-01T00:00:00Z", "validatedAt":"2026-01-01T00:00:00Z", "recordVersion":2
     }})
 }

@@ -153,8 +153,8 @@ pub(super) fn release_from_record(record: TimeAuthorityReleaseRecord) -> Result<
     check(kind, "source_url", value.source_url == record.source_url)?;
     check(
         kind,
-        "source_digest_sha256",
-        value.source_digest_sha256.as_hex() == record.source_digest_sha256,
+        "source_digest",
+        value.source_digest.as_str() == record.source_digest,
     )?;
     check(
         kind,
@@ -191,12 +191,12 @@ pub(super) fn acquisition_from_record(record: TimeAcquisitionRecord) -> Result<T
     )?;
     check(
         kind,
-        "expected_source_digest_sha256",
+        "expected_source_digest",
         value
-            .expected_source_digest_sha256
+            .expected_source_digest
             .as_ref()
-            .map(|digest| digest.as_hex())
-            == record.expected_source_digest_sha256.as_deref(),
+            .map(|digest| digest.as_str())
+            == record.expected_source_digest.as_deref(),
     )?;
     value.status = acquisition_state_from_store(record.status);
     value.phase = record.phase;

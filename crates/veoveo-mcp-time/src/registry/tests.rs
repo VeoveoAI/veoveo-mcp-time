@@ -153,7 +153,7 @@ async fn stage(
                 state: AuthorityReleaseState::Staged,
                 version_label: "fixture".into(),
                 source_url: source.url.clone(),
-                source_digest_sha256: hex::encode(Sha256::digest(bytes)).parse().unwrap(),
+                source_digest: Sha256Digest::from_bytes(Sha256::digest(bytes).into()),
                 artifact_path: path.to_str().unwrap().into(),
                 retrieved_at: now,
                 validated_at: now,
@@ -174,7 +174,7 @@ async fn stage(
                 ))
                 .unwrap(),
                 source_id: source.source_id.clone(),
-                expected_source_digest_sha256: Some(release.source_digest_sha256.clone()),
+                expected_source_digest: Some(release.source_digest.clone()),
                 status: TimeAcquisitionStatus::Succeeded,
                 phase: crate::TimeAcquisitionPhase::Complete,
                 staged_release_id: Some(release.release_id.clone()),

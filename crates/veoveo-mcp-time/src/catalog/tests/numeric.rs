@@ -160,7 +160,7 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
                     )
                     .unwrap(),
                     source_id: source.source_id.clone(),
-                    expected_source_digest_sha256: None,
+                    expected_source_digest: None,
                     status: TimeAcquisitionStatus::Queued,
                     phase: crate::TimeAcquisitionPhase::Queued,
                     staged_release_id: None,

@@ -35,7 +35,7 @@ async fn authority_observations_and_pages_preserve_stored_tenant_provenance() {
             ReadPolicy::Tenant {}
         );
         assert_eq!(observation.modified_at(), Some(release.validated_at));
-        assert!(text.contains(release.source_digest_sha256.canonical().as_str()));
+        assert!(text.contains(release.source_digest.as_str()));
         assert!(
             catalog
                 .observed_release(&foreign, &release.release_id)
@@ -46,7 +46,7 @@ async fn authority_observations_and_pages_preserve_stored_tenant_provenance() {
 
         for index in 0..101 {
             let mut copy = crate::AuthorityReleaseValue::from(release.clone());
-            copy.source_digest_sha256 = format!("{index:064x}").parse().unwrap();
+            copy.source_digest = Sha256Digest::from_hex(format!("{index:064x}")).unwrap();
             copy.release_id =
                 AuthorityReleaseId::parse(format!("time-release-{}", Uuid::now_v7())).unwrap();
             catalog

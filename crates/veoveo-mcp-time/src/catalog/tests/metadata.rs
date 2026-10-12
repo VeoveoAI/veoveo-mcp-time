@@ -385,7 +385,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                     dataset_kind: source.dataset_kind,
                     version_label: "2026".into(),
                     source_url: source.url.clone(),
-                    source_digest_sha256: "a".repeat(64).parse().unwrap(),
+                    source_digest: veoveo_types::Sha256Digest::from_hex("a".repeat(64)).unwrap(),
                     artifact_path: "/var/lib/veoveo/time/releases/fixture/leaps".into(),
                     state: AuthorityReleaseState::Staged,
                     retrieved_at: now,
@@ -411,7 +411,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
         let mut second = crate::AuthorityReleaseValue::from(release.clone());
         second.release_id =
             AuthorityReleaseId::parse("time-release-00000000-0000-7000-8000-000000000002").unwrap();
-        second.source_digest_sha256 = "b".repeat(64).parse().unwrap();
+        second.source_digest = veoveo_types::Sha256Digest::from_hex("b".repeat(64)).unwrap();
         let second = catalog
             .create_release(&owner, second.build().unwrap())
             .await
@@ -440,7 +440,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                 json!("time-source-00000000-0000-7000-8000-000000000002"),
             ),
             ("datasetKind", json!("tzdb")),
-            ("sourceDigestSha256", json!("c".repeat(64))),
+            ("sourceDigest", json!("c".repeat(64))),
             ("versionLabel", json!("other")),
             ("artifactPath", json!("/other")),
         ] {
@@ -471,7 +471,9 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                     )
                     .unwrap(),
                     source_id: source.source_id.clone(),
-                    expected_source_digest_sha256: Some("a".repeat(64).parse().unwrap()),
+                    expected_source_digest: Some(
+                        veoveo_types::Sha256Digest::from_hex("a".repeat(64)).unwrap(),
+                    ),
                     status: TimeAcquisitionStatus::Succeeded,
                     phase: crate::TimeAcquisitionPhase::Complete,
                     staged_release_id: Some(release.release_id.clone()),
@@ -521,7 +523,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                 "sourceId",
                 json!("time-source-00000000-0000-7000-8000-000000000002"),
             ),
-            ("expectedSourceDigestSha256", json!("b".repeat(64))),
+            ("expectedSourceDigest", json!("b".repeat(64))),
         ] {
             let bad = corrupt(&original, field, value);
             set(&db.a, &record, "canonical_json", bad.clone()).await;
@@ -559,7 +561,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
         wrong_source.source_id =
             TimeSourceId::parse("time-source-00000000-0000-7000-8000-000000000002").unwrap();
         let mut wrong_digest = acquisition.clone();
-        wrong_digest.expected_source_digest_sha256 = None;
+        wrong_digest.expected_source_digest = None;
         let mut wrong_creation = acquisition.clone();
         wrong_creation.created_at -= chrono::Duration::seconds(1);
         for wrong in [wrong_source, wrong_digest, wrong_creation] {

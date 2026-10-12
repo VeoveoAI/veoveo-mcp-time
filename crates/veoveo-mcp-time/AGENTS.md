@@ -143,11 +143,10 @@ leap second assumptions.
   engine calculates the projections and rejects foreign epoch authorities. Keep
   epoch IDs typed and carry their uncertainty through checked addition. Authority
   contract tests and native engine cases qualify decoding and relative resolution.
-- `AuthoritySourceDigest` preserves the admin bare-hexadecimal spelling and idempotency
-  equality. Download checks compare its canonical digest values; provenance uses the
-  foundational `sha256:` representation. Keep digests typed through persistence drafts.
-  `tests/digest_contract.rs` and `src/registry/tests/digest.rs` qualify the wire adapter,
-  uppercase retained records and malformed matching body/column values.
+- Digests are the foundational `Sha256Digest` (`sha256:` and 64 lowercase hexadecimal
+  digits) in requests, persistence drafts and provenance. Keep them typed until the
+  driver record. `tests/digest_contract.rs` and `src/registry/tests/digest.rs` qualify
+  request admission, idempotency and malformed matching body/column values.
 - `src/catalog/tests/numeric.rs` qualifies clock scalar rejection, optimistic clock
   writes and exhausted versions without row mutation. Authority qualification verifies
   that retirement exhaustion rolls back both the candidate and pointer.

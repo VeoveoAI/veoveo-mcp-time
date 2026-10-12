@@ -16,12 +16,14 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use veoveo_types::Sha256Digest;
+
 use crate::{
     authority::LeapSecondTable,
     catalog::{TimeAccessContext, TimeCatalog},
     contract::{
-        AuthorityDatasetKind, AuthorityReleaseId, AuthorityReleaseState, AuthoritySourceDigest,
-        TimeAcquisition, TimeAcquisitionId, TimeAcquisitionStatus, TimeSource,
+        AuthorityDatasetKind, AuthorityReleaseId, AuthorityReleaseState, TimeAcquisition,
+        TimeAcquisitionId, TimeAcquisitionStatus, TimeSource,
     },
 };
 
@@ -65,7 +67,7 @@ impl AcquisitionService {
         &self,
         scope: TimeAccessContext,
         source: TimeSource,
-        expected_digest: Option<AuthoritySourceDigest>,
+        expected_digest: Option<Sha256Digest>,
         idempotency_key: String,
     ) -> Result<TimeAcquisition> {
         if !source.enabled {
@@ -80,7 +82,7 @@ impl AcquisitionService {
             .await?
         {
             if existing.source_id == source.source_id
-                && existing.expected_source_digest_sha256 == expected_digest
+                && existing.expected_source_digest == expected_digest
             {
                 return Ok(existing);
             }
@@ -92,7 +94,7 @@ impl AcquisitionService {
         let acquisition = TimeAcquisition {
             acquisition_id: proposed_id.clone(),
             source_id: source.source_id.clone(),
-            expected_source_digest_sha256: expected_digest.clone(),
+            expected_source_digest: expected_digest.clone(),
             status: TimeAcquisitionStatus::Queued,
             phase: crate::TimeAcquisitionPhase::Queued,
             staged_release_id: None,
@@ -199,7 +201,7 @@ impl AcquisitionService {
         scope: TimeAccessContext,
         source: TimeSource,
         acquisition_id: TimeAcquisitionId,
-        expected_digest: Option<AuthoritySourceDigest>,
+        expected_digest: Option<Sha256Digest>,
         cancellation: CancellationToken,
     ) -> Result<()> {
         self.progress(
@@ -217,7 +219,7 @@ impl AcquisitionService {
         let digest = self.download(&source, &raw, cancellation.clone()).await?;
         if expected_digest
             .as_ref()
-            .is_some_and(|expected| expected.canonical() != digest.canonical())
+            .is_some_and(|expected| expected != &digest)
         {
             bail!("authority source digest does not match the acquisition request");
         }
@@ -260,7 +262,7 @@ impl AcquisitionService {
             dataset_kind: source.dataset_kind,
             version_label,
             source_url: source.url,
-            source_digest_sha256: digest,
+            source_digest: digest,
             artifact_path: final_path.to_string_lossy().into_owned(),
             state: AuthorityReleaseState::Staged,
             retrieved_at: now,
@@ -286,7 +288,7 @@ impl AcquisitionService {
         source: &TimeSource,
         destination: &Path,
         cancellation: CancellationToken,
-    ) -> Result<AuthoritySourceDigest> {
+    ) -> Result<Sha256Digest> {
         let response = self
             .client
             .get(&source.url)
@@ -322,7 +324,7 @@ impl AcquisitionService {
             file.write_all(&chunk).await?;
         }
         file.flush().await?;
-        AuthoritySourceDigest::parse(hex::encode(digest.finalize())).map_err(Into::into)
+        Ok(Sha256Digest::from_bytes(digest.finalize().into()))
     }
 
     async fn build_tzdb(
@@ -440,7 +442,7 @@ fn extract_tzdb(raw: &Path, destination: &Path, maximum_bytes: u64) -> Result<()
     Ok(())
 }
 
-fn leap_version_label(content: &str, digest: &AuthoritySourceDigest) -> String {
+fn leap_version_label(content: &str, digest: &Sha256Digest) -> String {
     content
         .lines()
         .find_map(|line| {
@@ -449,7 +451,7 @@ fn leap_version_label(content: &str, digest: &AuthoritySourceDigest) -> String {
                 .filter(|value| !value.is_empty())
         })
         .map_or_else(
-            || format!("iana-{}", &digest.as_hex()[..12]),
+            || format!("iana-{}", &digest.hex()[..12]),
             |hash| format!("iana-{}", hash.chars().take(24).collect::<String>()),
         )
 }
@@ -497,7 +499,7 @@ mod tests {
         assert_eq!(
             leap_version_label(
                 "#h abcdef\n",
-                &AuthoritySourceDigest::parse("0".repeat(64)).unwrap()
+                &Sha256Digest::from_hex("0".repeat(64)).unwrap()
             ),
             "iana-abcdef"
         );

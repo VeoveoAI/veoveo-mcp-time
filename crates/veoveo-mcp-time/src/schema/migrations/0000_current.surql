@@ -22,7 +22,7 @@ DEFINE FIELD OVERWRITE canonical_json ON time_acquisition TYPE string PERMISSION
 
 DEFINE FIELD OVERWRITE created_at ON time_acquisition TYPE datetime PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE expected_source_digest_sha256 ON time_acquisition TYPE none | string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE expected_source_digest ON time_acquisition TYPE none | string PERMISSIONS FULL;
 
 DEFINE FIELD OVERWRITE id ON time_acquisition TYPE string PERMISSIONS FULL;
 
@@ -94,7 +94,7 @@ DEFINE FIELD OVERWRITE release_key ON time_authority_release TYPE string PERMISS
 
 DEFINE FIELD OVERWRITE retrieved_at ON time_authority_release TYPE datetime PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE source_digest_sha256 ON time_authority_release TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE source_digest ON time_authority_release TYPE string PERMISSIONS FULL;
 
 DEFINE FIELD OVERWRITE source_key ON time_authority_release TYPE string PERMISSIONS FULL;
 
@@ -110,7 +110,7 @@ DEFINE FIELD OVERWRITE validated_at ON time_authority_release TYPE datetime PERM
 
 DEFINE FIELD OVERWRITE version_label ON time_authority_release TYPE string PERMISSIONS FULL;
 
-DEFINE INDEX time_release_source_digest_unique ON time_authority_release FIELDS tenant, source_key, source_digest_sha256 UNIQUE;
+DEFINE INDEX time_release_source_digest_unique ON time_authority_release FIELDS tenant, source_key, source_digest UNIQUE;
 
 DEFINE INDEX time_release_tenant_key_unique ON time_authority_release FIELDS tenant, release_key UNIQUE;
 

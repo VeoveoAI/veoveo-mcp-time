@@ -2,14 +2,14 @@
 
 use crate::catalog::TimeCompletion;
 use crate::contract::{
-    AuthorityReleaseId, AuthoritySourceDigest, CalendarId, ClockQualityPolicy, EpochId, EventId,
-    SubsecondNanoseconds, TimeAcquisitionId, TimeSourceId, TimeVersion, TimeVersionError,
-    TimeWriteGuard,
+    AuthorityReleaseId, CalendarId, ClockQualityPolicy, EpochId, EventId, SubsecondNanoseconds,
+    TimeAcquisitionId, TimeSourceId, TimeVersion, TimeVersionError, TimeWriteGuard,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb::types::{RecordId, SurrealValue};
 use veoveo_platform_store::{PlatformIdentity, PlatformStore, TenantId};
+use veoveo_types::Sha256Digest;
 
 mod acquisitions;
 mod activation;
