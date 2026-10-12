@@ -189,11 +189,8 @@ async fn serve(
         let _ = working.await;
     }
     drop(state);
-    // The instance deletes its row when no worker holds it any longer; otherwise its
-    // connection closes with the process and another instance reaps the row.
-    if let Ok(instance) = Arc::try_unwrap(instance)
-        && let Err(error) = instance.shutdown().await
-    {
+    // Deleting the instance's row releases the Tasks it still owns at once.
+    if let Err(error) = instance.shutdown().await {
         tracing::warn!(%error, "Time's process instance did not stop cleanly");
     }
     store.close().await;
