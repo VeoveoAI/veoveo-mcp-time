@@ -973,10 +973,14 @@ Time registers with the Gateway at startup, before it serves traffic:
    Gateway created for this registration, a member of `server_time`.
 5. Time connects as that login, applies its migrations, starts its process instance,
    its change listener and its due loop, and serves.
-6. On SIGTERM or Ctrl-C Time stops serving, stops its instance and removes the
-   registration through RFC 7592. Deregistration drops the login.
+6. On SIGTERM or Ctrl-C Time stops serving and stops its instance.
+   `RegistrationClient::maintain` then deletes the registration through RFC 7592, which
+   drops the login.
 
-A registration without a database grant stops startup.
+The registration lasts while Time's login holds a live process instance. When Time
+exits without deleting it, the Gateway removes it after the installation's grace period.
+Time sends no updates or renewals. A registration without a database grant stops
+startup, and Time still deletes it.
 
 ## Deployment
 

@@ -46,12 +46,20 @@ pub async fn run() -> Result<()> {
         .map_err(|_| anyhow::anyhow!("Time's registration was declared twice"))?;
     std::sync::LazyLock::force(&crate::mcp::SERVER_SETUP);
     let (registration_client, registration) = registration::register(&args, declaration).await?;
-    let served = serve(&args, &public_deployment, &registration).await;
-    // The Gateway keeps a registration until Time removes it, which also drops the login.
-    if let Err(error) = registration_client.deregister(registration).await {
+    // The registration lasts while Time's login holds a live process instance. Once
+    // serving ends, on SIGTERM or Ctrl-C or on a failure, the client deletes it, which
+    // also drops the login. Time never renews it.
+    let issued = registration.clone();
+    let mut served = None;
+    let maintained = registration_client
+        .maintain(registration, async {
+            served = Some(serve(&args, &public_deployment, &issued).await);
+        })
+        .await;
+    if let Err(error) = maintained {
         tracing::warn!(%error, "Time could not remove its registration");
     }
-    served
+    served.context("Time's registration ended before serving finished")?
 }
 
 /// Connect with the registration's database login, migrate Time's schema and serve until

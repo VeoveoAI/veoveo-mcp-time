@@ -26,7 +26,9 @@ leap second assumptions.
   declaration, so the Gateway and Time evaluate the same requirements.
 - Time registers with the Gateway before serving and takes its access-token trust and
   database login from the registration. Do not add static trust, JWKS or database
-  credentials to configuration.
+  credentials to configuration. `RegistrationClient::maintain` deletes the
+  registration after serving ends; the live process instance keeps it, so do not add
+  renewal or update calls.
 - Owns the `time://` URI scheme. Identity: slug `time`, MCP `/time/mcp`,
   port 8800.
 - The canonical instant is `TimeInstant`: integral TAI seconds plus nanosecond,

@@ -1,5 +1,5 @@
 //! Registration with the Gateway: Time's key, its declarations, and the client that
-//! renews the lease while Time serves.
+//! removes the registration when Time stops.
 use anyhow::{Context, Result};
 use veoveo_mcp_ext_registration::{
     ClientMetadata, RegistrationDeclaration,
@@ -9,7 +9,7 @@ use veoveo_mcp_ext_registration::{
 use super::config::Args;
 use crate::mcp::requirements::AUTHORIZATION;
 
-/// Register Time and return the client that maintains the registration.
+/// Register Time and return the client that later removes the registration.
 pub(super) async fn register(
     args: &Args,
     declaration: RegistrationDeclaration,
