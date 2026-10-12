@@ -148,13 +148,14 @@ impl AuthorityRegistry {
         Ok(engine)
     }
 
-    /// Shared LIVE/reconciliation signals carry no tenant identity; evict the
-    /// process cache. Requests still validate catalog state while delivery lags.
+    /// A reconciliation names no tenant, so it evicts the process cache. Requests still
+    /// validate catalog state while delivery lags.
     pub async fn invalidate(&self) {
         *self.cache.write().await = AuthorityCache::default();
     }
 
-    async fn invalidate_tenant(&self, tenant: TenantId) {
+    /// Evict one tenant's loaded authority after its authority rows change.
+    pub async fn invalidate_tenant(&self, tenant: TenantId) {
         let mut cache = self.cache.write().await;
         cache.tenants.remove(&tenant);
         cache.generation = Arc::default();

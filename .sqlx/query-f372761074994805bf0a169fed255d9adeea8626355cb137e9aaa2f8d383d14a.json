@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE OR REPLACE FUNCTION time.test_interleave() RETURNS trigger\nLANGUAGE plpgsql AS $$\nBEGIN\n    UPDATE time.active_authority SET tenant = gen_random_uuid()\n    WHERE tenant = NEW.tenant AND dataset_kind = NEW.dataset_kind;\n    RETURN NULL;\nEND\n$$\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f372761074994805bf0a169fed255d9adeea8626355cb137e9aaa2f8d383d14a"
+}

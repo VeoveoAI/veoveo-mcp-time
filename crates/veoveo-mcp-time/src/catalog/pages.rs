@@ -4,8 +4,8 @@ use super::{
 use crate::contract::EventState;
 use crate::{
     contract::{
-        CalendarCursor, CalendarId, CollectionPage, Epoch, EpochCursor, EpochId, Event,
-        EventCursor, EventId, OperationalCalendar, TimeVersion,
+        CalendarCursor, CollectionPage, Epoch, EpochCursor, EpochId, Event, EventCursor,
+        OperationalCalendar, TimeVersion,
     },
     index,
 };
@@ -25,7 +25,7 @@ impl TimeCatalog {
             rows,
             |row| {
                 Ok(CalendarCursor::new(
-                    &CalendarId::parse(&row.calendar_key).map_err(anyhow::Error::msg)?,
+                    &row.calendar_key,
                     TimeVersion::new(row.calendar_version.try_into()?)?,
                 ))
             },
@@ -45,7 +45,7 @@ impl TimeCatalog {
             rows,
             |row| {
                 Ok(EpochCursor::new(
-                    &EpochId::parse(&row.epoch_key).map_err(anyhow::Error::msg)?,
+                    &row.epoch_key,
                     TimeVersion::new(row.epoch_version.try_into()?)?,
                 ))
             },
@@ -66,7 +66,7 @@ impl TimeCatalog {
             rows,
             |row| {
                 Ok(EventCursor::new(
-                    &EventId::parse(&row.event_key).map_err(anyhow::Error::msg)?,
+                    &row.event_key,
                     row.due_tai_seconds_since_1970,
                     crate::SubsecondNanoseconds::new(row.due_nanosecond.try_into()?)?,
                 ))

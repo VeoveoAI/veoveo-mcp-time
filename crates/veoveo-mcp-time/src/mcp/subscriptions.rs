@@ -1,9 +1,15 @@
-//! Time resource subscriptions.
+//! Time resource subscriptions. A listener receives Task updates and the resource changes
+//! of its caller's tenant only.
 
 use std::sync::Arc;
 
-use rmcp::{ErrorData as McpError, RoleServer, service::RequestContext};
-use veoveo_mcp_contract::{SubscriptionHub, hosting::ResourceSubscriptions};
+use rmcp::{
+    ErrorData as McpError,
+    model::SubscriptionFilter,
+    service::{RequestContext, SubscriptionContext},
+};
+use veoveo_mcp_contract::hosting::requested_addresses;
+use veoveo_task_runtime::{DurableListener, DurableTaskService, listen_durable_subscriptions};
 
 use super::{
     internal,
@@ -11,9 +17,8 @@ use super::{
 };
 use crate::{contract::TimeResource, state::TimeApplication};
 
-/// Time's mutable resources. Subscribing to the event index restores the
-/// caller's event watchers, and subscribing to one event schedules it, so
-/// notifications start without a separate call.
+/// Admits subscriptions to Time's mutable resources and delivers them from the caller's
+/// tenant hub, which the change watcher feeds from the `time` channel.
 pub(crate) struct TimeSubscriptions {
     state: Arc<TimeApplication>,
 }
@@ -22,16 +27,17 @@ impl TimeSubscriptions {
     pub(crate) fn new(state: Arc<TimeApplication>) -> Self {
         Self { state }
     }
-}
 
-impl ResourceSubscriptions for TimeSubscriptions {
-    type Address = TimeResource;
-
-    async fn authorize(
+    /// Check every requested address for the caller and return the caller's tenant hub,
+    /// or none when the request names no resources.
+    async fn admit(
         &self,
         addresses: Vec<TimeResource>,
-        context: &RequestContext<RoleServer>,
-    ) -> Result<(), McpError> {
+        context: &RequestContext<rmcp::RoleServer>,
+    ) -> Result<Option<Arc<veoveo_mcp_contract::SubscriptionHub>>, McpError> {
+        if addresses.is_empty() {
+            return Ok(None);
+        }
         if let Some(immutable) = addresses.iter().find(|address| !address.is_subscribable()) {
             tracing::debug!(?immutable, "rejected Time subscription");
             return Err(McpError::invalid_params(
@@ -44,35 +50,23 @@ impl ResourceSubscriptions for TimeSubscriptions {
             authorize(&identity, Target::Resource(&address.to_string()))?;
         }
         let scope = self.state.scope(&identity).await.map_err(internal)?;
-        for address in addresses {
-            match address {
-                TimeResource::Events { cursor: None } => {
-                    self.state
-                        .restore_event_watchers(&scope)
-                        .await
-                        .map_err(internal)?;
-                }
-                TimeResource::Event(event_id) => {
-                    if let Some(event) = self
-                        .state
-                        .catalog
-                        .event(&scope, &event_id)
-                        .await
-                        .map_err(internal)?
-                    {
-                        self.state
-                            .schedule_event(scope.clone(), event)
-                            .await
-                            .map_err(internal)?;
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(())
+        Ok(Some(self.state.subscriptions.hub(scope.identity.tenant_id)))
+    }
+}
+
+impl<S: DurableTaskService> DurableListener<S> for TimeSubscriptions {
+    fn accepted_subscription_filter(
+        &self,
+        requested: &SubscriptionFilter,
+    ) -> Option<SubscriptionFilter> {
+        veoveo_mcp_contract::accepted_subscription_filter(requested)
     }
 
-    fn hub(&self) -> &SubscriptionHub {
-        self.state.subscriptions.as_ref()
+    async fn listen(&self, service: &S, context: SubscriptionContext) -> Result<(), McpError> {
+        let addresses = requested_addresses::<TimeResource>(
+            context.accepted().resource_subscriptions.as_deref(),
+        )?;
+        let hub = self.admit(addresses, context.request_context()).await?;
+        listen_durable_subscriptions(service, context, hub.as_deref(), None).await
     }
 }

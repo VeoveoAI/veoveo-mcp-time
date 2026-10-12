@@ -1,2 +1,0 @@
-UPDATE $record MERGE $patch
-RETURN NONE;

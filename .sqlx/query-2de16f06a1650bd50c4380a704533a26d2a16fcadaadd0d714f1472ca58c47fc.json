@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DROP TRIGGER test_interleave ON time.authority_release\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2de16f06a1650bd50c4380a704533a26d2a16fcadaadd0d714f1472ca58c47fc"
+}

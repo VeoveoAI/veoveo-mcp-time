@@ -53,7 +53,6 @@ name = "acceptance"
 required-features = ["mcp"]
 
 [features]
-schema = ["dep:veoveo-modules", "dep:veoveo-types", "dep:serde", "dep:schemars"]
 default = ["mcp"]
 contract = [
     "dep:anyhow",
@@ -71,7 +70,6 @@ contract = [
     "dep:veoveo-mcp-ext-registration",
 ]
 runtime = [
-    "schema",
     "contract",
     "chrono/clock",
     "dep:anyhow",
@@ -87,7 +85,7 @@ runtime = [
     "dep:tokio",
     "dep:tokio-util",
     "dep:thiserror",
-    "dep:surrealdb",
+    "dep:sqlx",
     "dep:tracing",
     "dep:url",
     "dep:uuid",
@@ -108,7 +106,6 @@ mcp = [
 ]
 
 [dependencies]
-veoveo-modules = { workspace = true, default-features = false, optional = true }
 veoveo-mcp-ext-knowledge = { workspace = true, features = ["contract"], optional = true }
 veoveo-mcp-ext-registration = { workspace = true, optional = true }
 veoveo-types = { workspace = true, optional = true }
@@ -131,6 +128,7 @@ secrecy = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 tar = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
@@ -143,13 +141,9 @@ veoveo-mcp-contract = { features = ["runtime"], workspace = true, optional = tru
 veoveo-platform-store = { workspace = true, optional = true }
 veoveo-task-runtime = { workspace = true, optional = true }
 
-# Match Store's qualified driver types; upgrade together in foundations Phase 4.
-surrealdb = { version = "=3.3.0", default-features = false, optional = true }
-
 [dev-dependencies]
 veoveo-test-fixtures = { workspace = true, features = ["store", "tool-inputs"] }
 veoveo-oauth-client.workspace = true
-veoveo-modules = { workspace = true, features = ["runner"] }
 veoveo-mcp-contract = { workspace = true, features = ["runtime", "testing"] }
 veoveo-gateway-contract.workspace = true
 jsonschema.workspace = true

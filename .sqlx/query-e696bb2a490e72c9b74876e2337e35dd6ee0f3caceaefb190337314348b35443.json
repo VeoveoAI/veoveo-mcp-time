@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time.active_authority\nSET\n    tenant = $3,\n    dataset_kind = $4,\n    release_key = $5,\n    previous_release_key = $6,\n    record_version = $7\nWHERE tenant = $1 AND dataset_kind = $2\nRETURNING 1 AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e696bb2a490e72c9b74876e2337e35dd6ee0f3caceaefb190337314348b35443"
+}

@@ -1,4 +1,7 @@
+//! Immutable calendar and epoch versions.
 use super::*;
+
+const MAX_CALENDAR_BYTES: usize = 64 * 1024;
 
 impl TimePersistence {
     pub(crate) async fn create_time_calendar_version(
@@ -6,42 +9,34 @@ impl TimePersistence {
         draft: TimeCalendarVersionDraft,
     ) -> Result<TimeCalendarVersionRecord, PersistenceError> {
         validate_key("calendar_key", &draft.calendar_key, "calendar-")?;
-        validate_positive("calendar_version", draft.calendar_version.get() as i64)?;
         validate_text("name", &draft.name, 256)?;
         validate_zone_id(&draft.zone_id)?;
-        if draft.canonical_json.len() > 64 * 1024 {
+        validate_body(&draft.body)?;
+        if body_bytes(&draft.body) > MAX_CALENDAR_BYTES {
             return Err(invalid("calendar", "must fit the 64 KiB resource limit"));
         }
-        validate_json(&draft.canonical_json)?;
-        let now = Utc::now();
-        let record_key = format!("{}:{}", draft.calendar_key, draft.calendar_version.get());
-        let content = TimeCalendarVersionContent {
-            provenance: TimeProvenanceRecord::new(&draft.identity, &draft.work_context),
-            tenant: draft.identity.tenant_id.record_id(),
-            owner: draft.identity.principal_id.record_id(),
-            calendar_key: draft.calendar_key.to_string(),
-            calendar_version: draft.calendar_version.get() as i64,
-            name: draft.name,
-            zone_id: draft.zone_id,
-            state: draft.state,
-            canonical_json: draft.canonical_json,
-            created_at: now,
-            updated_at: now,
-        };
-        create_only(
-            self,
-            time_record("time_calendar_version", &record_key),
-            content,
+        sqlx::query_file_as!(
+            TimeCalendarVersionRecord,
+            "src/persistence/queries/insert_calendar_version.sql",
+            draft.identity.tenant_id as TenantId,
+            &draft.calendar_key as &CalendarId,
+            version(draft.calendar_version),
+            draft.identity.principal_id as PrincipalId,
+            draft.name,
+            draft.zone_id,
+            draft.state as TimeCalendarState,
+            draft.body,
+            draft.identity.tenant_key,
+            draft.identity.principal_key,
+            draft.work_context.as_str(),
         )
-        .await?;
-        self.time_calendar_version(
-            draft.identity.tenant_id,
-            &draft.calendar_key,
-            draft.calendar_version,
-        )
+        .fetch_optional(&self.pool)
         .await?
-        .ok_or(PersistenceError::MissingRecord {
-            operation: "time calendar creation readback",
+        .ok_or_else(|| {
+            conflict(
+                "calendar version",
+                format!("{}@{}", draft.calendar_key, draft.calendar_version.get()),
+            )
         })
     }
 
@@ -49,19 +44,18 @@ impl TimePersistence {
         &self,
         tenant_id: TenantId,
         calendar_key: &CalendarId,
-        version: TimeVersion,
+        calendar_version: TimeVersion,
     ) -> Result<Option<TimeCalendarVersionRecord>, PersistenceError> {
         validate_key("calendar_key", calendar_key, "calendar-")?;
-
-        select_one(
-            self,
-            time_record(
-                "time_calendar_version",
-                format!("{calendar_key}:{}", version.get()),
-            ),
-            tenant_id,
+        Ok(sqlx::query_file_as!(
+            TimeCalendarVersionRecord,
+            "src/persistence/queries/calendar_version.sql",
+            tenant_id as TenantId,
+            calendar_key as &CalendarId,
+            version(calendar_version),
         )
-        .await
+        .fetch_optional(&self.pool)
+        .await?)
     }
 
     pub(crate) async fn create_time_epoch(
@@ -70,32 +64,29 @@ impl TimePersistence {
     ) -> Result<TimeEpochRecord, PersistenceError> {
         validate_key("epoch_key", &draft.epoch_key, "epoch-")?;
         validate_text("name", &draft.name, 256)?;
-        validate_positive("epoch_version", draft.epoch_version.get() as i64)?;
-        validate_json(&draft.canonical_json)?;
-        let now = Utc::now();
-        let record_key = format!("{}:{}", draft.epoch_key, draft.epoch_version.get());
-        let content = TimeEpochContent {
-            provenance: TimeProvenanceRecord::new(&draft.identity, &draft.work_context),
-            tenant: draft.identity.tenant_id.record_id(),
-            owner: draft.identity.principal_id.record_id(),
-            epoch_key: draft.epoch_key.to_string(),
-            name: draft.name,
-            epoch_version: draft.epoch_version.get() as i64,
-            tai_seconds_since_1970: draft.tai_seconds_since_1970,
-            nanosecond: i64::from(draft.nanosecond.get()),
-            canonical_json: draft.canonical_json,
-            created_at: now,
-            updated_at: now,
-        };
-        create_only(self, time_record("time_epoch", &record_key), content).await?;
-        self.time_epoch(
-            draft.identity.tenant_id,
-            &draft.epoch_key,
-            draft.epoch_version,
+        validate_body(&draft.body)?;
+        sqlx::query_file_as!(
+            TimeEpochRecord,
+            "src/persistence/queries/insert_epoch.sql",
+            draft.identity.tenant_id as TenantId,
+            &draft.epoch_key as &EpochId,
+            version(draft.epoch_version),
+            draft.identity.principal_id as PrincipalId,
+            draft.name,
+            draft.tai_seconds_since_1970,
+            nanosecond(draft.nanosecond),
+            draft.body,
+            draft.identity.tenant_key,
+            draft.identity.principal_key,
+            draft.work_context.as_str(),
         )
+        .fetch_optional(&self.pool)
         .await?
-        .ok_or(PersistenceError::MissingRecord {
-            operation: "time epoch creation readback",
+        .ok_or_else(|| {
+            conflict(
+                "epoch version",
+                format!("{}@{}", draft.epoch_key, draft.epoch_version.get()),
+            )
         })
     }
 
@@ -103,33 +94,29 @@ impl TimePersistence {
         &self,
         tenant_id: TenantId,
         epoch_key: &EpochId,
-        version: TimeVersion,
+        epoch_version: TimeVersion,
     ) -> Result<Option<TimeEpochRecord>, PersistenceError> {
         validate_key("epoch_key", epoch_key, "epoch-")?;
-
-        select_one(
-            self,
-            time_record("time_epoch", format!("{epoch_key}:{}", version.get())),
-            tenant_id,
+        Ok(sqlx::query_file_as!(
+            TimeEpochRecord,
+            "src/persistence/queries/epoch_version.sql",
+            tenant_id as TenantId,
+            epoch_key as &EpochId,
+            version(epoch_version),
         )
-        .await
+        .fetch_optional(&self.pool)
+        .await?)
     }
 
-    /// Read the latest version of one tenant epoch without loading other epochs.
+    /// The latest version of one tenant epoch.
     pub(crate) async fn latest_time_epoch(
         &self,
         tenant_id: TenantId,
         epoch_key: &EpochId,
     ) -> Result<Option<TimeEpochRecord>, PersistenceError> {
-        validate_key("epoch_key", epoch_key, "epoch-")?;
-        let mut response = self
-            .client()
-            .query(include_str!("queries/latest_epoch.surql"))
-            .bind(("tenant", tenant_id.record_id()))
-            .bind(("key", epoch_key.to_string()))
+        Ok(self
+            .latest_time_epochs(tenant_id, std::slice::from_ref(epoch_key))
             .await?
-            .check()?;
-        let rows: Vec<TimeEpochRecord> = response.take(0)?;
-        Ok(rows.into_iter().next())
+            .pop())
     }
 }

@@ -40,7 +40,9 @@ use crate::persistence::{
     TimeEventState as StoreEventState, TimePersistence, TimeSourceDraft,
 };
 use anyhow::{Context, Result, bail};
-use veoveo_platform_store::{PlatformIdentity, PlatformStore};
+use chrono::{DateTime, Utc};
+use sqlx::PgPool;
+use veoveo_platform_store::PlatformIdentity;
 
 use crate::contract::{
     AuthorityRelease, AuthorityReleaseState, CalendarId, Epoch, Event, EventId, EventState,
@@ -66,9 +68,9 @@ pub struct TimeCatalog {
 }
 
 impl TimeCatalog {
-    pub fn new(store: PlatformStore) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self {
-            persistence: TimePersistence::new(store),
+            persistence: TimePersistence::new(pool),
         }
     }
 
@@ -101,7 +103,7 @@ impl TimeCatalog {
             record_version: crate::TimeVersion::FIRST,
         }
         .build()?;
-        let canonical_json = serde_json::to_string(&source)?;
+        let body = serde_json::to_value(&source)?;
         let record = self
             .persistence
             .create_time_source(TimeSourceDraft {
@@ -112,7 +114,7 @@ impl TimeCatalog {
                 source_url: source.url.clone(),
                 expected_content_type: source.expected_content_type.clone(),
                 enabled: source.enabled,
-                canonical_json,
+                body,
             })
             .await?;
         source_from_record(record)
@@ -127,7 +129,7 @@ impl TimeCatalog {
         let mut source = crate::TimeSourceValue::from(source);
         source.record_version = expected.checked_next()?;
         let source = source.build()?;
-        let canonical_json = serde_json::to_string(&source)?;
+        let body = serde_json::to_value(&source)?;
         let record = self
             .persistence
             .replace_time_source(
@@ -139,7 +141,7 @@ impl TimeCatalog {
                     source_url: source.url.clone(),
                     expected_content_type: source.expected_content_type.clone(),
                     enabled: source.enabled,
-                    canonical_json,
+                    body,
                 },
                 expected,
             )
@@ -173,7 +175,7 @@ impl TimeCatalog {
         scope: &TimeAccessContext,
         release: AuthorityRelease,
     ) -> Result<AuthorityRelease> {
-        let canonical_json = serde_json::to_string(&release)?;
+        let body = serde_json::to_value(&release)?;
         let record = self
             .persistence
             .create_time_authority_release(TimeAuthorityReleaseDraft {
@@ -189,7 +191,7 @@ impl TimeCatalog {
                 artifact_path: release.artifact_path.clone(),
                 retrieved_at: release.retrieved_at,
                 validated_at: release.validated_at,
-                canonical_json,
+                body,
             })
             .await?;
         release_from_record(record)
@@ -289,7 +291,7 @@ impl TimeCatalog {
         idempotency_key: String,
     ) -> Result<TimeAcquisition> {
         veoveo_types::Check::check(&acquisition)?;
-        let canonical_json = serde_json::to_string(&acquisition)?;
+        let body = serde_json::to_value(&acquisition)?;
         let record = self
             .persistence
             .create_time_acquisition(TimeAcquisitionDraft {
@@ -301,7 +303,7 @@ impl TimeCatalog {
                 status: acquisition_state(acquisition.status),
                 phase: acquisition.phase,
                 staged_release_key: acquisition.staged_release_id.clone(),
-                canonical_json,
+                body,
             })
             .await?;
         acquisition_from_record(record)
@@ -379,7 +381,7 @@ impl TimeCatalog {
         );
         acquisition.record_version = next;
         acquisition.updated_at = chrono::Utc::now();
-        let canonical_json = serde_json::to_string(&acquisition)?;
+        let body = serde_json::to_value(&acquisition)?;
         let record = self
             .persistence
             .update_time_acquisition(TimeAcquisitionUpdate {
@@ -389,7 +391,7 @@ impl TimeCatalog {
                 status: acquisition_state(acquisition.status),
                 phase: acquisition.phase,
                 staged_release_key: acquisition.staged_release_id.clone(),
-                canonical_json,
+                body,
             })
             .await?;
         acquisition_from_record(record)
@@ -400,7 +402,7 @@ impl TimeCatalog {
         scope: &TimeAccessContext,
         calendar: OperationalCalendar,
     ) -> Result<OperationalCalendar> {
-        let canonical_json = serde_json::to_string(&calendar)?;
+        let body = serde_json::to_value(&calendar)?;
         let record = self
             .persistence
             .create_time_calendar_version(TimeCalendarVersionDraft {
@@ -411,7 +413,7 @@ impl TimeCatalog {
                 name: calendar.name.clone(),
                 zone_id: calendar.zone_id.clone(),
                 state: TimeCalendarState::Active,
-                canonical_json,
+                body,
             })
             .await?;
         calendar_from_record(record)
@@ -431,7 +433,7 @@ impl TimeCatalog {
     }
 
     pub async fn create_epoch(&self, scope: &TimeAccessContext, epoch: Epoch) -> Result<Epoch> {
-        let canonical_json = serde_json::to_string(&epoch)?;
+        let body = serde_json::to_value(&epoch)?;
         let record = self
             .persistence
             .create_time_epoch(TimeEpochDraft {
@@ -442,7 +444,7 @@ impl TimeCatalog {
                 epoch_version: epoch.version,
                 tai_seconds_since_1970: epoch.instant.tai_seconds_since_1970,
                 nanosecond: epoch.instant.nanosecond,
-                canonical_json,
+                body,
             })
             .await?;
         epoch_from_record(record)
@@ -460,13 +462,16 @@ impl TimeCatalog {
             .transpose()
     }
 
+    /// Record an event that becomes due at `due`, the UTC instant of its TAI coordinate
+    /// under the active authority. The due loop compares it with the database clock.
     pub async fn create_event(
         &self,
         scope: &TimeAccessContext,
         event: Event,
+        due: DateTime<Utc>,
         idempotency_key: String,
     ) -> Result<Event> {
-        let canonical_json = serde_json::to_string(&event)?;
+        let body = serde_json::to_value(&event)?;
         let record = self
             .persistence
             .create_time_event(TimeEventDraft {
@@ -477,8 +482,9 @@ impl TimeCatalog {
                 state: event_state(event.state),
                 due_tai_seconds_since_1970: event.due.tai_seconds_since_1970,
                 due_nanosecond: event.due.nanosecond,
+                due,
                 idempotency_key,
-                canonical_json,
+                body,
             })
             .await?;
         event_from_record(record)
@@ -508,35 +514,21 @@ impl TimeCatalog {
                 id,
                 expected,
                 StoreEventState::Cancelled,
-                serde_json::to_string(&event)?,
+                serde_json::to_value(&event)?,
             )
             .await?;
         event_from_record(record)
     }
 
-    pub async fn mark_event_due(
-        &self,
-        scope: &TimeAccessContext,
-        id: &EventId,
-        expected: crate::TimeVersion,
-    ) -> Result<Event> {
-        let mut event = self.event(scope, id).await?.context("unknown event")?;
-        if event.state != EventState::Scheduled {
-            return Ok(event);
-        }
-        event.state = EventState::Due;
-        event.record_version = expected.checked_next()?;
-        let record = self
-            .persistence
-            .transition_time_event(
-                &scope.identity,
-                id,
-                expected,
-                StoreEventState::Due,
-                serde_json::to_string(&event)?,
-            )
-            .await?;
-        event_from_record(record)
+    /// Move every scheduled event whose instant has passed to due and return them. Each
+    /// event changes once, whichever replica runs it.
+    pub(crate) async fn mark_due_events(&self) -> Result<Vec<crate::persistence::DueEvent>> {
+        Ok(self.persistence.mark_due_events().await?)
+    }
+
+    /// The earliest scheduled due instant and the database clock.
+    pub(crate) async fn next_due_event(&self) -> Result<crate::persistence::NextDue> {
+        Ok(self.persistence.next_due_event().await?)
     }
 }
 

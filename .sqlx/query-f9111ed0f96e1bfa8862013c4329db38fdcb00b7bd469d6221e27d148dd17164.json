@@ -1,0 +1,174 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    epoch_key AS \"epoch_key: EpochId\",\n    epoch_version,\n    owner AS \"owner: PrincipalId\",\n    name,\n    tai_seconds_since_1970,\n    nanosecond,\n    body,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.epoch\nWHERE tenant = $1 AND epoch_key = $2 AND epoch_version = $3\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant: TenantId",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "tenant"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "epoch_key: EpochId",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "epoch_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "epoch_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "epoch_version"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "owner: PrincipalId",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "owner"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "tai_seconds_since_1970",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "tai_seconds_since_1970"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "nanosecond",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "nanosecond"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "body",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "tenant_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "tenant_key"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "owner_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "owner_key"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "work_context",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "work_context"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f9111ed0f96e1bfa8862013c4329db38fdcb00b7bd469d6221e27d148dd17164"
+}

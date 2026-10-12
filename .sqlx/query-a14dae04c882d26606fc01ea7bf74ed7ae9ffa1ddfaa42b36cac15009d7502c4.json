@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Set the stored subsecond column of an epoch or an event, bypassing the catalog.\nWITH\n    p AS (\n        UPDATE time.epoch SET nanosecond = $4\n        WHERE $1::text = 'epoch' AND tenant = $2 AND epoch_key = $3 RETURNING 1\n    ),\n    e AS (\n        UPDATE time.event SET due_nanosecond = $4\n        WHERE $1 = 'event' AND tenant = $2 AND event_key = $3 RETURNING 1\n    )\nSELECT ((SELECT count(*) FROM p) + (SELECT count(*) FROM e)) AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a14dae04c882d26606fc01ea7bf74ed7ae9ffa1ddfaa42b36cac15009d7502c4"
+}

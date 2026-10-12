@@ -1,2 +1,0 @@
-DELETE $record; CREATE ONLY $moved CONTENT $content
-RETURN NONE;

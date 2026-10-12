@@ -3,34 +3,35 @@ mod config;
 mod registration;
 pub(crate) mod tasks;
 
-use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 use veoveo_mcp_contract::{
-    SubscriptionHub, TelemetryGuard,
+    PublicDeployment, TelemetryGuard,
     hosting::{Hosted, HostedServer},
     init_server_telemetry,
 };
-use veoveo_task_runtime::{
-    DurableTasks, StoreAuthLevel, TaskRecoveryObserver, TaskRuntime, TaskRuntimeConfig,
-};
+use veoveo_mcp_ext_registration::client::Registration;
+use veoveo_task_runtime::{DurableTasks, TaskRuntime, TaskRuntimeConfig};
 
 use crate::{
     acquisition::{AcquisitionService, AcquisitionServiceConfig},
     authority::{AuthorityContext, LeapSecondTable},
     catalog::TimeCatalog,
+    changes::{self, ChangeWatcher, TenantSubscriptions},
     clock::{ClockMonitor, ClockSource},
     contract::{AuthorityDatasetKind, EffectiveTimeAuthority},
+    due::run_due_events,
     mcp::{TimeMcp, TimeSubscriptions, declarations},
     registry::AuthorityRegistry,
     state::TimeApplication,
 };
 
 use config::Args;
-use tasks::{TimeTaskExtension, recover_tasks};
-
-const SERVER_SLUG: &str = "time";
+use tasks::TimeTaskExtension;
 
 pub async fn run() -> Result<()> {
     install_rustls_provider();
@@ -45,24 +46,43 @@ pub async fn run() -> Result<()> {
         .map_err(|_| anyhow::anyhow!("Time's registration was declared twice"))?;
     std::sync::LazyLock::force(&crate::mcp::SERVER_SETUP);
     let (registration_client, registration) = registration::register(&args, declaration).await?;
-    let database = registration
+    let served = serve(&args, &public_deployment, &registration).await;
+    // The Gateway keeps a registration until Time removes it, which also drops the login.
+    if let Err(error) = registration_client.deregister(registration).await {
+        tracing::warn!(%error, "Time could not remove its registration");
+    }
+    served
+}
+
+/// Connect with the registration's database login, migrate Time's schema and serve until
+/// SIGTERM or Ctrl-C, or until the process instance loses its lock.
+async fn serve(
+    args: &Args,
+    public_deployment: &PublicDeployment,
+    registration: &Registration,
+) -> Result<()> {
+    let grant = registration
         .database()
-        .context("the Gateway issued no database user for Time's module")?;
+        .context("the Gateway issued no database login for Time")?;
+    // The runtime opens the pool for the registration's login and starts this process's
+    // instance, which owns the Tasks it claims.
     let tasks = TaskRuntime::connect(
         TaskRuntimeConfig::new(
-            database.endpoint.as_str().trim_end_matches('/'),
-            database.namespace.as_str(),
-            database.database.as_str(),
-            StoreAuthLevel::Database,
-            database.username.as_str(),
-            database.password.clone(),
-        ),
-        SERVER_SLUG,
-        format!("{SERVER_SLUG}-{}", uuid::Uuid::now_v7()),
+            grant.url.as_str(),
+            grant.username.as_str(),
+            grant.password.clone(),
+        )?,
+        changes::server(),
     )
-    .await?;
-    let recovery = tasks.observe_startup_recovery().await?;
-    let catalog = TimeCatalog::new(tasks.platform_store().clone());
+    .await
+    .context("connecting to the installation database")?;
+    let store = tasks.platform_store().clone();
+    store
+        .migrate_server(&changes::server(), crate::persistence::migrator())
+        .await
+        .context("applying Time's migrations")?;
+    let instance = tasks.instance().clone();
+    let catalog = TimeCatalog::new(store.pool().clone());
     let leap_seconds = LeapSecondTable::from_path(&args.bootstrap_leap_seconds_file).await?;
     let bootstrap = AuthorityContext::from_paths(
         EffectiveTimeAuthority::new(
@@ -102,53 +122,41 @@ pub async fn run() -> Result<()> {
         catalog.clone(),
     )?);
     let state = Arc::new(TimeApplication {
+        store: store.clone(),
         tasks,
-        catalog,
-        authorities,
+        catalog: catalog.clone(),
+        authorities: authorities.clone(),
         clock,
         acquisitions,
-        subscriptions: Arc::new(SubscriptionHub::new()),
-        event_watchers: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
+        subscriptions: Arc::new(TenantSubscriptions::default()),
     });
-    let recovery_state = state.clone();
-    let recovery_observer = TaskRecoveryObserver::start(recovery, move |report| {
-        let state = recovery_state.clone();
-        async move { recover_tasks(state, report.resumable).await }
-    })
-    .await?;
 
-    let resource_state = state.clone();
-    let _resource_observer = tokio::spawn(async move {
-        use crate::TimeObservationTable::*;
-        use futures::StreamExt;
-        let mut changes = resource_state.tasks.platform_store().resource_changes(vec![
-            TimeSource,
-            TimeAuthorityRelease,
-            TimeActiveAuthority,
-            TimeAcquisition,
-            TimeCalendarVersion,
-            TimeEpoch,
-            TimeEvent,
-            TimeClockPolicy,
-        ]);
-        while changes.next().await.is_some() {
-            resource_state.authorities.invalidate().await;
-            resource_state
-                .subscriptions
-                .notify_resource_contents_changed()
-                .await;
+    let stop = CancellationToken::new();
+    let wake_due = Arc::new(Notify::new());
+    let watching = tokio::spawn(
+        ChangeWatcher {
+            subscriptions: state.subscriptions.clone(),
+            authorities,
+            due: wake_due.clone(),
         }
-    });
+        .run(store.listen(vec![changes::channel()])),
+    );
+    let due = tokio::spawn(run_due_events(catalog, wake_due, stop.clone()));
+    let mut working = tokio::spawn(tasks::work(state.clone(), stop.clone()));
+
     let clock_state = state.clone();
-    let server = HostedServer::for_domain::<TimeMcp>()
-        .deployment(&public_deployment, args.allow_loopback_hosts)?
+    let handler_state = state.clone();
+    let hosted = HostedServer::for_domain::<TimeMcp>()
+        .deployment(public_deployment, args.allow_loopback_hosts)?
         .allowed_hosts(args.allowed_hosts.iter().cloned())
         .internal_trust(registration.access_tokens())?
         .handler(move || {
-            Hosted::new(TimeMcp::new(state.clone())).with_tasks(DurableTasks::with_resources(
-                TimeTaskExtension::new(state.clone()),
-                TimeSubscriptions::new(state.clone()),
-            ))
+            Hosted::new(TimeMcp::new(handler_state.clone())).with_tasks(
+                DurableTasks::with_listener(
+                    TimeTaskExtension::new(handler_state.clone()),
+                    TimeSubscriptions::new(handler_state.clone()),
+                ),
+            )
         })
         // Time serves only while it observes a clock.
         .readiness(move || {
@@ -156,23 +164,31 @@ pub async fn run() -> Result<()> {
             async move { state.clock.quality().await.is_ok() }
         })
         .build();
-    let (stop_registration, stopped) = tokio::sync::oneshot::channel::<()>();
-    let maintenance = tokio::spawn(async move {
-        registration_client
-            .maintain(registration, async {
-                let _ = stopped.await;
-            })
-            .await
-    });
-    let served = recovery_observer
-        .serve(server.serve(SocketAddr::from(([0, 0, 0, 0], args.port))))
-        .await;
-    let _ = stop_registration.send(());
-    match maintenance.await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => tracing::warn!(%error, "Time's registration ended with an error"),
-        Err(error) => tracing::warn!(%error, "Time's registration task failed"),
+    // Serving ends on SIGTERM or Ctrl-C, or when Time can no longer claim Tasks, which
+    // includes the loss of its instance lock.
+    let served = tokio::select! {
+        served = hosted.serve(SocketAddr::from(([0, 0, 0, 0], args.port))) => served,
+        worked = &mut working => match worked {
+            Ok(Ok(())) => Err(anyhow::anyhow!("Time's Task consumer stopped")),
+            Ok(Err(error)) => Err(error.context("Time stopped claiming Tasks")),
+            Err(error) => Err(anyhow::Error::from(error).context("Time's Task consumer failed")),
+        },
+    };
+    stop.cancel();
+    watching.abort();
+    let _ = due.await;
+    if !working.is_finished() {
+        let _ = working.await;
     }
+    drop(state);
+    // The instance deletes its row when no worker holds it any longer; otherwise its
+    // connection closes with the process and another instance reaps the row.
+    if let Ok(instance) = Arc::try_unwrap(instance)
+        && let Err(error) = instance.shutdown().await
+    {
+        tracing::warn!(%error, "Time's process instance did not stop cleanly");
+    }
+    store.close().await;
     served
 }
 

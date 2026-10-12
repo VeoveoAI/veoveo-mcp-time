@@ -1,55 +1,53 @@
+//! Keyset pages over each collection, in the order its cursor encodes.
 use super::*;
-use crate::contract::{CalendarCursor, EpochCursor, EventCursor};
+use crate::contract::{AuthorityCursor, CalendarCursor, EpochCursor, EventCursor};
 
-fn validate_limit(limit: u32) -> Result<(), PersistenceError> {
+fn validate_limit(limit: u32) -> Result<i64, PersistenceError> {
     if !(1..=101).contains(&limit) {
         return Err(invalid("limit", "must be in 1..=101"));
     }
-    Ok(())
+    Ok(i64::from(limit))
 }
 
 impl TimePersistence {
     pub(crate) async fn time_authority_releases_page(
         &self,
         tenant: TenantId,
-        after: Option<&crate::AuthorityCursor>,
+        after: Option<&AuthorityCursor>,
+        limit: u32,
     ) -> Result<Vec<TimeAuthorityReleaseRecord>, PersistenceError> {
-        let mut result = self
-            .client()
-            .query(include_str!("queries/release_page.surql"))
-            .bind(("tenant", tenant.record_id()))
-            .bind(("after", after.map(|cursor| cursor.release_id().to_string())))
-            .await?
-            .check()?;
-        Ok(result.take(0)?)
+        let limit = validate_limit(limit)?;
+        Ok(sqlx::query_file_as!(
+            TimeAuthorityReleaseRecord,
+            "src/persistence/queries/release_page.sql",
+            tenant as TenantId,
+            after.map(AuthorityCursor::release_id) as Option<&AuthorityReleaseId>,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
+
     pub(crate) async fn list_time_calendar_versions(
         &self,
         tenant_id: TenantId,
         after: Option<&CalendarCursor>,
         limit: u32,
     ) -> Result<Vec<TimeCalendarVersionRecord>, PersistenceError> {
-        validate_limit(limit)?;
+        let limit = validate_limit(limit)?;
         if let Some(after) = after {
             validate_key("calendar_key", after.calendar_id(), "calendar-")?;
-            validate_positive("calendar_version", after.version().get() as i64)?;
         }
-        let mut response = self
-            .client()
-            .query(include_str!("queries/calendar_page.surql"))
-            .bind(("tenant", tenant_id.record_id()))
-            .bind((
-                "after_key",
-                after.map(|after| after.calendar_id().to_string()),
-            ))
-            .bind((
-                "after_version",
-                after.map(|after| after.version().get() as i64),
-            ))
-            .bind(("limit", limit))
-            .await?
-            .check()?;
-        Ok(response.take(0)?)
+        Ok(sqlx::query_file_as!(
+            TimeCalendarVersionRecord,
+            "src/persistence/queries/calendar_page.sql",
+            tenant_id as TenantId,
+            after.map(CalendarCursor::calendar_id) as Option<&CalendarId>,
+            after.map(|after| version(after.version())),
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     pub(crate) async fn list_time_epochs(
@@ -58,24 +56,20 @@ impl TimePersistence {
         after: Option<&EpochCursor>,
         limit: u32,
     ) -> Result<Vec<TimeEpochRecord>, PersistenceError> {
-        validate_limit(limit)?;
+        let limit = validate_limit(limit)?;
         if let Some(after) = after {
             validate_key("epoch_key", after.epoch_id(), "epoch-")?;
-            validate_positive("epoch_version", after.version().get() as i64)?;
         }
-        let mut response = self
-            .client()
-            .query(include_str!("queries/epoch_page.surql"))
-            .bind(("tenant", tenant_id.record_id()))
-            .bind(("after_key", after.map(|after| after.epoch_id().to_string())))
-            .bind((
-                "after_version",
-                after.map(|after| after.version().get() as i64),
-            ))
-            .bind(("limit", limit))
-            .await?
-            .check()?;
-        Ok(response.take(0)?)
+        Ok(sqlx::query_file_as!(
+            TimeEpochRecord,
+            "src/persistence/queries/epoch_page.sql",
+            tenant_id as TenantId,
+            after.map(EpochCursor::epoch_id) as Option<&EpochId>,
+            after.map(|after| version(after.version())),
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     pub(crate) async fn list_time_events(
@@ -85,29 +79,26 @@ impl TimePersistence {
         state: Option<TimeEventState>,
         limit: u32,
     ) -> Result<Vec<TimeEventRecord>, PersistenceError> {
-        validate_limit(limit)?;
+        let limit = validate_limit(limit)?;
         if let Some(after) = after {
             validate_key("event_key", after.event_id(), "event-")?;
         }
-        let mut response = self
-            .client()
-            .query(include_str!("queries/event_page.surql"))
-            .bind(("tenant", identity.tenant_id.record_id()))
-            .bind(("owner", identity.principal_id.record_id()))
-            .bind(("state", state))
-            .bind(("after_key", after.map(|after| after.event_id().to_string())))
-            .bind(("after_seconds", after.map(|after| after.tai_seconds())))
-            .bind((
-                "after_nanosecond",
-                after.map(|after| i64::from(after.nanosecond().get())),
-            ))
-            .bind(("limit", limit))
-            .await?
-            .check()?;
-        Ok(response.take(0)?)
+        Ok(sqlx::query_file_as!(
+            TimeEventRecord,
+            "src/persistence/queries/event_page.sql",
+            identity.tenant_id as TenantId,
+            identity.principal_id as PrincipalId,
+            state as Option<TimeEventState>,
+            after.map(EventCursor::tai_seconds),
+            after.map(|after| nanosecond(after.nanosecond())),
+            after.map(EventCursor::event_id) as Option<&EventId>,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
-    /// Fetch only the latest versions of up to 100 explicitly requested epochs.
+    /// The latest versions of up to 100 requested epochs.
     pub(crate) async fn latest_time_epochs(
         &self,
         tenant_id: TenantId,
@@ -122,16 +113,13 @@ impl TimePersistence {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
-        let mut response = self
-            .client()
-            .query(include_str!("queries/latest_epochs.surql"))
-            .bind(("tenant", tenant_id.record_id()))
-            .bind((
-                "keys",
-                keys.iter().map(ToString::to_string).collect::<Vec<_>>(),
-            ))
-            .await?
-            .check()?;
-        Ok(response.take(0)?)
+        Ok(sqlx::query_file_as!(
+            TimeEpochRecord,
+            "src/persistence/queries/latest_epochs.sql",
+            tenant_id as TenantId,
+            keys as &[EpochId],
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 }

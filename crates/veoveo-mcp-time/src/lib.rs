@@ -19,6 +19,10 @@ pub use contract::*;
 #[cfg(feature = "runtime")]
 pub mod acquisition;
 #[cfg(feature = "runtime")]
+pub mod changes;
+#[cfg(feature = "runtime")]
+pub mod due;
+#[cfg(feature = "runtime")]
 mod index;
 #[cfg(feature = "mcp")]
 pub mod mcp;
@@ -39,21 +43,4 @@ pub async fn run() -> anyhow::Result<()> {
 #[cfg(feature = "runtime")]
 mod persistence;
 #[cfg(all(test, feature = "runtime"))]
-use veoveo_test_fixtures::store as test_store;
-
-#[cfg(feature = "schema")]
-pub mod schema;
-
-#[cfg(feature = "schema")]
-pub mod observation;
-#[cfg(feature = "schema")]
-pub use observation::TimeObservationTable;
-
-#[cfg(all(test, feature = "runtime"))]
-async fn test_database(backend: test_store::StoreBackend) -> test_store::TestDb {
-    test_store::TestDb::with_backend_and_modules(
-        backend,
-        vec![schema::module_setup(test_store::module_lanes::execution("time").unwrap()).unwrap()],
-    )
-    .await
-}
+mod test_database;

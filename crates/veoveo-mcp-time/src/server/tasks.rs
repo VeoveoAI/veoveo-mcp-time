@@ -4,9 +4,10 @@ mod settlement;
 mod tests;
 
 use crate::contract::TimeTaskKind;
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, sync::Arc};
 use veoveo_types::TaskTypeDefinition;
 
+use futures::StreamExt;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -23,12 +24,8 @@ use crate::{
     state::TimeApplication,
 };
 
-const SERVER_SLUG: &str = "time";
-
 const TASK_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 const TASK_POLL_INTERVAL_MS: u64 = 1_000;
-const TASK_LEASE_DURATION: Duration = Duration::from_secs(120);
-const TASK_LEASE_HEARTBEAT: Duration = Duration::from_secs(40);
 
 #[derive(Clone)]
 pub(crate) struct TimeTaskExtension {
@@ -95,14 +92,9 @@ impl veoveo_task_runtime::DurableTaskService for TimeTaskExtension {
                 None => return Ok(None),
             };
         let retention_pins = veoveo_task_runtime::retention_pins(request.meta.as_ref())?;
-        let snapshot = start_time_task(
-            self.state.clone(),
-            caller.identity.clone(),
-            task,
-            retention_pins,
-        )
-        .await
-        .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+        let snapshot = create_time_task(&self.state, &caller.identity, task, retention_pins)
+            .await
+            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
         Ok(Some(rmcp::model::CreateTaskResult::new(
             veoveo_task_runtime::task_seed(&snapshot),
         )))
@@ -157,41 +149,19 @@ impl veoveo_task_runtime::DurableTaskService for TimeTaskExtension {
     }
 }
 
-pub(super) async fn recover_tasks(
-    state: Arc<TimeApplication>,
-    resumable: Vec<TaskSnapshot>,
-) -> anyhow::Result<()> {
-    for snapshot in resumable {
-        if TimeTaskKind::from_name(&snapshot.task_type).is_none() {
-            anyhow::bail!("unknown resumable Time task type `{}`", snapshot.task_type);
-        }
-        let request: TimeTaskRequest = serde_json::from_value(snapshot.request.clone())?;
-        if request.task_type() != snapshot.task_type {
-            anyhow::bail!("Time task type does not match its persisted request");
-        }
-        let admitted = snapshot.clone();
-        if let Err(error) = schedule_time_task(state.clone(), snapshot, request).await {
-            state
-                .tasks
-                .reconcile_recovery_claim(&admitted, error)
-                .await?;
-        }
-    }
-    Ok(())
-}
-
-async fn start_time_task(
-    state: Arc<TimeApplication>,
-    identity: GatewayInternalIdentity,
+/// Queue a Task. A replica's work stream claims and runs it.
+async fn create_time_task(
+    state: &TimeApplication,
+    identity: &GatewayInternalIdentity,
     request: TimeTaskRequest,
     retention_pins: BTreeSet<TaskRetentionPin>,
 ) -> anyhow::Result<TaskSnapshot> {
-    let created = state
+    Ok(state
         .tasks
         .create(CreateTask {
             task_id: TaskId::new(),
-            owner: runtime_owner(&identity),
-            server: SERVER_SLUG.to_owned(),
+            owner: runtime_owner(identity),
+            server: state.tasks.server().clone(),
             task_type: request.task_type(),
             request: serde_json::to_value(&request)?,
             recovery_class: RecoveryClass::Resume,
@@ -200,18 +170,58 @@ async fn start_time_task(
             poll_interval_ms: Some(TASK_POLL_INTERVAL_MS),
             retention_pins,
         })
-        .await?;
-    schedule_time_task(state, created.snapshot, request).await
+        .await?
+        .snapshot)
 }
 
-async fn schedule_time_task(
+/// Run every Task this process's instance claims until `stop` is cancelled. A Task
+/// whose instance died returns to the queue, so a replica claims and resumes it here.
+/// The claim stream fails when the instance loses its lock, and so does this consumer.
+pub(super) async fn work(
+    state: Arc<TimeApplication>,
+    stop: CancellationToken,
+) -> anyhow::Result<()> {
+    let mut claimed = state.tasks.work().await?;
+    loop {
+        let next = tokio::select! {
+            () = stop.cancelled() => return Ok(()),
+            next = claimed.next() => next,
+        };
+        let snapshot = next.ok_or_else(|| anyhow::anyhow!("the Task claim stream ended"))??;
+        if let Err(error) = execute(state.clone(), snapshot, stop.child_token()).await {
+            tracing::warn!(%error, "Time could not start a claimed Task");
+        }
+        state.tasks.reap_workers().await;
+    }
+}
+
+/// Start the worker of one claimed Task. A request this version cannot read fails the
+/// Task instead of leaving it claimed.
+async fn execute(
     state: Arc<TimeApplication>,
     snapshot: TaskSnapshot,
-    request: TimeTaskRequest,
-) -> anyhow::Result<TaskSnapshot> {
+    cancellation: CancellationToken,
+) -> anyhow::Result<()> {
     let task_id = snapshot.task_id;
-    let claimed = state.tasks.claim(task_id, TASK_LEASE_DURATION).await?;
-    let cancellation = CancellationToken::new();
+    let request = serde_json::from_value::<TimeTaskRequest>(snapshot.request.clone())
+        .ok()
+        .filter(|request| {
+            TimeTaskKind::from_name(&snapshot.task_type).is_some()
+                && request.task_type() == snapshot.task_type
+        });
+    let Some(request) = request else {
+        settlement::update(
+            &state.tasks,
+            task_id,
+            TaskTransition::Failed(TaskFailure::new(
+                "unsupported_time_task",
+                "the Task type or request is not a Time calculation",
+            )),
+            &cancellation,
+        )
+        .await?;
+        return Ok(());
+    };
     let join = tokio::spawn(run_time_task(
         state.clone(),
         task_id,
@@ -223,7 +233,7 @@ async fn schedule_time_task(
         .tasks
         .register_worker(task_id, cancellation, join)
         .await?;
-    Ok(claimed.snapshot)
+    Ok(())
 }
 
 async fn run_time_task(
@@ -234,29 +244,18 @@ async fn run_time_task(
     cancellation: CancellationToken,
 ) {
     let mut calculation = calculation::Calculation::new(&cancellation);
+    if let Err(error) = run_time_task_inner(
+        state,
+        task_id,
+        owner,
+        request,
+        cancellation,
+        &mut calculation,
+    )
+    .await
     {
-        let work = run_time_task_inner(
-            state.clone(),
-            task_id,
-            owner,
-            request,
-            cancellation.clone(),
-            &mut calculation,
-        );
-        tokio::pin!(work);
-        let mut heartbeat = tokio::time::interval(TASK_LEASE_HEARTBEAT);
-        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        heartbeat.tick().await;
-        loop {
-            tokio::select! { result = &mut work => {
-                if let Err(error) = result {
-                    tracing::warn!(%task_id, "Time task execution did not settle: {error}");
-                }
-                break;
-            }, _ = heartbeat.tick() => { if let Err(error) = state.tasks.renew_lease(task_id, TASK_LEASE_DURATION).await { tracing::warn!(%task_id, "Time task lease heartbeat failed: {error}"); cancellation.cancel(); break; } } }
-        }
+        tracing::warn!(%task_id, "Time task execution did not settle: {error}");
     }
-    // A failed heartbeat drops the async work, but never its original CPU job.
     // Cooperative stop and join complete before this registered worker exits.
     calculation.stop_and_drain().await;
 }
@@ -342,7 +341,7 @@ async fn run_time_task_inner(
         return Ok(());
     }
     // Shutdown can cancel a local worker without a durable cancellation request.
-    // Stop publication and let the retained lease follow Resume recovery.
+    // Stop publication and leave the Task to its instance's recovery.
     if settlement::local_stop(&state.tasks, task_id, &cancellation).await? {
         return Ok(());
     }
@@ -424,21 +423,16 @@ async fn update_task(
 
 fn runtime_owner(identity: &GatewayInternalIdentity) -> TaskOwner {
     TaskOwner {
-        principal_key: identity.actor.id.to_string(),
+        principal_key: identity.actor.id.clone(),
         principal_kind: match identity.actor.kind {
             PrincipalKind::User => veoveo_task_runtime::PrincipalKind::User,
             PrincipalKind::Service => veoveo_task_runtime::PrincipalKind::Service,
         },
-        issuer: identity.actor.issuer.to_string(),
-        subject: identity.actor.subject.to_string(),
-        profile: identity.profile.to_string(),
-        tenant_key: identity.actor.tenant.as_ref().map(ToString::to_string),
-        data_labels: identity
-            .actor
-            .data_labels
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        issuer: identity.actor.issuer.clone(),
+        subject: identity.actor.subject.clone(),
+        profile: identity.profile.clone(),
+        tenant_key: identity.actor.tenant.clone(),
+        data_labels: identity.actor.data_labels.clone(),
         authority: identity.authority.clone(),
     }
 }

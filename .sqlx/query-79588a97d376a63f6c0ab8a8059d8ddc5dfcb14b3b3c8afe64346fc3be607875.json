@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Set the record version of one row, chosen by table name and key, bypassing the\n-- catalog. The schema's checks still apply.\nWITH\n    s AS (\n        UPDATE time.source SET record_version = $4\n        WHERE $1::text = 'source' AND tenant = $2 AND source_key = $3 RETURNING 1\n    ),\n    r AS (\n        UPDATE time.authority_release SET record_version = $4\n        WHERE $1 = 'authority_release' AND tenant = $2 AND release_key = $3 RETURNING 1\n    ),\n    a AS (\n        UPDATE time.acquisition SET record_version = $4\n        WHERE $1 = 'acquisition' AND tenant = $2 AND acquisition_key = $3 RETURNING 1\n    ),\n    e AS (\n        UPDATE time.event SET record_version = $4\n        WHERE $1 = 'event' AND tenant = $2 AND event_key = $3 RETURNING 1\n    ),\n    p AS (\n        UPDATE time.clock_policy SET record_version = $4\n        WHERE $1 = 'clock_policy' AND tenant = $2 RETURNING 1\n    )\nSELECT (\n    (SELECT count(*) FROM s) + (SELECT count(*) FROM r) + (SELECT count(*) FROM a)\n    + (SELECT count(*) FROM e) + (SELECT count(*) FROM p)\n) AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "79588a97d376a63f6c0ab8a8059d8ddc5dfcb14b3b3c8afe64346fc3be607875"
+}

@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    source_key AS \"source_key: TimeSourceId\",\n    owner AS \"owner: PrincipalId\",\n    name,\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    source_url,\n    expected_content_type,\n    enabled,\n    body,\n    record_version,\n    created_at,\n    updated_at\nFROM time.source\nWHERE tenant = $1\nORDER BY name, source_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant: TenantId",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "tenant"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "source_key: TimeSourceId",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "owner: PrincipalId",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "owner"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "dataset_kind: TimeDatasetKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "dataset_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "source_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "source_url"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "expected_content_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "expected_content_type"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "body",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "record_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "record_version"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "\"time\".source",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f459c8ebc6ef25000034ab7f5dd37adbe347087e8b8c78296d05f82e01ae46ec"
+}

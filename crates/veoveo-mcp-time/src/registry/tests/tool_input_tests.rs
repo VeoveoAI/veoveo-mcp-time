@@ -274,8 +274,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                 let result: rmcp::model::CallToolResult =
                     serde_json::from_value(body["result"].clone()).unwrap();
                 assert_eq!(result.is_error, Some(true), "{}: {body}", case.branch);
-                assert!(state.tasks.list().await.unwrap().is_empty());
-                assert!(state.event_watchers.lock().await.is_empty());
+                assert!(state.tasks.claim_next().await.unwrap().is_none());
             }
             for (location, arguments) in case
                 .unknown_fields()
@@ -309,8 +308,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                 case.assert_error(&location, &serde_json::to_string(&result.content).unwrap());
             }
         }
-        assert!(state.tasks.list().await.unwrap().is_empty());
-        assert!(state.event_watchers.lock().await.is_empty());
+        assert!(state.tasks.claim_next().await.unwrap().is_none());
     })
     .await
     .expect("Time argument admission exceeded 120 seconds");

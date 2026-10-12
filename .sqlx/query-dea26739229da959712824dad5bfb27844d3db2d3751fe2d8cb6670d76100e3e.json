@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Activations of one tenant run one at a time. The transaction lock covers pointers that\n-- do not exist yet, which row locks cannot.\nSELECT true AS \"locked!\"\nFROM pg_advisory_xact_lock(hashtext('time.active_authority'), hashtext($1::uuid::text))\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "locked!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dea26739229da959712824dad5bfb27844d3db2d3751fe2d8cb6670d76100e3e"
+}

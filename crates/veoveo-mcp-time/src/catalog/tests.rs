@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
+
 use crate::catalog::TimeCompletion;
 use crate::persistence::{TimeEpochDraft, TimeEventState as StoredEventState, TimePersistence};
 use crate::{
@@ -42,6 +44,11 @@ fn instant() -> TimeInstant {
     }
 }
 
+/// A UTC due instant far enough ahead that no event of a catalog test becomes due.
+fn later() -> DateTime<Utc> {
+    Utc::now() + chrono::TimeDelta::days(1)
+}
+
 async fn event(catalog: &TimeCatalog, owner: &TimeAccessContext, key: &str) -> Event {
     catalog
         .create_event(
@@ -53,6 +60,7 @@ async fn event(catalog: &TimeCatalog, owner: &TimeAccessContext, key: &str) -> E
                 state: EventState::Scheduled,
                 record_version: crate::TimeVersion::new(1).unwrap(),
             },
+            later(),
             key.into(),
         )
         .await
@@ -62,12 +70,12 @@ async fn event(catalog: &TimeCatalog, owner: &TimeAccessContext, key: &str) -> E
 #[tokio::test]
 async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
     // This is native Store qualification; no reference installation or GPU is required.
-    let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+    let db = crate::test_database::TimeDb::new().await;
     tokio::time::timeout(Duration::from_secs(90), async {
         let owner = scope(&db.a, "time-query-test", "owner").await;
         let peer = scope(&db.a, "time-query-test", "peer").await;
         let foreign = scope(&db.a, "time-query-other", "owner").await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let catalog = TimeCatalog::new(db.b.pool().clone());
 
         for i in 0..102 {
             event(
@@ -98,14 +106,14 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .unwrap()
                 .is_none()
         );
-        let own = TimePersistence::new(db.a.clone())
+        let own = TimePersistence::new(db.a.pool().clone())
             .list_time_events(&owner.identity, None, None, 101)
             .await
             .unwrap();
         assert_eq!(own.len(), 101);
         assert!(
             own.iter()
-                .all(|row| row.owner == owner.identity.principal_id.record_id())
+                .all(|row| row.owner == owner.identity.principal_id)
         );
         let page = catalog.events_page(&owner, None, None).await.unwrap();
         assert_eq!(page.limit, 100);
@@ -139,13 +147,13 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
         );
         // A persistence caller cannot bypass the same owner predicate on a transition.
         assert!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .transition_time_event(
                     &owner.identity,
                     &peer_event,
                     crate::TimeVersion::FIRST,
                     StoredEventState::Cancelled,
-                    "{}".into(),
+                    serde_json::json!({}),
                 )
                 .await
                 .is_err()
@@ -175,7 +183,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .is_err()
         );
 
-        let matches = TimePersistence::new(db.a.clone())
+        let matches = TimePersistence::new(db.a.pool().clone())
             .complete_time_values(&owner.identity, TimeCompletion::EventId, "", 101)
             .await
             .unwrap();
@@ -189,7 +197,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             "event-ffffffff-ffff-7000-8000-000000000064"
         );
         assert_eq!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(
                     &owner.identity,
                     TimeCompletion::EventId,
@@ -201,7 +209,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             vec!["event-ffffffff-ffff-7000-8000-000000000065"]
         );
         assert!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(
                     &owner.identity,
                     TimeCompletion::EventId,
@@ -213,7 +221,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .is_empty()
         );
         assert!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(&owner.identity, TimeCompletion::EventId, "' OR true;", 101)
                 .await
                 .unwrap()
@@ -221,7 +229,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
         );
         for limit in [0, 102] {
             assert!(
-                TimePersistence::new(db.a.clone())
+                TimePersistence::new(db.a.pool().clone())
                     .complete_time_values(&owner.identity, TimeCompletion::EventId, "", limit)
                     .await
                     .is_err()
@@ -312,7 +320,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .is_none()
         );
         assert_eq!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(
                     &owner.identity,
                     TimeCompletion::EpochId,
@@ -324,7 +332,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             vec!["epoch-00000000-0000-7000-8000-000000000001"]
         );
         assert_eq!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(
                     &owner.identity,
                     TimeCompletion::CalendarId,
@@ -341,28 +349,28 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             ),
         };
         assert_eq!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(&peer.identity, versions(), "", 101)
                 .await
                 .unwrap(),
             vec!["1", "12", "2"]
         );
         assert!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(&peer.identity, versions(), "42", 101)
                 .await
                 .unwrap()
                 .is_empty()
         );
         assert!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(&foreign.identity, versions(), "", 101)
                 .await
                 .unwrap()
                 .is_empty()
         );
         assert_eq!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(
                     &owner.identity,
                     TimeCompletion::CalendarVersion { calendar_key: None },
@@ -477,7 +485,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
         assert!(last_scheduled.next_cursor.is_none());
 
         // An unrelated malformed payload must never reach a request's epoch decoder.
-        TimePersistence::new(db.a.clone())
+        TimePersistence::new(db.a.pool().clone())
             .create_time_epoch(TimeEpochDraft {
                 work_context: owner.work_context.clone(),
                 identity: owner.identity.clone(),
@@ -486,7 +494,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 epoch_version: crate::TimeVersion::new(1).unwrap(),
                 tai_seconds_since_1970: 0,
                 nanosecond: crate::SubsecondNanoseconds::ZERO,
-                canonical_json: "{}".into(),
+                body: serde_json::json!({}),
             })
             .await
             .unwrap();
@@ -505,13 +513,13 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .is_empty()
         );
         assert!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .latest_time_epochs(owner.identity.tenant_id, &vec![epoch_id.clone(); 101])
                 .await
                 .is_err()
         );
         assert!(
-            TimePersistence::new(db.a.clone())
+            TimePersistence::new(db.a.pool().clone())
                 .list_time_epochs(owner.identity.tenant_id, None, 102)
                 .await
                 .is_err()

@@ -1,3 +1,5 @@
+//! Events their owners create and cancel. The due loop in `due.rs` moves scheduled
+//! events to due.
 use super::*;
 
 impl TimePersistence {
@@ -6,44 +8,44 @@ impl TimePersistence {
         draft: TimeEventDraft,
     ) -> Result<TimeEventRecord, PersistenceError> {
         validate_event(&draft)?;
-        if let Some(existing) = self
+        let created = sqlx::query_file_as!(
+            TimeEventRecord,
+            "src/persistence/queries/insert_event.sql",
+            draft.identity.tenant_id as TenantId,
+            &draft.event_key as &EventId,
+            draft.identity.principal_id as PrincipalId,
+            draft.name,
+            draft.state as TimeEventState,
+            draft.due_tai_seconds_since_1970,
+            nanosecond(draft.due_nanosecond),
+            draft.due,
+            draft.idempotency_key,
+            draft.body,
+            draft.identity.tenant_key,
+            draft.identity.principal_key,
+            draft.work_context.as_str(),
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(created) = created {
+            return Ok(created);
+        }
+        let existing = self
             .time_event_for_idempotency(
                 draft.identity.tenant_id,
                 draft.identity.principal_id,
                 &draft.idempotency_key,
             )
             .await?
-        {
-            if existing.name == draft.name
-                && existing.due_tai_seconds_since_1970 == draft.due_tai_seconds_since_1970
-                && existing.due_nanosecond == i64::from(draft.due_nanosecond.get())
-            {
-                return Ok(existing);
-            }
-            return Err(conflict("event idempotency key", draft.idempotency_key));
+            .ok_or_else(|| conflict("event idempotency key", &draft.idempotency_key))?;
+        let same_request = existing.name == draft.name
+            && existing.due_tai_seconds_since_1970 == draft.due_tai_seconds_since_1970
+            && existing.due_nanosecond == nanosecond(draft.due_nanosecond);
+        if same_request {
+            Ok(existing)
+        } else {
+            Err(conflict("event idempotency key", draft.idempotency_key))
         }
-        let now = Utc::now();
-        let content = TimeEventContent {
-            provenance: TimeProvenanceRecord::new(&draft.identity, &draft.work_context),
-            tenant: draft.identity.tenant_id.record_id(),
-            owner: draft.identity.principal_id.record_id(),
-            event_key: draft.event_key.to_string(),
-            name: draft.name,
-            state: draft.state,
-            due_tai_seconds_since_1970: draft.due_tai_seconds_since_1970,
-            due_nanosecond: i64::from(draft.due_nanosecond.get()),
-            idempotency_key: draft.idempotency_key,
-            canonical_json: draft.canonical_json,
-            record_version: 1,
-            created_at: now,
-            updated_at: now,
-        };
-        create_only(self, time_record("time_event", &draft.event_key), content).await?;
-        self.time_event(&draft.identity, &draft.event_key)
-            .await?
-            .ok_or(PersistenceError::MissingRecord {
-                operation: "time event creation readback",
-            })
     }
 
     pub(crate) async fn time_event(
@@ -52,15 +54,15 @@ impl TimePersistence {
         event_key: &EventId,
     ) -> Result<Option<TimeEventRecord>, PersistenceError> {
         validate_key("event_key", event_key, "event-")?;
-        let mut response = self
-            .client()
-            .query(include_str!("queries/read_owned_event.surql"))
-            .bind(("record", time_record("time_event", event_key)))
-            .bind(("tenant", identity.tenant_id.record_id()))
-            .bind(("owner", identity.principal_id.record_id()))
-            .await?
-            .check()?;
-        Ok(response.take(0)?)
+        Ok(sqlx::query_file_as!(
+            TimeEventRecord,
+            "src/persistence/queries/event.sql",
+            identity.tenant_id as TenantId,
+            event_key as &EventId,
+            identity.principal_id as PrincipalId,
+        )
+        .fetch_optional(&self.pool)
+        .await?)
     }
 
     pub(crate) async fn transition_time_event(
@@ -69,43 +71,41 @@ impl TimePersistence {
         event_key: &EventId,
         expected: TimeVersion,
         state: TimeEventState,
-        canonical_json: String,
+        body: serde_json::Value,
     ) -> Result<TimeEventRecord, PersistenceError> {
         validate_key("event_key", event_key, "event-")?;
-        validate_json(&canonical_json)?;
-        let mut response = self
-            .client()
-            .query(include_str!("queries/update_event.surql"))
-            .bind(("record", time_record("time_event", event_key)))
-            .bind(("tenant", identity.tenant_id.record_id()))
-            .bind(("owner", identity.principal_id.record_id()))
-            .bind(("state", state))
-            .bind(("canonical_json", canonical_json))
-            .bind(("expected", expected.get() as i64))
-            .bind(("next", expected.checked_next()?.get() as i64))
-            .await?
-            .check()?;
-        response
-            .take::<Option<TimeEventRecord>>(0)?
-            .ok_or_else(|| conflict("event", event_key.to_string()))
+        validate_body(&body)?;
+        sqlx::query_file_as!(
+            TimeEventRecord,
+            "src/persistence/queries/update_event_state.sql",
+            identity.tenant_id as TenantId,
+            event_key as &EventId,
+            identity.principal_id as PrincipalId,
+            state as TimeEventState,
+            body,
+            version(expected),
+            next_version(expected)?,
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| conflict("event", event_key))
     }
 
     async fn time_event_for_idempotency(
         &self,
         tenant_id: TenantId,
-        owner: veoveo_platform_store::PrincipalId,
+        owner: PrincipalId,
         key: &str,
     ) -> Result<Option<TimeEventRecord>, PersistenceError> {
         validate_text("idempotency_key", key, 256)?;
-        let mut response = self
-            .client()
-            .query(include_str!("queries/event_by_idempotency.surql"))
-            .bind(("tenant", tenant_id.record_id()))
-            .bind(("owner", owner.record_id()))
-            .bind(("key", key.to_owned()))
-            .await?
-            .check()?;
-        let records: Vec<TimeEventRecord> = response.take(0)?;
-        Ok(records.into_iter().next())
+        Ok(sqlx::query_file_as!(
+            TimeEventRecord,
+            "src/persistence/queries/event_by_idempotency.sql",
+            tenant_id as TenantId,
+            owner as PrincipalId,
+            key,
+        )
+        .fetch_optional(&self.pool)
+        .await?)
     }
 }

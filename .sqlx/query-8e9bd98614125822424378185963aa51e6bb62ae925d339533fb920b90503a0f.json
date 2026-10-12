@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time.authority_release\nSET state = 'retired', record_version = record_version + 1, updated_at = now()\nWHERE tenant = $1\n    AND dataset_kind = $2\n    AND release_key = $3\n    AND state = 'active'\n    AND record_version = $4\n    AND record_version < 9223372036854775807\nRETURNING record_version\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "record_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".authority_release",
+            "name": "record_version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8e9bd98614125822424378185963aa51e6bb62ae925d339533fb920b90503a0f"
+}

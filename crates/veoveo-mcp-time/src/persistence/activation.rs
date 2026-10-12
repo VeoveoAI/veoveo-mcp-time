@@ -1,4 +1,6 @@
-//! Optimistic authority publication rechecks relationships in its transaction.
+//! Authority publication: one transaction locks the tenant's activations, rechecks the
+//! preflight snapshot and candidate, and changes the candidate, the pointer and the
+//! previous release together.
 use super::*;
 
 /// Only the catalog constructs a write from a checked candidate and active snapshot.
@@ -7,7 +9,22 @@ pub(crate) struct AuthorityActivation {
     pub(crate) snapshot: ActiveAuthoritySnapshot,
     pub(crate) expected_release: TimeVersion,
     pub(crate) expected_pointer: TimeWriteGuard,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
+}
+
+/// Why an activation found the records changed. The transaction rolls back.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub(crate) enum ActivationConflict {
+    #[error("the active pointers or their releases changed after preflight")]
+    Pair,
+    #[error("the candidate release changed after preflight")]
+    Candidate,
+    #[error("the candidate is not the expected staged release version")]
+    Release,
+    #[error("the active pointer is not the expected version")]
+    Pointer,
+    #[error("the previous release is not the expected active version")]
+    PreviousRelease,
 }
 
 impl TimePersistence {
@@ -17,136 +34,140 @@ impl TimePersistence {
         activation: AuthorityActivation,
     ) -> Result<TimeAuthorityReleaseRecord, PersistenceError> {
         let AuthorityActivation {
-            candidate: release,
+            candidate,
             snapshot,
-            expected_release: expected_release_version,
-            expected_pointer: expected_pointer_version,
-            canonical_json,
+            expected_release,
+            expected_pointer,
+            body,
         } = activation;
-        if snapshot.tenant != identity.tenant_id {
+        let tenant = identity.tenant_id;
+        if snapshot.tenant != tenant {
             return Err(invalid(
                 "activation.tenant",
                 "snapshot belongs to another tenant",
             ));
         }
-        let release_key = AuthorityReleaseId::parse(&release.release_key)
-            .map_err(|_| invalid("release_key", "invalid release identity"))?;
+        let release_key = candidate.release_key.clone();
         validate_key("release_key", &release_key, "time-release-")?;
-        let next_release = expected_release_version.checked_next()?;
-        let next_pointer = expected_pointer_version.next_version()?;
-        validate_json(&canonical_json)?;
-        if release.record_version != expected_release_version.get() as i64
-            || release.state != TimeAuthorityReleaseState::Staged
-            || release.tenant != identity.tenant_id.record_id()
-            || release.id != time_record("time_authority_release", &release_key)
+        validate_body(&body)?;
+        let next_release = next_version(expected_release)?;
+        let next_pointer = version(expected_pointer.next_version()?);
+        let rejected = |conflict| PersistenceError::ActivationConflict {
+            release_key: release_key.clone(),
+            conflict,
+        };
+        if candidate.record_version != version(expected_release)
+            || candidate.state != TimeAuthorityReleaseState::Staged
+            || candidate.tenant != tenant
         {
-            return Err(conflict("authority release", release_key.to_string()));
+            return Err(rejected(ActivationConflict::Release));
         }
-        let kind = release.dataset_kind;
+        let kind = candidate.dataset_kind;
         let pointer = snapshot.pointer(kind)?;
-        if pointer.as_ref().map_or(TimeWriteGuard::Absent, |record| {
-            TimeWriteGuard::Existing(record.record_version)
-        }) != expected_pointer_version
-        {
-            return Err(conflict(
-                "active authority",
-                dataset_kind_key(kind).to_owned(),
-            ));
+        let observed_guard = pointer.as_ref().map_or(TimeWriteGuard::Absent, |pointer| {
+            TimeWriteGuard::Existing(pointer.record_version)
+        });
+        if observed_guard != expected_pointer {
+            return Err(rejected(ActivationConflict::Pointer));
         }
-        let active_key = format!("{}:{}", identity.tenant_id, dataset_kind_key(kind));
-        let previous = pointer
-            .as_ref()
-            .map(|record| record.release_key.to_string());
-        let previous_version = pointer.as_ref().map(|record| record.release.record_version);
-        let mut response = self
-            .client()
-            .query(include_str!("queries/activate_authority.surql"))
-            .bind((
-                "pointers",
-                [TimeDatasetKind::LeapSeconds, TimeDatasetKind::Tzdb].map(|kind| {
-                    time_record(
-                        "time_active_authority",
-                        format!("{}:{}", identity.tenant_id, dataset_kind_key(kind)),
-                    )
-                }),
-            ))
-            .bind((
-                "releases",
-                snapshot
-                    .releases()
-                    .map(|record| record.release_key)
-                    .chain(std::iter::once(release_key.to_string()))
-                    .collect::<std::collections::BTreeSet<_>>()
-                    .into_iter()
-                    .map(|key| time_record("time_authority_release", key))
-                    .collect::<Vec<_>>(),
-            ))
-            .bind(("kind", Option::<TimeDatasetKind>::None))
-            .bind(("expected_authorities", snapshot.rows))
-            .bind(("expected_candidate", release))
-            .bind(("active", time_record("time_active_authority", active_key)))
-            .bind((
-                "previous_release",
-                pointer
-                    .as_ref()
-                    .map(|record| time_record("time_authority_release", &record.release_key)),
-            ))
-            .bind((
-                "release",
-                time_record("time_authority_release", &release_key),
-            ))
-            .bind(("tenant", identity.tenant_id.record_id()))
-            .bind(("owner", identity.principal_id.record_id()))
-            .bind(("dataset_kind", kind))
-            .bind(("release_key", release_key.to_string()))
-            .bind(("previous", previous))
-            .bind((
-                "expected_previous",
-                pointer.as_ref().and_then(|record| {
-                    record
-                        .previous_release_key
-                        .as_ref()
-                        .map(ToString::to_string)
-                }),
-            ))
-            .bind(("previous_version", previous_version))
-            .bind((
-                "expected_pointer",
-                expected_pointer_version.expected_version() as i64,
-            ))
-            .bind(("next_pointer", next_pointer.get() as i64))
-            .bind(("max_version", i64::MAX))
-            .bind(("expected_release", expected_release_version.get() as i64))
-            .bind(("next_release", next_release.get() as i64))
-            .bind(("canonical_json", canonical_json))
-            .await?;
-        if let Some(error) =
-            veoveo_platform_store::primary_transaction_error(response.take_errors())
-        {
-            let message = error.to_string();
-            let conflict_markers = [
-                "time_authority_pair_conflict",
-                "time_authority_candidate_conflict",
-                "time_authority_release_conflict",
-                "time_active_authority_conflict",
-                "time_previous_authority_conflict",
-            ];
-            if matches!(
-                error.query_details(),
-                Some(surrealdb::types::QueryError::TransactionConflict)
-            ) || conflict_markers
-                .iter()
-                .any(|marker| message.ends_with(marker))
-            {
-                return Err(conflict("authority activation", release_key.to_string()));
+        let mut locked_releases = snapshot
+            .releases()
+            .map(|release| release.release_key)
+            .chain(std::iter::once(release_key.clone()))
+            .collect::<Vec<_>>();
+        locked_releases.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+        locked_releases.dedup();
+
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query_file_scalar!(
+            "src/persistence/queries/lock_tenant_activation.sql",
+            tenant as TenantId,
+        )
+        .fetch_one(&mut *transaction)
+        .await?;
+        sqlx::query_file_as!(
+            TimeActiveAuthorityRecord,
+            "src/persistence/queries/lock_pointers.sql",
+            tenant as TenantId,
+        )
+        .fetch_all(&mut *transaction)
+        .await?;
+        sqlx::query_file_scalar!(
+            "src/persistence/queries/lock_releases.sql",
+            tenant as TenantId,
+            &locked_releases as &[AuthorityReleaseId],
+        )
+        .fetch_all(&mut *transaction)
+        .await?;
+        if active::read_snapshot(&mut transaction, tenant).await? != snapshot {
+            return Err(rejected(ActivationConflict::Pair));
+        }
+        let current = sqlx::query_file_as!(
+            TimeAuthorityReleaseRecord,
+            "src/persistence/queries/release.sql",
+            tenant as TenantId,
+            &release_key as &AuthorityReleaseId,
+        )
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if current.as_ref() != Some(&candidate) {
+            return Err(rejected(ActivationConflict::Candidate));
+        }
+        let activated = sqlx::query_file_as!(
+            TimeAuthorityReleaseRecord,
+            "src/persistence/queries/activate_release.sql",
+            tenant as TenantId,
+            &release_key as &AuthorityReleaseId,
+            kind as TimeDatasetKind,
+            version(expected_release),
+            body,
+            next_release,
+        )
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| rejected(ActivationConflict::Release))?;
+        match &pointer {
+            None => {
+                sqlx::query_file_scalar!(
+                    "src/persistence/queries/insert_pointer.sql",
+                    tenant as TenantId,
+                    kind as TimeDatasetKind,
+                    &release_key as &AuthorityReleaseId,
+                    identity.principal_id as PrincipalId,
+                )
+                .fetch_optional(&mut *transaction)
+                .await?
+                .ok_or_else(|| rejected(ActivationConflict::Pointer))?;
             }
-            return Err(PersistenceError::Database(error));
+            Some(previous) => {
+                sqlx::query_file_scalar!(
+                    "src/persistence/queries/replace_pointer.sql",
+                    tenant as TenantId,
+                    kind as TimeDatasetKind,
+                    &release_key as &AuthorityReleaseId,
+                    &previous.release_key as &AuthorityReleaseId,
+                    identity.principal_id as PrincipalId,
+                    version(previous.record_version),
+                    next_pointer,
+                    previous.previous_release_key.as_ref() as Option<&AuthorityReleaseId>,
+                )
+                .fetch_optional(&mut *transaction)
+                .await?
+                .ok_or_else(|| rejected(ActivationConflict::Pointer))?;
+                sqlx::query_file_scalar!(
+                    "src/persistence/queries/retire_release.sql",
+                    tenant as TenantId,
+                    kind as TimeDatasetKind,
+                    &previous.release_key as &AuthorityReleaseId,
+                    previous.release.record_version,
+                )
+                .fetch_optional(&mut *transaction)
+                .await?
+                .ok_or_else(|| rejected(ActivationConflict::PreviousRelease))?;
+            }
         }
-        self.time_authority_release(identity.tenant_id, &release_key)
-            .await?
-            .ok_or(PersistenceError::MissingRecord {
-                operation: "time authority activation readback",
-            })
+        transaction.commit().await?;
+        Ok(activated)
     }
 }
 
@@ -158,12 +179,12 @@ impl TimePersistence {
         release_key: &AuthorityReleaseId,
         expected_release: TimeVersion,
         expected_pointer: TimeWriteGuard,
-        canonical_json: String,
+        body: serde_json::Value,
     ) -> Result<TimeAuthorityReleaseRecord, PersistenceError> {
         let candidate = self
             .time_authority_release(identity.tenant_id, release_key)
             .await?
-            .ok_or_else(|| conflict("authority release", release_key.to_string()))?;
+            .ok_or_else(|| conflict("authority release", release_key))?;
         let snapshot = self.active_authority_snapshot(identity.tenant_id).await?;
         self.commit_time_authority_release(
             identity,
@@ -172,7 +193,7 @@ impl TimePersistence {
                 snapshot,
                 expected_release,
                 expected_pointer,
-                canonical_json,
+                body,
             },
         )
         .await

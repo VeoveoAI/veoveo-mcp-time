@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Fail a blocked statement of this transaction after the given interval.\nSELECT set_config('lock_timeout', $1, true) AS \"lock_timeout!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lock_timeout!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "219eb45bcb3ed518036102e0ecc4e6140da9298826c9edd7ad0b21795784e028"
+}

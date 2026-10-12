@@ -4,18 +4,19 @@ use veoveo_mcp_contract::hosting::{
     Hosted,
     testing::{self, TestGateway},
 };
+use veoveo_platform_store::Instance;
 pub(super) struct Fixture {
     pub gateway: TestGateway,
     pub state: Arc<crate::state::TimeApplication>,
     pub files: AuthorityFiles,
-    pub db: crate::test_store::TestDb,
+    pub db: TimeDb,
 }
 impl Fixture {
     pub async fn new() -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let files = AuthorityFiles::new().await;
-        let catalog = TimeCatalog::new(db.a.clone());
+        let catalog = TimeCatalog::new(db.a.pool().clone());
         let acquisitions = crate::acquisition::AcquisitionService::new(
             crate::acquisition::AcquisitionServiceConfig {
                 scratch_root: files.root.path().join("scratch"),
@@ -28,8 +29,16 @@ impl Fixture {
             catalog.clone(),
         )
         .unwrap();
+        let instance = Instance::start(&db.a, &crate::test_database::slug())
+            .await
+            .unwrap();
         let state = Arc::new(crate::state::TimeApplication {
-            tasks: veoveo_task_runtime::TaskRuntime::new(db.a.clone(), "time", "strict-input"),
+            store: db.a.clone(),
+            tasks: veoveo_task_runtime::TaskRuntime::new(
+                db.a.clone(),
+                crate::test_database::slug(),
+                Arc::new(instance),
+            ),
             catalog,
             authorities: files.registry(),
             clock: crate::clock::ClockMonitor::new(
@@ -37,15 +46,14 @@ impl Fixture {
                 Duration::from_secs(1),
             ),
             acquisitions: Arc::new(acquisitions),
-            subscriptions: Arc::new(veoveo_mcp_contract::SubscriptionHub::new()),
-            event_watchers: Arc::default(),
+            subscriptions: Arc::new(crate::changes::TenantSubscriptions::default()),
         });
         let handler = state.clone();
         let gateway = TestGateway::new(
             testing::for_domain::<crate::mcp::TimeMcp>()
                 .handler(move || {
                     Hosted::new(crate::mcp::TimeMcp::new(handler.clone())).with_tasks(
-                        veoveo_task_runtime::DurableTasks::with_resources(
+                        veoveo_task_runtime::DurableTasks::with_listener(
                             crate::server::tasks::TimeTaskExtension::new(handler.clone()),
                             crate::mcp::TimeSubscriptions::new(handler.clone()),
                         ),

@@ -1,1 +1,0 @@
-REMOVE EVENT time_test_interleave ON time_authority_release;

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE OR REPLACE FUNCTION time.test_interleave() RETURNS trigger\nLANGUAGE plpgsql AS $$\nBEGIN\n    UPDATE time.authority_release SET state = 'quarantined'\n    WHERE tenant = NEW.tenant AND dataset_kind = NEW.dataset_kind\n        AND release_key <> NEW.release_key AND state = 'active';\n    RETURN NULL;\nEND\n$$\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6f3e81dd7541433773aa5c2633e21ae01b36b9ac5098619820545b44189a92ba"
+}

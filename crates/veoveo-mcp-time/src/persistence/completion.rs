@@ -1,3 +1,4 @@
+//! Completion candidates: distinct stored values that contain the typed needle.
 use super::*;
 
 impl TimePersistence {
@@ -11,40 +12,77 @@ impl TimePersistence {
         if !(1..=101).contains(&limit) {
             return Err(invalid("limit", "must be in 1..=101"));
         }
-        let (statement, parent_key) = match domain {
+        let limit = i64::from(limit);
+        let needle = needle.to_lowercase();
+        let tenant = identity.tenant_id;
+        let candidates = match domain {
             TimeCompletion::CalendarId => {
-                (include_str!("queries/complete_calendar_id.surql"), None)
+                sqlx::query_file_scalar!(
+                    "src/persistence/queries/complete_calendar_id.sql",
+                    tenant as TenantId,
+                    needle,
+                    limit,
+                )
+                .fetch_all(&self.pool)
+                .await?
             }
             TimeCompletion::CalendarVersion { calendar_key } => {
                 if let Some(key) = calendar_key.as_ref() {
                     validate_key("calendar_key", key, "calendar-")?;
                 }
-                (
-                    include_str!("queries/complete_calendar_version.surql"),
-                    calendar_key.map(|key| key.to_string()),
+                sqlx::query_file_scalar!(
+                    "src/persistence/queries/complete_calendar_version.sql",
+                    tenant as TenantId,
+                    calendar_key.as_ref() as Option<&CalendarId>,
+                    needle,
+                    limit,
                 )
+                .fetch_all(&self.pool)
+                .await?
             }
-            TimeCompletion::EpochId => (include_str!("queries/complete_epoch_id.surql"), None),
-            TimeCompletion::EpochVersion { epoch_key } => (
-                include_str!("queries/complete_epoch_version.surql"),
-                epoch_key.map(|key| key.to_string()),
-            ),
-            TimeCompletion::AuthorityReleaseId => (
-                include_str!("queries/complete_authority_release_id.surql"),
-                None,
-            ),
-            TimeCompletion::EventId => (include_str!("queries/complete_event_id.surql"), None),
+            TimeCompletion::EpochId => {
+                sqlx::query_file_scalar!(
+                    "src/persistence/queries/complete_epoch_id.sql",
+                    tenant as TenantId,
+                    needle,
+                    limit,
+                )
+                .fetch_all(&self.pool)
+                .await?
+            }
+            TimeCompletion::EpochVersion { epoch_key } => {
+                sqlx::query_file_scalar!(
+                    "src/persistence/queries/complete_epoch_version.sql",
+                    tenant as TenantId,
+                    epoch_key.as_ref() as Option<&EpochId>,
+                    needle,
+                    limit,
+                )
+                .fetch_all(&self.pool)
+                .await?
+            }
+            TimeCompletion::AuthorityReleaseId => {
+                sqlx::query_file_scalar!(
+                    "src/persistence/queries/complete_release_id.sql",
+                    tenant as TenantId,
+                    needle,
+                    limit,
+                )
+                .fetch_all(&self.pool)
+                .await?
+            }
+            TimeCompletion::EventId => {
+                sqlx::query_file_scalar!(
+                    "src/persistence/queries/complete_event_id.sql",
+                    tenant as TenantId,
+                    identity.principal_id as PrincipalId,
+                    needle,
+                    limit,
+                )
+                .fetch_all(&self.pool)
+                .await?
+            }
         };
-        let mut response = self
-            .client()
-            .query(statement)
-            .bind(("tenant", identity.tenant_id.record_id()))
-            .bind(("owner", identity.principal_id.record_id()))
-            .bind(("parent_key", parent_key))
-            .bind(("needle", needle.to_lowercase()))
-            .bind(("limit", limit))
-            .await?
-            .check()?;
-        Ok(response.take(0)?)
+        Ok(candidates)
     }
 }

@@ -1,62 +1,52 @@
-use super::{instant, scope};
-use crate::{catalog::TimeCatalog, contract::*};
+use super::{instant, later, scope};
+use crate::{
+    catalog::TimeCatalog,
+    contract::*,
+    test_database::{Row, TimeDb, body, rejected_by_schema, set_body, set_record_version},
+};
 use chrono::Utc;
 use serde_json::json;
-use std::{collections::BTreeMap, time::Duration};
-use surrealdb::types::{RecordId, SurrealValue};
-use veoveo_platform_store::PlatformStore;
+use std::time::Duration;
+use veoveo_platform_store::{PlatformStore, TenantId};
 
-pub(super) async fn set(
-    store: &PlatformStore,
-    record: &RecordId,
+fn corrupt(
+    original: &serde_json::Value,
     field: &str,
-    value: impl SurrealValue,
-) {
-    // Deliberate corruption through the fixture writer, bypassing catalog admission.
-    store
-        .client()
-        .query(include_str!("../../tests/queries/merge_record.surql"))
-        .bind(("record", record.clone()))
-        .bind((
-            "patch",
-            BTreeMap::from([(field.to_owned(), value.into_value())]),
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-}
-
-async fn body(store: &PlatformStore, record: &RecordId) -> String {
-    store
-        .client()
-        .query(include_str!(
-            "../../tests/queries/read_canonical_json.surql"
-        ))
-        .bind(("record", record.clone()))
-        .await
-        .unwrap()
-        .check()
-        .unwrap()
-        .take::<Option<String>>(0)
-        .unwrap()
-        .unwrap()
-}
-
-fn corrupt(original: &str, field: &str, value: serde_json::Value) -> String {
-    let mut json: serde_json::Value = serde_json::from_str(original).unwrap();
+    value: serde_json::Value,
+) -> serde_json::Value {
+    let mut json = original.clone();
     json[field] = value;
-    serde_json::to_string(&json).unwrap()
+    json
+}
+
+/// Set a stored subsecond column; the schema admits only `0..=999999999`.
+async fn set_nanosecond(
+    store: &PlatformStore,
+    tenant: TenantId,
+    table: &str,
+    key: &str,
+    value: i32,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_file_scalar!(
+        "src/tests/queries/set_nanosecond.sql",
+        table,
+        tenant as TenantId,
+        key,
+        value,
+    )
+    .fetch_one(store.pool())
+    .await
 }
 
 #[tokio::test]
 async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visibility() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let owner = scope(&db.a, "time-metadata", "owner").await;
         let peer = scope(&db.a, "time-metadata", "peer").await;
         let foreign = scope(&db.a, "time-metadata-other", "owner").await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let tenant = owner.identity.tenant_id;
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let calendar = catalog
             .create_calendar(
                 &owner,
@@ -74,11 +64,8 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
             )
             .await
             .unwrap();
-        let record = RecordId::new(
-            "time_calendar_version",
-            format!("{}:1", calendar.calendar_id),
-        );
-        let original = body(&db.a, &record).await;
+        let row = Row::Calendar(&calendar.calendar_id);
+        let original = body(&db.a, tenant, row).await;
         for (field, value) in [
             (
                 "calendarId",
@@ -89,9 +76,9 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
             ("zoneId", json!("Europe/London")),
         ] {
             let bad = corrupt(&original, field, value);
-            serde_json::from_str::<crate::OperationalCalendar>(&bad)
+            serde_json::from_value::<crate::OperationalCalendar>(bad.clone())
                 .expect("selected calendar corruption stays portable-admitted");
-            set(&db.a, &record, "canonical_json", bad.clone()).await;
+            set_body(&db.a, tenant, row, &bad).await;
             assert!(
                 catalog
                     .calendar(&owner, &calendar.calendar_id, TimeVersion::new(1).unwrap())
@@ -123,30 +110,12 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
                     .is_empty()
             );
             assert_eq!(
-                body(&db.a, &record).await,
+                body(&db.a, tenant, row).await,
                 bad,
                 "reads must leave retained data unchanged"
             );
         }
-        // Matching body/column versions cannot override the actual record key.
-        set(
-            &db.a,
-            &record,
-            "canonical_json",
-            corrupt(&original, "version", json!(2)),
-        )
-        .await;
-        set(&db.a, &record, "calendar_version", 2_i64).await;
-        assert!(
-            catalog
-                .calendars_page(&owner, None)
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("record_id")
-        );
-        set(&db.a, &record, "calendar_version", 1_i64).await;
-        set(&db.a, &record, "canonical_json", original.clone()).await;
+        set_body(&db.a, tenant, row, &original).await;
         assert_eq!(
             catalog.calendars_page(&owner, None).await.unwrap().items,
             vec![calendar]
@@ -164,8 +133,8 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_epoch", format!("{}:1", epoch.epoch_id));
-        let original = body(&db.a, &record).await;
+        let row = Row::Epoch(&epoch.epoch_id);
+        let original = body(&db.a, tenant, row).await;
         let mut wrong_instant = instant();
         wrong_instant.tai_seconds_since_1970 += 1;
         for (field, value) in [
@@ -177,7 +146,7 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
             ("instant", json!(wrong_instant)),
         ] {
             let bad = corrupt(&original, field, value);
-            set(&db.a, &record, "canonical_json", bad.clone()).await;
+            set_body(&db.a, tenant, row, &bad).await;
             assert!(
                 catalog.epoch(&owner, &epoch.epoch_id).await.is_err(),
                 "{field}"
@@ -197,9 +166,9 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
                     .unwrap()
                     .is_empty()
             );
-            assert_eq!(body(&db.a, &record).await, bad);
+            assert_eq!(body(&db.a, tenant, row).await, bad);
         }
-        set(&db.a, &record, "canonical_json", original).await;
+        set_body(&db.a, tenant, row, &original).await;
         assert_eq!(
             catalog
                 .epochs_for_keys(&owner, std::slice::from_ref(&epoch.epoch_id))
@@ -218,12 +187,13 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
                     state: EventState::Scheduled,
                     record_version: crate::TimeVersion::new(1).unwrap(),
                 },
+                later(),
                 "launch".into(),
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_event", event.event_id.to_string());
-        let original = body(&db.a, &record).await;
+        let row = Row::Event(&event.event_id);
+        let original = body(&db.a, tenant, row).await;
         let mut wrong_due = instant();
         wrong_due.nanosecond =
             crate::SubsecondNanoseconds::new(wrong_due.nanosecond.get() + 1).unwrap();
@@ -236,7 +206,7 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
             ("due", json!(wrong_due)),
         ] {
             let bad = corrupt(&original, field, value);
-            set(&db.a, &record, "canonical_json", bad.clone()).await;
+            set_body(&db.a, tenant, row, &bad).await;
             assert!(
                 catalog.event(&owner, &event.event_id).await.is_err(),
                 "{field}"
@@ -269,40 +239,36 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
                         .is_empty()
                 );
             }
-            assert_eq!(body(&db.a, &record).await, bad);
+            assert_eq!(body(&db.a, tenant, row).await, bad);
         }
         let mut invalid_due = json!(instant());
         invalid_due["nanosecond"] = 1_000_000_000.into();
-        set(
-            &db.a,
-            &record,
-            "canonical_json",
-            corrupt(&original, "due", json!(invalid_due)),
-        )
-        .await;
-        set(&db.a, &record, "due_nanosecond", 1_000_000_000_i64).await;
+        set_body(&db.a, tenant, row, &corrupt(&original, "due", invalid_due)).await;
         assert!(
             catalog
                 .event(&owner, &event.event_id)
                 .await
                 .unwrap_err()
                 .to_string()
-                .contains("canonical_json")
+                .contains("body")
         );
-        set(&db.a, &record, "due_nanosecond", 17_i64).await;
-        set(&db.a, &record, "canonical_json", original).await;
+        let error = set_nanosecond(
+            &db.a,
+            tenant,
+            "event",
+            event.event_id.as_str(),
+            1_000_000_000,
+        )
+        .await
+        .unwrap_err();
+        assert!(rejected_by_schema(&error), "{error}");
+        set_body(&db.a, tenant, row, &original).await;
         for version in [0_i64, -1] {
-            set(&db.a, &record, "record_version", version).await;
-            assert!(
-                catalog
-                    .event(&owner, &event.event_id)
-                    .await
-                    .unwrap_err()
-                    .to_string()
-                    .contains("record_version")
-            );
+            let error = set_record_version(&db.a, tenant, row, version)
+                .await
+                .unwrap_err();
+            assert!(rejected_by_schema(&error), "{error}");
         }
-        set(&db.a, &record, "record_version", 1_i64).await;
         assert_eq!(
             catalog
                 .cancel_event(&owner, &event.event_id, crate::TimeVersion::FIRST)
@@ -319,10 +285,11 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
 #[tokio::test]
 async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflicting_bodies() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let owner = scope(&db.a, "time-authority-metadata", "owner").await;
         let foreign = scope(&db.a, "time-authority-metadata-other", "owner").await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let tenant = owner.identity.tenant_id;
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let source = catalog
             .create_source(
                 &owner,
@@ -343,8 +310,8 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_source", source.source_id.to_string());
-        let original = body(&db.a, &record).await;
+        let row = Row::Source(&source.source_id);
+        let original = body(&db.a, tenant, row).await;
         for (field, value) in [
             (
                 "sourceId",
@@ -357,7 +324,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             ("datasetKind", json!("STORED_SECRET_MARKER")),
         ] {
             let bad = corrupt(&original, field, value);
-            set(&db.a, &record, "canonical_json", bad.clone()).await;
+            set_body(&db.a, tenant, row, &bad).await;
             let error = catalog.source(&owner, &source.source_id).await.unwrap_err();
             assert!(!format!("{error:#}").contains("STORED_SECRET_MARKER"));
             assert!(catalog.list_sources(&owner).await.is_err(), "{field}");
@@ -368,9 +335,9 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                     .unwrap()
                     .is_none()
             );
-            assert_eq!(body(&db.a, &record).await, bad);
+            assert_eq!(body(&db.a, tenant, row).await, bad);
         }
-        set(&db.a, &record, "canonical_json", original).await;
+        set_body(&db.a, tenant, row, &original).await;
 
         let now = Utc::now();
         let release = catalog
@@ -406,8 +373,8 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_authority_release", release.release_id.to_string());
-        let active_body = body(&db.a, &record).await;
+        let row = Row::Release(&release.release_id);
+        let active_body = body(&db.a, tenant, row).await;
         let mut second = crate::AuthorityReleaseValue::from(release.clone());
         second.release_id =
             AuthorityReleaseId::parse("time-release-00000000-0000-7000-8000-000000000002").unwrap();
@@ -425,7 +392,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             )
             .await
             .unwrap();
-        assert_eq!(body(&db.a, &record).await, active_body);
+        assert_eq!(body(&db.a, tenant, row).await, active_body);
         let retired = catalog
             .release(&owner, &release.release_id)
             .await
@@ -445,7 +412,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             ("artifactPath", json!("/other")),
         ] {
             let bad = corrupt(&active_body, field, value);
-            set(&db.a, &record, "canonical_json", bad.clone()).await;
+            set_body(&db.a, tenant, row, &bad).await;
             assert!(
                 catalog.release(&owner, &release.release_id).await.is_err(),
                 "{field}"
@@ -458,9 +425,9 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                     .unwrap()
                     .is_none()
             );
-            assert_eq!(body(&db.a, &record).await, bad);
+            assert_eq!(body(&db.a, tenant, row).await, bad);
         }
-        set(&db.a, &record, "canonical_json", active_body).await;
+        set_body(&db.a, tenant, row, &active_body).await;
 
         let acquisition = catalog
             .create_acquisition(
@@ -486,24 +453,37 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_acquisition", acquisition.acquisition_id.to_string());
-        let original = body(&db.a, &record).await;
-        for invalid in ["unknown", "staged", ""] {
-            let rejected =
-                db.a.client()
-                    .query(include_str!("../../tests/queries/merge_record.surql"))
-                    .bind(("record", record.clone()))
-                    .bind((
-                        "patch",
-                        BTreeMap::from([("phase".to_owned(), invalid.into_value())]),
-                    ))
-                    .await
-                    .unwrap()
-                    .check();
-            assert!(
-                rejected.is_err(),
-                "unknown acquisition phase must reject atomically"
-            );
+        let row = Row::Acquisition(&acquisition.acquisition_id);
+        let original = body(&db.a, tenant, row).await;
+        let digest = acquisition
+            .expected_source_digest
+            .as_ref()
+            .map(|digest| digest.as_str().to_owned());
+        // Unknown phases, staged releases that do not exist and malformed digests never
+        // reach storage.
+        for (phase, staged, expected) in [
+            ("unknown", Some(release.release_id.as_str()), digest.clone()),
+            ("staged", Some(release.release_id.as_str()), digest.clone()),
+            ("", Some(release.release_id.as_str()), digest.clone()),
+            ("complete", Some("time-release-bootstrap"), digest.clone()),
+            (
+                "complete",
+                Some(release.release_id.as_str()),
+                Some("PRIVATE_INVALID_DIGEST".to_owned()),
+            ),
+        ] {
+            let error = sqlx::query_file_scalar!(
+                "src/tests/queries/set_acquisition_columns.sql",
+                tenant as TenantId,
+                &acquisition.acquisition_id as &TimeAcquisitionId,
+                phase,
+                staged,
+                expected,
+            )
+            .fetch_one(db.a.pool())
+            .await
+            .unwrap_err();
+            assert!(rejected_by_schema(&error), "{phase}: {error}");
             assert_eq!(
                 catalog
                     .acquisition(&owner, &acquisition.acquisition_id)
@@ -526,7 +506,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             ("expectedSourceDigest", json!("b".repeat(64))),
         ] {
             let bad = corrupt(&original, field, value);
-            set(&db.a, &record, "canonical_json", bad.clone()).await;
+            set_body(&db.a, tenant, row, &bad).await;
             assert!(
                 catalog
                     .acquisition(&owner, &acquisition.acquisition_id)
@@ -554,9 +534,9 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                     .unwrap()
                     .is_none()
             );
-            assert_eq!(body(&db.a, &record).await, bad);
+            assert_eq!(body(&db.a, tenant, row).await, bad);
         }
-        set(&db.a, &record, "canonical_json", original.clone()).await;
+        set_body(&db.a, tenant, row, &original).await;
         let mut wrong_source = acquisition.clone();
         wrong_source.source_id =
             TimeSourceId::parse("time-source-00000000-0000-7000-8000-000000000002").unwrap();
@@ -568,7 +548,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             veoveo_types::Check::check(&wrong).unwrap();
             assert!(catalog.update_acquisition(&owner, wrong).await.is_err());
             assert_eq!(
-                body(&db.a, &record).await,
+                body(&db.a, tenant, row).await,
                 original,
                 "invalid updates must not mutate storage"
             );
@@ -578,7 +558,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
         updated.phase = crate::TimeAcquisitionPhase::Complete;
         let updated = catalog.update_acquisition(&owner, updated).await.unwrap();
         assert_eq!(updated.record_version.get(), 2);
-        let other = TimeCatalog::new(db.a.clone());
+        let other = TimeCatalog::new(db.a.pool().clone());
         let mut left = updated.clone();
         left.message = "left concurrent update".into();
         let mut right = updated;
@@ -606,8 +586,8 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
         let queued_body = corrupt(&original, "status", json!("queued"));
         let queued_body = corrupt(&queued_body, "phase", json!("queued"));
         let queued_body = corrupt(&queued_body, "stagedReleaseId", serde_json::Value::Null);
-        let queued = serde_json::from_str::<TimeAcquisition>(&queued_body).unwrap();
-        set(&db.a, &record, "canonical_json", queued_body.clone()).await;
+        let queued = serde_json::from_value::<TimeAcquisition>(queued_body.clone()).unwrap();
+        set_body(&db.a, tenant, row, &queued_body).await;
         let restored = catalog
             .acquisition(&owner, &acquisition.acquisition_id)
             .await
@@ -617,28 +597,13 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
         assert_eq!(restored.phase, winner.phase);
         assert_eq!(restored.staged_release_id, winner.staged_release_id);
         assert_eq!(restored.updated_at, winner.updated_at);
-        // Display metadata belongs to canonical_json, unlike the native lifecycle columns.
+        // Display metadata belongs to the body, unlike the lifecycle columns.
         assert_eq!(restored.message, queued.message);
         assert_eq!(restored.record_version.get(), 3);
         assert_eq!(
-            body(&db.a, &record).await,
+            body(&db.a, tenant, row).await,
             queued_body,
             "reading must not rewrite the stale body"
-        );
-        set(
-            &db.a,
-            &record,
-            "staged_release_key",
-            "time-release-bootstrap".to_owned(),
-        )
-        .await;
-        assert!(
-            catalog
-                .acquisition(&owner, &acquisition.acquisition_id)
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("staged_release_key")
         );
     })
     .await
@@ -646,12 +611,13 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
 }
 
 #[tokio::test]
-async fn matching_subsecond_corruption_rejects_reads_without_rewriting_rows() {
+async fn subsecond_columns_admit_one_second_and_corrupt_bodies_reject_reads() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let owner = scope(&db.a, "time-subseconds", "owner").await;
         let foreign = scope(&db.a, "time-subseconds-other", "owner").await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let tenant = owner.identity.tenant_id;
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let mut value = instant();
         value.nanosecond = SubsecondNanoseconds::MAX;
         let epoch = catalog
@@ -676,32 +642,42 @@ async fn matching_subsecond_corruption_rejects_reads_without_rewriting_rows() {
                     state: EventState::Scheduled,
                     record_version: TimeVersion::FIRST,
                 },
+                later(),
                 "subseconds".into(),
             )
             .await
             .unwrap();
-        let records = [
+        let rows = [
             (
-                RecordId::new("time_epoch", format!("{}:1", epoch.epoch_id)),
+                Row::Epoch(&epoch.epoch_id),
+                "epoch",
+                epoch.epoch_id.as_str(),
                 "instant",
-                "nanosecond",
             ),
             (
-                RecordId::new("time_event", event.event_id.to_string()),
+                Row::Event(&event.event_id),
+                "event",
+                event.event_id.as_str(),
                 "due",
-                "due_nanosecond",
             ),
         ];
         let mut originals = Vec::new();
-        for (record, _, _) in &records {
-            originals.push(body(&db.a, record).await);
+        for (row, _, _, _) in &rows {
+            originals.push(body(&db.a, tenant, *row).await);
+        }
+        for nanos in [-1_i32, 1_000_000_000, i32::MAX] {
+            for (_, table, key, _) in &rows {
+                let error = set_nanosecond(&db.a, tenant, table, key, nanos)
+                    .await
+                    .unwrap_err();
+                assert!(rejected_by_schema(&error), "{table} {nanos}: {error}");
+            }
         }
         for nanos in [-1_i64, 1_000_000_000, i64::from(u32::MAX), i64::MAX] {
-            for ((record, field, column), original) in records.iter().zip(&originals) {
-                let mut corrupted: serde_json::Value = serde_json::from_str(original).unwrap();
+            for ((row, _, _, field), original) in rows.iter().zip(&originals) {
+                let mut corrupted = original.clone();
                 corrupted[field]["nanosecond"] = nanos.into();
-                set(&db.a, record, "canonical_json", corrupted.to_string()).await;
-                set(&db.a, record, column, nanos).await;
+                set_body(&db.a, tenant, *row, &corrupted).await;
             }
             let errors = [
                 catalog.epoch(&owner, &epoch.epoch_id).await.unwrap_err(),
@@ -711,7 +687,7 @@ async fn matching_subsecond_corruption_rejects_reads_without_rewriting_rows() {
             ];
             for error in errors {
                 let message = format!("{error:#}");
-                assert!(message.contains("canonical_json"));
+                assert!(message.contains("body"));
                 assert!(!message.contains(&nanos.to_string()));
             }
             assert!(
@@ -730,21 +706,14 @@ async fn matching_subsecond_corruption_rejects_reads_without_rewriting_rows() {
                     .items
                     .is_empty()
             );
-            for ((record, field, _), original) in records.iter().zip(&originals) {
-                let mut expected: serde_json::Value = serde_json::from_str(original).unwrap();
+            for ((row, _, _, field), original) in rows.iter().zip(&originals) {
+                let mut expected = original.clone();
                 expected[field]["nanosecond"] = nanos.into();
-                assert_eq!(body(&db.a, record).await, expected.to_string());
+                assert_eq!(body(&db.a, tenant, *row).await, expected);
             }
         }
-        for ((record, _, column), original) in records.iter().zip(&originals) {
-            set(&db.a, record, "canonical_json", original.clone()).await;
-            set(
-                &db.a,
-                record,
-                column,
-                i64::from(SubsecondNanoseconds::MAX.get()),
-            )
-            .await;
+        for ((row, _, _, _), original) in rows.iter().zip(&originals) {
+            set_body(&db.a, tenant, *row, original).await;
         }
         assert_eq!(
             catalog.epoch(&owner, &epoch.epoch_id).await.unwrap(),
@@ -762,10 +731,11 @@ async fn matching_subsecond_corruption_rejects_reads_without_rewriting_rows() {
 #[tokio::test]
 async fn retained_instants_reject_ambiguous_authority_bindings_after_sql_visibility() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let owner = scope(&db.a, "time-binding", "owner").await;
         let foreign = scope(&db.a, "time-binding-other", "owner").await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let tenant = owner.identity.tenant_id;
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let epoch = catalog
             .create_epoch(
                 &owner,
@@ -784,25 +754,18 @@ async fn retained_instants_reject_ambiguous_authority_bindings_after_sql_visibil
             "event-00000000-0000-7000-8000-000000000001",
         )
         .await;
-        let records = [
-            (
-                RecordId::new("time_epoch", format!("{}:1", epoch.epoch_id)),
-                "instant",
-            ),
-            (
-                RecordId::new("time_event", event.event_id.to_string()),
-                "due",
-            ),
+        let rows = [
+            (Row::Epoch(&epoch.epoch_id), "instant"),
+            (Row::Event(&event.event_id), "due"),
         ];
         let mut originals = Vec::new();
         let mut corrupted_bodies = Vec::new();
-        for (record, field) in &records {
-            let original = body(&db.a, record).await;
-            let mut corrupted: serde_json::Value = serde_json::from_str(&original).unwrap();
+        for (row, field) in &rows {
+            let original = body(&db.a, tenant, *row).await;
+            let mut corrupted = original.clone();
             corrupted[field]["authority"]["leapSecondsReleaseId"] =
                 corrupted[field]["authority"]["tzdbReleaseId"].clone();
-            let corrupted = corrupted.to_string();
-            set(&db.a, record, "canonical_json", corrupted.clone()).await;
+            set_body(&db.a, tenant, *row, &corrupted).await;
             originals.push(original);
             corrupted_bodies.push(corrupted);
         }
@@ -812,7 +775,7 @@ async fn retained_instants_reject_ambiguous_authority_bindings_after_sql_visibil
             catalog.event(&owner, &event.event_id).await.unwrap_err(),
             catalog.events_page(&owner, None, None).await.unwrap_err(),
         ] {
-            assert!(error.to_string().contains("canonical_json"));
+            assert!(error.to_string().contains("body"));
         }
         assert!(
             catalog
@@ -844,11 +807,9 @@ async fn retained_instants_reject_ambiguous_authority_bindings_after_sql_visibil
                 .items
                 .is_empty()
         );
-        for (((record, _), original), corrupted) in
-            records.iter().zip(originals).zip(corrupted_bodies)
-        {
-            assert_eq!(body(&db.a, record).await, corrupted);
-            set(&db.a, record, "canonical_json", original).await;
+        for (((row, _), original), corrupted) in rows.iter().zip(originals).zip(corrupted_bodies) {
+            assert_eq!(body(&db.a, tenant, *row).await, corrupted);
+            set_body(&db.a, tenant, *row, &original).await;
         }
         assert_eq!(
             catalog.epoch(&owner, &epoch.epoch_id).await.unwrap(),

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT release_key AS \"release_key: AuthorityReleaseId\"\nFROM time.authority_release\nWHERE tenant = $1 AND release_key = ANY($2)\nORDER BY release_key\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "release_key: AuthorityReleaseId",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".authority_release",
+            "name": "release_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d7fc14cd68e000b0b5c45e2ed3f3b24ca46c8f3e3b4286c78c175acf96c3ed82"
+}

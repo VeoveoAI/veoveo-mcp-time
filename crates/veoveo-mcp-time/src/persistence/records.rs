@@ -1,9 +1,10 @@
-//! Private SurrealDB driver records; textual fields are decoded by the Time owner.
+//! Driver records. Typed columns decode into their domain types; the catalog checks that
+//! each JSON body agrees with its columns.
 
 use super::*;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, veoveo_types::Vocabulary)]
-#[vocabulary(surreal)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, veoveo_types::Vocabulary)]
+#[vocabulary(postgres)]
 pub(crate) enum TimeDatasetKind {
     #[vocabulary(rename = "tzdb")]
     Tzdb,
@@ -12,7 +13,7 @@ pub(crate) enum TimeDatasetKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, veoveo_types::Vocabulary)]
-#[vocabulary(surreal)]
+#[vocabulary(postgres)]
 pub(crate) enum TimeAuthorityReleaseState {
     #[vocabulary(rename = "staged")]
     Staged,
@@ -25,7 +26,7 @@ pub(crate) enum TimeAuthorityReleaseState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, veoveo_types::Vocabulary)]
-#[vocabulary(surreal)]
+#[vocabulary(postgres)]
 pub(crate) enum TimeAcquisitionState {
     #[vocabulary(rename = "queued")]
     Queued,
@@ -42,7 +43,7 @@ pub(crate) enum TimeAcquisitionState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, veoveo_types::Vocabulary)]
-#[vocabulary(surreal)]
+#[vocabulary(postgres)]
 pub(crate) enum TimeCalendarState {
     #[vocabulary(rename = "staged")]
     Staged,
@@ -53,7 +54,7 @@ pub(crate) enum TimeCalendarState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, veoveo_types::Vocabulary)]
-#[vocabulary(surreal)]
+#[vocabulary(postgres)]
 pub(crate) enum TimeEventState {
     #[vocabulary(rename = "scheduled")]
     Scheduled,
@@ -63,31 +64,28 @@ pub(crate) enum TimeEventState {
     Cancelled,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TimeSourceRecord {
-    pub(crate) id: RecordId,
-    pub(crate) tenant: RecordId,
-    pub(crate) owner: RecordId,
-    pub(crate) source_key: String,
+    pub(crate) tenant: TenantId,
+    pub(crate) source_key: TimeSourceId,
+    pub(crate) owner: PrincipalId,
     pub(crate) name: String,
     pub(crate) dataset_kind: TimeDatasetKind,
     pub(crate) source_url: String,
     pub(crate) expected_content_type: String,
     pub(crate) enabled: bool,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
     pub(crate) record_version: i64,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TimeAuthorityReleaseRecord {
-    pub(crate) provenance: TimeProvenanceRecord,
-    pub(crate) id: RecordId,
-    pub(crate) tenant: RecordId,
-    pub(crate) owner: RecordId,
-    pub(crate) release_key: String,
-    pub(crate) source_key: String,
+    pub(crate) tenant: TenantId,
+    pub(crate) release_key: AuthorityReleaseId,
+    pub(crate) owner: PrincipalId,
+    pub(crate) source_key: TimeSourceId,
     pub(crate) dataset_kind: TimeDatasetKind,
     pub(crate) state: TimeAuthorityReleaseState,
     pub(crate) version_label: String,
@@ -96,100 +94,103 @@ pub(crate) struct TimeAuthorityReleaseRecord {
     pub(crate) artifact_path: String,
     pub(crate) retrieved_at: DateTime<Utc>,
     pub(crate) validated_at: DateTime<Utc>,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
     pub(crate) record_version: i64,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
+    pub(crate) tenant_key: String,
+    pub(crate) owner_key: String,
+    pub(crate) work_context: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TimeActiveAuthorityRecord {
-    pub(crate) id: RecordId,
-    pub(crate) tenant: RecordId,
+    pub(crate) tenant: TenantId,
     pub(crate) dataset_kind: TimeDatasetKind,
-    pub(crate) release_key: String,
-    pub(crate) previous_release_key: Option<String>,
-    pub(crate) activated_by: RecordId,
+    pub(crate) release_key: AuthorityReleaseId,
+    pub(crate) previous_release_key: Option<AuthorityReleaseId>,
+    pub(crate) activated_by: PrincipalId,
     pub(crate) activated_at: DateTime<Utc>,
     pub(crate) record_version: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TimeAcquisitionRecord {
-    pub(crate) id: RecordId,
-    pub(crate) tenant: RecordId,
-    pub(crate) owner: RecordId,
-    pub(crate) acquisition_key: String,
-    pub(crate) source_key: String,
+    pub(crate) tenant: TenantId,
+    pub(crate) acquisition_key: TimeAcquisitionId,
+    pub(crate) owner: PrincipalId,
+    pub(crate) source_key: TimeSourceId,
     pub(crate) expected_source_digest: Option<String>,
     pub(crate) idempotency_key: String,
     pub(crate) status: TimeAcquisitionState,
-    #[surreal(wrap)]
-    pub(crate) phase: crate::TimeAcquisitionPhase,
-    pub(crate) staged_release_key: Option<String>,
-    pub(crate) canonical_json: String,
+    pub(crate) phase: TimeAcquisitionPhase,
+    pub(crate) staged_release_key: Option<AuthorityReleaseId>,
+    pub(crate) body: serde_json::Value,
     pub(crate) record_version: i64,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TimeCalendarVersionRecord {
-    pub(crate) provenance: TimeProvenanceRecord,
-    pub(crate) id: RecordId,
-    pub(crate) tenant: RecordId,
-    pub(crate) owner: RecordId,
-    pub(crate) calendar_key: String,
+    pub(crate) tenant: TenantId,
+    pub(crate) calendar_key: CalendarId,
     pub(crate) calendar_version: i64,
+    pub(crate) owner: PrincipalId,
     pub(crate) name: String,
     pub(crate) zone_id: String,
     pub(crate) state: TimeCalendarState,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
+    pub(crate) tenant_key: String,
+    pub(crate) owner_key: String,
+    pub(crate) work_context: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TimeEpochRecord {
-    pub(crate) provenance: TimeProvenanceRecord,
-    pub(crate) id: RecordId,
-    pub(crate) tenant: RecordId,
-    pub(crate) owner: RecordId,
-    pub(crate) epoch_key: String,
-    pub(crate) name: String,
+    pub(crate) tenant: TenantId,
+    pub(crate) epoch_key: EpochId,
     pub(crate) epoch_version: i64,
+    pub(crate) owner: PrincipalId,
+    pub(crate) name: String,
     pub(crate) tai_seconds_since_1970: i64,
-    pub(crate) nanosecond: i64,
-    pub(crate) canonical_json: String,
+    pub(crate) nanosecond: i32,
+    pub(crate) body: serde_json::Value,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
+    pub(crate) tenant_key: String,
+    pub(crate) owner_key: String,
+    pub(crate) work_context: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TimeEventRecord {
-    pub(crate) provenance: TimeProvenanceRecord,
-    pub(crate) id: RecordId,
-    pub(crate) tenant: RecordId,
-    pub(crate) owner: RecordId,
-    pub(crate) event_key: String,
+    pub(crate) tenant: TenantId,
+    pub(crate) event_key: EventId,
+    pub(crate) owner: PrincipalId,
     pub(crate) name: String,
     pub(crate) state: TimeEventState,
     pub(crate) due_tai_seconds_since_1970: i64,
-    pub(crate) due_nanosecond: i64,
+    pub(crate) due_nanosecond: i32,
+    pub(crate) due: DateTime<Utc>,
     pub(crate) idempotency_key: String,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
     pub(crate) record_version: i64,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
+    pub(crate) tenant_key: String,
+    pub(crate) owner_key: String,
+    pub(crate) work_context: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TimeClockPolicyRecord {
-    pub(crate) id: RecordId,
-    pub(crate) tenant: RecordId,
-    pub(crate) owner: RecordId,
+    pub(crate) tenant: TenantId,
+    pub(crate) owner: PrincipalId,
     pub(crate) maximum_error_nanoseconds: i64,
-    pub(crate) maximum_stratum: i64,
+    pub(crate) maximum_stratum: i16,
     pub(crate) minimum_source_diversity: i64,
     pub(crate) maximum_holdover_seconds: i64,
     pub(crate) record_version: i64,
@@ -197,120 +198,59 @@ pub(crate) struct TimeClockPolicyRecord {
     pub(crate) updated_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
-pub(super) struct TimeSourceContent {
-    pub(super) tenant: RecordId,
-    pub(super) owner: RecordId,
-    pub(super) source_key: String,
-    pub(super) name: String,
-    pub(super) dataset_kind: TimeDatasetKind,
-    pub(super) source_url: String,
-    pub(super) expected_content_type: String,
-    pub(super) enabled: bool,
-    pub(super) canonical_json: String,
-    pub(super) record_version: i64,
-    pub(super) created_at: DateTime<Utc>,
-    pub(super) updated_at: DateTime<Utc>,
+/// The creating principal's keys and Work Context that a record keeps beside its owner.
+pub(crate) struct Provenance<'a> {
+    pub(crate) tenant: TenantId,
+    pub(crate) owner: PrincipalId,
+    pub(crate) tenant_key: &'a str,
+    pub(crate) owner_key: &'a str,
+    pub(crate) work_context: &'a str,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
-pub(super) struct TimeAuthorityReleaseContent {
-    pub(super) provenance: TimeProvenanceRecord,
-    pub(super) tenant: RecordId,
-    pub(super) owner: RecordId,
-    pub(super) release_key: String,
-    pub(super) source_key: String,
-    pub(super) dataset_kind: TimeDatasetKind,
-    pub(super) state: TimeAuthorityReleaseState,
-    pub(super) version_label: String,
-    pub(super) source_url: String,
-    pub(super) source_digest: String,
-    pub(super) artifact_path: String,
-    pub(super) retrieved_at: DateTime<Utc>,
-    pub(super) validated_at: DateTime<Utc>,
-    pub(super) canonical_json: String,
-    pub(super) record_version: i64,
-    pub(super) created_at: DateTime<Utc>,
-    pub(super) updated_at: DateTime<Utc>,
+impl TimeAuthorityReleaseRecord {
+    pub(crate) fn provenance(&self) -> Provenance<'_> {
+        Provenance {
+            tenant: self.tenant,
+            owner: self.owner,
+            tenant_key: &self.tenant_key,
+            owner_key: &self.owner_key,
+            work_context: &self.work_context,
+        }
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
-pub(super) struct TimeAcquisitionContent {
-    pub(super) tenant: RecordId,
-    pub(super) owner: RecordId,
-    pub(super) acquisition_key: String,
-    pub(super) source_key: String,
-    pub(super) expected_source_digest: Option<String>,
-    pub(super) idempotency_key: String,
-    pub(super) status: TimeAcquisitionState,
-    #[surreal(wrap)]
-    pub(super) phase: crate::TimeAcquisitionPhase,
-    pub(super) staged_release_key: Option<String>,
-    pub(super) canonical_json: String,
-    pub(super) record_version: i64,
-    pub(super) created_at: DateTime<Utc>,
-    pub(super) updated_at: DateTime<Utc>,
+impl TimeCalendarVersionRecord {
+    pub(crate) fn provenance(&self) -> Provenance<'_> {
+        Provenance {
+            tenant: self.tenant,
+            owner: self.owner,
+            tenant_key: &self.tenant_key,
+            owner_key: &self.owner_key,
+            work_context: &self.work_context,
+        }
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
-pub(super) struct TimeCalendarVersionContent {
-    pub(super) provenance: TimeProvenanceRecord,
-    pub(super) tenant: RecordId,
-    pub(super) owner: RecordId,
-    pub(super) calendar_key: String,
-    pub(super) calendar_version: i64,
-    pub(super) name: String,
-    pub(super) zone_id: String,
-    pub(super) state: TimeCalendarState,
-    pub(super) canonical_json: String,
-    pub(super) created_at: DateTime<Utc>,
-    pub(super) updated_at: DateTime<Utc>,
+impl TimeEpochRecord {
+    pub(crate) fn provenance(&self) -> Provenance<'_> {
+        Provenance {
+            tenant: self.tenant,
+            owner: self.owner,
+            tenant_key: &self.tenant_key,
+            owner_key: &self.owner_key,
+            work_context: &self.work_context,
+        }
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
-pub(super) struct TimeEpochContent {
-    pub(super) provenance: TimeProvenanceRecord,
-    pub(super) tenant: RecordId,
-    pub(super) owner: RecordId,
-    pub(super) epoch_key: String,
-    pub(super) name: String,
-    pub(super) epoch_version: i64,
-    pub(super) tai_seconds_since_1970: i64,
-    pub(super) nanosecond: i64,
-    pub(super) canonical_json: String,
-    pub(super) created_at: DateTime<Utc>,
-    pub(super) updated_at: DateTime<Utc>,
+impl TimeEventRecord {
+    pub(crate) fn provenance(&self) -> Provenance<'_> {
+        Provenance {
+            tenant: self.tenant,
+            owner: self.owner,
+            tenant_key: &self.tenant_key,
+            owner_key: &self.owner_key,
+            work_context: &self.work_context,
+        }
+    }
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
-pub(super) struct TimeEventContent {
-    pub(super) provenance: TimeProvenanceRecord,
-    pub(super) tenant: RecordId,
-    pub(super) owner: RecordId,
-    pub(super) event_key: String,
-    pub(super) name: String,
-    pub(super) state: TimeEventState,
-    pub(super) due_tai_seconds_since_1970: i64,
-    pub(super) due_nanosecond: i64,
-    pub(super) idempotency_key: String,
-    pub(super) canonical_json: String,
-    pub(super) record_version: i64,
-    pub(super) created_at: DateTime<Utc>,
-    pub(super) updated_at: DateTime<Utc>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
-pub(super) struct TimeClockPolicyContent {
-    pub(super) tenant: RecordId,
-    pub(super) owner: RecordId,
-    pub(super) maximum_error_nanoseconds: i64,
-    pub(super) maximum_stratum: i64,
-    pub(super) minimum_source_diversity: i64,
-    pub(super) maximum_holdover_seconds: i64,
-    pub(super) record_version: i64,
-    pub(super) created_at: DateTime<Utc>,
-    pub(super) updated_at: DateTime<Utc>,
-}
-
-#[cfg(test)]
-mod vocabulary_baseline;

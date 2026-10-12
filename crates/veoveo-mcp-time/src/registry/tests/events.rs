@@ -1,9 +1,15 @@
-//! Actual Time watchers settle durable events and invalidate their subscribed root.
+//! Durable events become due through the due loop and notify their tenant's subscribers.
 use super::{hosted::Fixture, *};
+use crate::{
+    changes::{ChangeWatcher, channel},
+    due::run_due_events,
+};
+use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 use veoveo_mcp_contract::ResourceUpdate;
 
 #[tokio::test]
-async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recovery() {
+async fn future_cancelled_and_overdue_events_reach_due_through_the_due_loop() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let fixture = Fixture::new().await;
         let state = &fixture.state;
@@ -20,12 +26,19 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
             })
             .unwrap()
             .into_instant();
-        let mut updates = state.subscriptions.listen();
+        let hub = state.subscriptions.hub(owner.identity.tenant_id);
+        let mut updates = hub.listen();
         let mut events = Vec::new();
         for (index, offset) in [1_000_000_000i128, 1_500_000_000, -1_000_000_000]
             .into_iter()
             .enumerate()
         {
+            let due = TimeInstant::from_total_nanoseconds(
+                now.total_nanoseconds() + offset,
+                0,
+                now.authority.clone(),
+            )
+            .unwrap();
             events.push(
                 state
                     .catalog
@@ -34,15 +47,11 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
                         Event {
                             event_id: EventId::parse(format!("event-{}", Uuid::now_v7())).unwrap(),
                             name: format!("scheduler native {index}"),
-                            due: TimeInstant::from_total_nanoseconds(
-                                now.total_nanoseconds() + offset,
-                                0,
-                                now.authority.clone(),
-                            )
-                            .unwrap(),
+                            due: due.clone(),
                             state: EventState::Scheduled,
                             record_version: TimeVersion::FIRST,
                         },
+                        engine.utc_due(&due).unwrap(),
                         format!("native-{index}"),
                     )
                     .await
@@ -51,10 +60,11 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
         }
         let mut replay = events[0].clone();
         replay.event_id = EventId::parse(format!("event-{}", Uuid::now_v7())).unwrap();
+        let replay_due = engine.utc_due(&replay.due).unwrap();
         assert_eq!(
             state
                 .catalog
-                .create_event(&owner, replay.clone(), "native-0".into())
+                .create_event(&owner, replay.clone(), replay_due, "native-0".into())
                 .await
                 .unwrap(),
             events[0]
@@ -63,26 +73,15 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
         assert!(
             state
                 .catalog
-                .create_event(&owner, replay, "native-0".into())
+                .create_event(&owner, replay, replay_due, "native-0".into())
                 .await
                 .is_err()
         );
-        state
-            .schedule_event(owner.clone(), events[0].clone())
-            .await
-            .unwrap();
-        state
-            .schedule_event(owner.clone(), events[1].clone())
-            .await
-            .unwrap();
         let cancelled = state
             .catalog
             .cancel_event(&owner, &events[1].event_id, events[1].record_version)
             .await
             .unwrap();
-        state
-            .cancel_event_watcher(&owner, &events[1].event_id)
-            .await;
         assert!(
             state
                 .catalog
@@ -90,31 +89,51 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
                 .await
                 .is_err()
         );
-        // An overdue persisted event has no local watcher: the same owner root
-        // restore path used by subscriptions must recover it.
-        state.restore_event_watchers(&owner).await.unwrap();
+
+        // The process starts its watcher and due loop; nothing reads or subscribes to
+        // the events individually.
+        let wake = Arc::new(Notify::new());
+        let stop = CancellationToken::new();
+        let watching = tokio::spawn(
+            ChangeWatcher {
+                subscriptions: state.subscriptions.clone(),
+                authorities: state.authorities.clone(),
+                due: wake.clone(),
+            }
+            .run(fixture.db.b.listen(vec![channel()])),
+        );
+        let due_loop = tokio::spawn(run_due_events(state.catalog.clone(), wake, stop.clone()));
+        // A subscriber rereads what an update names. The watcher's reconciliation names
+        // everything, which covers the overdue event that changed before it subscribed.
         let mut due_ids = std::collections::BTreeSet::new();
         while due_ids.len() != 2 {
-            let update = updates.recv().await.unwrap();
-            if let ResourceUpdate::Uri(uri) = update
-                && uri == crate::uris::EVENTS_URI
-            {
-                for event in [&events[0], &events[2]] {
-                    let current = state
-                        .catalog
-                        .event(&owner, &event.event_id)
-                        .await
-                        .unwrap()
-                        .unwrap();
-                    if current.state == EventState::Due {
-                        assert_eq!(current.name, event.name);
-                        assert_eq!(current.due, event.due);
-                        assert_eq!(
-                            current.record_version,
-                            event.record_version.checked_next().unwrap()
-                        );
-                        due_ids.insert(current.event_id.to_string());
-                    }
+            let reread = match updates.recv().await.unwrap() {
+                ResourceUpdate::Reconcile => true,
+                ResourceUpdate::Uri(uri) => {
+                    uri == crate::uris::EVENTS_URI
+                        || events
+                            .iter()
+                            .any(|event| uri == format!("time://events/{}", event.event_id))
+                }
+            };
+            if !reread {
+                continue;
+            }
+            for event in [&events[0], &events[2]] {
+                let current = state
+                    .catalog
+                    .event(&owner, &event.event_id)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if current.state == EventState::Due {
+                    assert_eq!(current.name, event.name);
+                    assert_eq!(current.due, event.due);
+                    assert_eq!(
+                        current.record_version,
+                        event.record_version.checked_next().unwrap()
+                    );
+                    due_ids.insert(current.event_id.to_string());
                 }
             }
         }
@@ -137,9 +156,9 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
                 .unwrap()
                 .is_none()
         );
-        for event in events {
-            state.cancel_event_watcher(&owner, &event.event_id).await;
-        }
+        stop.cancel();
+        watching.abort();
+        due_loop.await.unwrap();
     })
     .await
     .expect("native event qualification exceeded thirty seconds");

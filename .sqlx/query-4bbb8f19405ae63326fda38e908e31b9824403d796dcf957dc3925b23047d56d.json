@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The stored body of one row, chosen by table name and key.\nSELECT body AS \"body!\"\nFROM (\n    SELECT body FROM time.source\n    WHERE $1::text = 'source' AND tenant = $2 AND source_key = $3\n    UNION ALL\n    SELECT body FROM time.authority_release\n    WHERE $1 = 'authority_release' AND tenant = $2 AND release_key = $3\n    UNION ALL\n    SELECT body FROM time.acquisition\n    WHERE $1 = 'acquisition' AND tenant = $2 AND acquisition_key = $3\n    UNION ALL\n    SELECT body FROM time.calendar_version\n    WHERE $1 = 'calendar_version' AND tenant = $2 AND calendar_key = $3\n    UNION ALL\n    SELECT body FROM time.epoch\n    WHERE $1 = 'epoch' AND tenant = $2 AND epoch_key = $3\n    UNION ALL\n    SELECT body FROM time.event\n    WHERE $1 = 'event' AND tenant = $2 AND event_key = $3\n) AS bodies\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "body!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4bbb8f19405ae63326fda38e908e31b9824403d796dcf957dc3925b23047d56d"
+}

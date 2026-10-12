@@ -3,9 +3,9 @@ use super::*;
 #[tokio::test]
 async fn retained_digests_carry_provenance_idempotency_and_reject_corruption() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = crate::test_database::TimeDb::new().await;
         let files = AuthorityFiles::new().await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let owner = scope(&db.a, "digest-owner").await;
         let foreign = scope(&db.a, "digest-other").await;
         let (release, mut acquisition) = stage(
@@ -16,7 +16,7 @@ async fn retained_digests_carry_provenance_idempotency_and_reject_corruption() {
         )
         .await;
         assert!(release.source_digest.as_str().starts_with("sha256:"));
-        let record = RecordId::new("time_authority_release", release.release_id.to_string());
+        let tenant = owner.identity.tenant_id;
         let retained = catalog
             .release(&owner, &release.release_id)
             .await
@@ -82,18 +82,31 @@ async fn retained_digests_carry_provenance_idempotency_and_reject_corruption() {
             "an idempotency key replays only the request that created it"
         );
 
-        // Corrupt both representations identically: equality alone must not admit
-        // malformed hashes. Errors must neither echo the digest nor leak the row.
+        // The schema admits only `sha256:<hex>` digest columns. A malformed body digest
+        // fails reads; errors neither echo the digest nor leak the row.
+        let record = crate::persistence::TimePersistence::new(db.a.pool().clone())
+            .time_authority_release(tenant, &release.release_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let error = sqlx::query_file_scalar!(
+            "src/tests/queries/set_release_columns.sql",
+            tenant as veoveo_platform_store::TenantId,
+            &release.release_id as &AuthorityReleaseId,
+            tenant as veoveo_platform_store::TenantId,
+            record.dataset_kind as crate::persistence::TimeDatasetKind,
+            &release.release_id as &AuthorityReleaseId,
+            record.state as crate::persistence::TimeAuthorityReleaseState,
+            "PRIVATE_INVALID_DIGEST",
+            record.artifact_path,
+        )
+        .fetch_one(db.a.pool())
+        .await
+        .unwrap_err();
+        assert!(rejected_by_schema(&error), "{error}");
         let mut body = serde_json::to_value(&retained).unwrap();
         body["sourceDigest"] = "PRIVATE_INVALID_DIGEST".into();
-        set(
-            &db.a,
-            record.clone(),
-            "source_digest",
-            "PRIVATE_INVALID_DIGEST",
-        )
-        .await;
-        set(&db.a, record, "canonical_json", body.to_string()).await;
+        set_body(&db.a, tenant, Row::Release(&release.release_id), &body).await;
         let error = catalog
             .release(&owner, &release.release_id)
             .await
@@ -107,17 +120,27 @@ async fn retained_digests_carry_provenance_idempotency_and_reject_corruption() {
                 .unwrap()
                 .is_none()
         );
-        let mut body = serde_json::to_value(&created).unwrap();
-        body["expectedSourceDigest"] = "PRIVATE_INVALID_DIGEST".into();
-        let record = RecordId::new("time_acquisition", created.acquisition_id.to_string());
-        set(
-            &db.a,
-            record.clone(),
-            "expected_source_digest",
+        let error = sqlx::query_file_scalar!(
+            "src/tests/queries/set_acquisition_columns.sql",
+            tenant as veoveo_platform_store::TenantId,
+            &created.acquisition_id as &TimeAcquisitionId,
+            created.phase as crate::TimeAcquisitionPhase,
+            None::<&str>,
             "PRIVATE_INVALID_DIGEST",
         )
+        .fetch_one(db.a.pool())
+        .await
+        .unwrap_err();
+        assert!(rejected_by_schema(&error), "{error}");
+        let mut body = serde_json::to_value(&created).unwrap();
+        body["expectedSourceDigest"] = "PRIVATE_INVALID_DIGEST".into();
+        set_body(
+            &db.a,
+            tenant,
+            Row::Acquisition(&created.acquisition_id),
+            &body,
+        )
         .await;
-        set(&db.a, record, "canonical_json", body.to_string()).await;
         let error = catalog
             .acquisition(&owner, &created.acquisition_id)
             .await

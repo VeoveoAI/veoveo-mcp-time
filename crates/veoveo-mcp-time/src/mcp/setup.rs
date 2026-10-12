@@ -131,12 +131,10 @@ fn server_info() -> ServerConfig {
         rmcp::model::JsonObject::new(),
     );
     if let Some(registration) = super::declarations::REGISTRATION.get() {
-        let module = super::declarations::module().expect("Time's module declaration");
         veoveo_mcp_ext_registration::mcp::advertise(
             &mut capabilities,
             registration,
             &super::requirements::AUTHORIZATION,
-            Some(&module.summary()),
         );
     }
     let mut info = ServerConfig::default();

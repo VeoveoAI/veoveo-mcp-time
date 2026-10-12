@@ -15,17 +15,13 @@ use super::{
     TimeMcp, internal,
     requirements::{Target, require},
 };
-use crate::{
-    contract::{
-        ActivateReleaseRequest, ActiveAuthoritySelection, AdminPage, AuthorityRelease,
-        CancelAcquisitionRequest, ClockQualityPolicyRecord, CreateCalendarRequest,
-        CreateCalendarRequestValue, CreateSourceRequest, CreateSourceRequestValue, Epoch,
-        GetAcquisitionRequest, GetSourceRequest, OperationalCalendar,
-        ReplaceClockQualityPolicyRequest, ReplaceSourceRequest, StartAcquisitionRequest,
-        StartAcquisitionRequestValue, TimeAcquisition, TimeSource, UpsertEpochRequest,
-        UpsertEpochRequestValue,
-    },
-    uris,
+use crate::contract::{
+    ActivateReleaseRequest, ActiveAuthoritySelection, AdminPage, AuthorityRelease,
+    CancelAcquisitionRequest, ClockQualityPolicyRecord, CreateCalendarRequest,
+    CreateCalendarRequestValue, CreateSourceRequest, CreateSourceRequestValue, Epoch,
+    GetAcquisitionRequest, GetSourceRequest, OperationalCalendar, ReplaceClockQualityPolicyRequest,
+    ReplaceSourceRequest, StartAcquisitionRequest, StartAcquisitionRequestValue, TimeAcquisition,
+    TimeSource, UpsertEpochRequest, UpsertEpochRequestValue,
 };
 
 #[tool_router(router = administration_router, vis = "pub(crate)")]
@@ -303,10 +299,6 @@ impl TimeMcp {
             .reload(&self.state.catalog, &scope)
             .await
             .map_err(internal)?;
-        self.state
-            .subscriptions
-            .notify_resource_updated(uris::AUTHORITIES_CURRENT_URI)
-            .await;
         structured_result(format!("activated {}", release.release_id), &release)
     }
 
@@ -333,10 +325,6 @@ impl TimeMcp {
             Ok(calendar) => calendar,
             Err(error) => return rejected(error),
         };
-        self.state
-            .subscriptions
-            .notify_resource_updated(uris::CALENDARS_URI)
-            .await;
         structured_result(format!("published {}", calendar.calendar_id), &calendar)
     }
 
@@ -363,10 +351,6 @@ impl TimeMcp {
             .reload(&self.state.catalog, &scope)
             .await
             .map_err(internal)?;
-        self.state
-            .subscriptions
-            .notify_resource_updated(uris::EPOCHS_URI)
-            .await;
         structured_result(format!("published {}", epoch.epoch_id), &epoch)
     }
 
@@ -392,10 +376,6 @@ impl TimeMcp {
             Ok(result) => result,
             Err(error) => return rejected(error),
         };
-        self.state
-            .subscriptions
-            .notify_resource_updated(uris::CLOCK_QUALITY_URI)
-            .await;
         let record = ClockQualityPolicyRecord {
             policy,
             record_version,

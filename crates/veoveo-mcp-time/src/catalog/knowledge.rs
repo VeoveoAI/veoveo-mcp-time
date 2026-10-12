@@ -66,11 +66,7 @@ impl TimeCatalog {
             .time_calendar_version(scope.identity.tenant_id, id, version)
             .await?
             .map(|record| {
-                let access = record.provenance.access(
-                    &record.tenant,
-                    &record.owner,
-                    ReadPolicy::Tenant {},
-                )?;
+                let access = record.provenance().access(ReadPolicy::Tenant {})?;
                 Ok(ObservedTime {
                     collection: TimeKnowledgeCollection::Calendars,
                     access,
@@ -90,11 +86,7 @@ impl TimeCatalog {
             .time_epoch(scope.identity.tenant_id, id, version)
             .await?
             .map(|record| {
-                let access = record.provenance.access(
-                    &record.tenant,
-                    &record.owner,
-                    ReadPolicy::Tenant {},
-                )?;
+                let access = record.provenance().access(ReadPolicy::Tenant {})?;
                 Ok(ObservedTime {
                     collection: TimeKnowledgeCollection::Epochs,
                     access,
@@ -113,11 +105,7 @@ impl TimeCatalog {
             .time_event(&scope.identity, id)
             .await?
             .map(|record| {
-                let access = record.provenance.access(
-                    &record.tenant,
-                    &record.owner,
-                    ReadPolicy::Subjects {},
-                )?;
+                let access = record.provenance().access(ReadPolicy::Subjects {})?;
                 Ok(ObservedTime {
                     collection: TimeKnowledgeCollection::Events,
                     access,
@@ -139,10 +127,7 @@ impl TimeCatalog {
         else {
             return Ok(None);
         };
-        let access =
-            record
-                .provenance
-                .access(&record.tenant, &record.owner, ReadPolicy::Tenant {})?;
+        let access = record.provenance().access(ReadPolicy::Tenant {})?;
         // The compiler reference is immutable; activation changes administrative
         // state, not its bytes or provenance. Validation produced this revision.
         let modified_at = record.validated_at;
@@ -162,15 +147,11 @@ impl TimeCatalog {
     ) -> Result<crate::CollectionPage<AuthorityRelease, AuthorityCursor>> {
         let rows = self
             .persistence
-            .time_authority_releases_page(scope.identity.tenant_id, after)
+            .time_authority_releases_page(scope.identity.tenant_id, after, 101)
             .await?;
         crate::index::page(
             rows,
-            |row| {
-                Ok(AuthorityCursor::new(
-                    &row.release_key.parse().map_err(anyhow::Error::msg)?,
-                ))
-            },
+            |row| Ok(AuthorityCursor::new(&row.release_key)),
             release_from_record,
         )
     }

@@ -1,0 +1,124 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    owner AS \"owner: PrincipalId\",\n    maximum_error_nanoseconds,\n    maximum_stratum,\n    minimum_source_diversity,\n    maximum_holdover_seconds,\n    record_version,\n    created_at,\n    updated_at\nFROM time.clock_policy\nWHERE tenant = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant: TenantId",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "\"time\".clock_policy",
+            "name": "tenant"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "owner: PrincipalId",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "\"time\".clock_policy",
+            "name": "owner"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "maximum_error_nanoseconds",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".clock_policy",
+            "name": "maximum_error_nanoseconds"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "maximum_stratum",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "\"time\".clock_policy",
+            "name": "maximum_stratum"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "minimum_source_diversity",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".clock_policy",
+            "name": "minimum_source_diversity"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "maximum_holdover_seconds",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".clock_policy",
+            "name": "maximum_holdover_seconds"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "record_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".clock_policy",
+            "name": "record_version"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "\"time\".clock_policy",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "\"time\".clock_policy",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "37ee93924253424bef1d0eff0742183c0bc433b698c88ae2906d999c3b0e998a"
+}

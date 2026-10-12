@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT calendar_key::text AS \"candidate!\"\nFROM time.calendar_version\nWHERE tenant = $1 AND strpos(lower(calendar_key), $2) > 0\nORDER BY 1\nLIMIT $3\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "candidate!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".calendar_version",
+            "name": "calendar_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ae972f0b3c84a480cf4258b2febfacc49d7369391fec28d20c1f5b492c8f3cb5"
+}

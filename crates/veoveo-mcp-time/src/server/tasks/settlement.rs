@@ -1,7 +1,6 @@
 //! Time-owned cancellation checkpoints and finite calculation settlement.
 use tokio_util::sync::CancellationToken;
-use veoveo_platform_store::TaskStatus;
-use veoveo_task_runtime::{TaskError, TaskRuntime, TaskSnapshot, TaskTransition};
+use veoveo_task_runtime::{TaskError, TaskRuntime, TaskSnapshot, TaskStatus, TaskTransition};
 use veoveo_types::TaskId;
 
 pub(super) async fn update(
@@ -27,7 +26,7 @@ pub(super) async fn checkpoint(runtime: &TaskRuntime, id: TaskId) -> Result<bool
     if current.is_terminal() {
         return Ok(false);
     }
-    execution_owner(runtime, &current)?;
+    runtime.ensure_owner(&current)?;
     if current.status == TaskStatus::CancelRequested {
         dispatch(
             runtime,
@@ -62,21 +61,7 @@ pub(super) async fn local_stop(
 }
 
 async fn snapshot(runtime: &TaskRuntime, id: TaskId) -> Result<TaskSnapshot, TaskError> {
-    runtime
-        .get(id)
-        .await?
-        .ok_or_else(|| TaskError::NotFound(id.to_string()))
-}
-
-fn execution_owner(runtime: &TaskRuntime, current: &TaskSnapshot) -> Result<(), TaskError> {
-    if current.lease_owner.as_deref() != Some(runtime.worker_id())
-        || current
-            .lease_expires_at
-            .is_none_or(|expiry| expiry <= chrono::Utc::now())
-    {
-        return Err(TaskError::LeaseHeld(current.task_id.to_string()));
-    }
-    Ok(())
+    runtime.get(id).await?.ok_or(TaskError::NotFound(id))
 }
 
 pub(super) async fn settle(

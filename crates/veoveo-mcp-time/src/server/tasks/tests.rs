@@ -1,9 +1,13 @@
 use super::*;
-use veoveo_task_runtime::{TaskPayloadState, TaskRuntime};
+use std::time::Duration;
+use veoveo_platform_store::{Instance, PlatformStore};
+use veoveo_task_runtime::{TaskPayloadState, TaskRuntime, TaskStatus};
 use veoveo_types::{
     AccessSubject, InvocationAuthority, InvocationProvenance, PolicyVersion, PrincipalId, TenantId,
     WorkContextId, WorkContextMembershipLevel, WorkContextOutputPolicy,
 };
+
+use crate::test_database::{TimeDb, slug};
 
 fn authority() -> InvocationAuthority {
     let principal = PrincipalId::parse("integration-principal").unwrap();
@@ -26,15 +30,21 @@ fn authority() -> InvocationAuthority {
 
 fn owner() -> TaskOwner {
     TaskOwner {
-        principal_key: "integration-principal".to_owned(),
+        principal_key: "integration-principal".parse().unwrap(),
         principal_kind: veoveo_task_runtime::PrincipalKind::User,
-        issuer: "https://issuer.integration.example".to_owned(),
-        subject: "integration-subject".to_owned(),
-        profile: "integration-profile".to_owned(),
-        tenant_key: Some("integration-tenant".to_owned()),
-        data_labels: BTreeSet::from(["internal".to_owned()]),
+        issuer: "https://issuer.integration.example".parse().unwrap(),
+        subject: "integration-subject".parse().unwrap(),
+        profile: "integration-profile".parse().unwrap(),
+        tenant_key: Some("integration-tenant".parse().unwrap()),
+        data_labels: BTreeSet::from(["internal".parse().unwrap()]),
         authority: authority(),
     }
+}
+
+/// A Time Task runtime with its own process instance, as one replica runs it.
+async fn runtime(store: &PlatformStore) -> TaskRuntime {
+    let instance = Instance::start(store, &slug()).await.unwrap();
+    TaskRuntime::new(store.clone(), slug(), Arc::new(instance))
 }
 
 async fn running(runtime: &TaskRuntime) -> TaskSnapshot {
@@ -50,7 +60,7 @@ async fn running(runtime: &TaskRuntime) -> TaskSnapshot {
         .create(CreateTask {
             task_id: TaskId::new(),
             owner: owner(),
-            server: SERVER_SLUG.into(),
+            server: slug(),
             task_type: request.task_type(),
             request: serde_json::to_value(request).unwrap(),
             recovery_class: RecoveryClass::Resume,
@@ -62,10 +72,7 @@ async fn running(runtime: &TaskRuntime) -> TaskSnapshot {
         .await
         .unwrap()
         .snapshot;
-    runtime
-        .claim(created.task_id, TASK_LEASE_DURATION)
-        .await
-        .unwrap();
+    runtime.claim(created.task_id).await.unwrap();
     runtime
         .transition(
             created.task_id,
@@ -89,12 +96,12 @@ fn success() -> TaskTransition {
 #[tokio::test]
 async fn remote_cancellation_winning_final_time_settlement_is_terminal() {
     tokio::time::timeout(Duration::from_secs(60), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
-        let executor = TaskRuntime::new(db.a.clone(), SERVER_SLUG, "time-executor");
-        let remote = TaskRuntime::new(db.b.clone(), SERVER_SLUG, "time-canceller");
+        let db = TimeDb::new().await;
+        let executor = runtime(&db.a).await;
+        let remote = runtime(&db.b).await;
         let before = running(&executor).await;
-        // Exact interleave: the executing worker has selected its completion CAS,
-        // then another worker commits cancellation before that CAS executes.
+        // Exact interleave: the executing worker has selected its completion write,
+        // then another replica commits cancellation before that write executes.
         remote.cancel(before.task_id).await.unwrap();
         settlement::settle(&executor, &before, success(), &CancellationToken::new())
             .await
@@ -114,11 +121,11 @@ async fn remote_cancellation_winning_final_time_settlement_is_terminal() {
 }
 
 #[tokio::test]
-async fn time_settlement_preserves_cancellation_completion_failure_and_execution_fences() {
+async fn time_settlement_preserves_cancellation_completion_failure_and_ownership() {
     tokio::time::timeout(Duration::from_secs(60), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
-        let executor = TaskRuntime::new(db.a.clone(), SERVER_SLUG, "time-executor");
-        let remote = TaskRuntime::new(db.b.clone(), SERVER_SLUG, "time-canceller");
+        let db = TimeDb::new().await;
+        let executor = runtime(&db.a).await;
+        let remote = runtime(&db.b).await;
 
         // Cancellation committed on another runtime is visible without a token.
         let before = running(&executor).await;
@@ -176,7 +183,7 @@ async fn time_settlement_preserves_cancellation_completion_failure_and_execution
         );
 
         // A real calculation error is not replaced by a fabricated success or
-        // discarded merely because cancellation wins the completion CAS.
+        // discarded merely because cancellation wins the completion write.
         let before = running(&executor).await;
         remote.cancel(before.task_id).await.unwrap();
         let failure = TaskFailure::new("temporal_calculation_failed", "civil time is ambiguous");
@@ -190,7 +197,7 @@ async fn time_settlement_preserves_cancellation_completion_failure_and_execution
         .unwrap();
         assert_eq!(failed.error, Some(failure));
         assert!(failed.result.is_none());
-        assert_eq!(failed.status, veoveo_platform_store::TaskStatus::Failed);
+        assert_eq!(failed.status, TaskStatus::Failed);
 
         // Reconciliation cannot convert unrelated progress conflicts into success.
         let before = running(&executor).await;
@@ -213,7 +220,7 @@ async fn time_settlement_preserves_cancellation_completion_failure_and_execution
             TaskPayloadState::Running
         );
 
-        // Another worker cannot use cancellation settlement to bypass a live lease.
+        // Another instance cannot settle a Task it does not own.
         let before = running(&executor).await;
         remote.cancel(before.task_id).await.unwrap();
         assert!(matches!(
@@ -224,11 +231,11 @@ async fn time_settlement_preserves_cancellation_completion_failure_and_execution
                 &CancellationToken::new()
             )
             .await,
-            Err(veoveo_task_runtime::TaskError::LeaseHeld(_))
+            Err(veoveo_task_runtime::TaskError::NotOwner(_))
         ));
         assert_eq!(
             executor.get(before.task_id).await.unwrap().unwrap().status,
-            veoveo_platform_store::TaskStatus::CancelRequested
+            TaskStatus::CancelRequested
         );
         settlement::update(
             &executor,
@@ -250,8 +257,8 @@ async fn time_settlement_preserves_cancellation_completion_failure_and_execution
 #[tokio::test]
 async fn local_shutdown_token_stops_time_work_without_inventing_cancel_intent() {
     tokio::time::timeout(Duration::from_secs(60), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
-        let executor = TaskRuntime::new(db.a.clone(), SERVER_SLUG, "time-shutdown");
+        let db = TimeDb::new().await;
+        let executor = runtime(&db.a).await;
         let before = running(&executor).await;
         let token = CancellationToken::new();
         assert!(
@@ -280,7 +287,7 @@ async fn local_shutdown_token_stops_time_work_without_inventing_cancel_intent() 
         assert_eq!(after, before);
         assert!(after.cancel_requested_at.is_none());
         assert!(after.result.is_none());
-        assert_eq!(after.status, veoveo_platform_store::TaskStatus::Running);
+        assert_eq!(after.status, TaskStatus::Running);
 
         // A real durable cancel still settles even when that same token stopped.
         executor.cancel(before.task_id).await.unwrap();
@@ -306,9 +313,9 @@ async fn local_shutdown_token_stops_time_work_without_inventing_cancel_intent() 
 #[tokio::test]
 async fn local_stop_at_selected_snapshot_seams_never_dispatches_success() {
     tokio::time::timeout(Duration::from_secs(60), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
-        let executor = TaskRuntime::new(db.a.clone(), SERVER_SLUG, "time-executor");
-        let remote = TaskRuntime::new(db.b.clone(), SERVER_SLUG, "time-canceller");
+        let db = TimeDb::new().await;
+        let executor = runtime(&db.a).await;
+        let remote = runtime(&db.b).await;
 
         // The same selected-snapshot seam used after update's awaited read.
         let before = running(&executor).await;
@@ -332,12 +339,12 @@ async fn local_stop_at_selected_snapshot_seams_never_dispatches_success() {
             .await
             .unwrap();
         let after = remote.get(before.task_id).await.unwrap().unwrap();
-        assert_eq!(after.status, veoveo_platform_store::TaskStatus::Cancelled);
+        assert_eq!(after.status, TaskStatus::Cancelled);
         assert_eq!(after.request, before.request);
         assert_eq!(after.owner, before.owner);
         assert!(after.result.is_none());
 
-        // Actual failed CAS and reread, then stop at the reconciliation
+        // An actual failed write and reread, then a stop at the reconciliation
         // dispatch seam. Durable cancellation may settle; success may not.
         let before = running(&executor).await;
         remote.cancel(before.task_id).await.unwrap();
@@ -352,9 +359,51 @@ async fn local_stop_at_selected_snapshot_seams_never_dispatches_success() {
             .await
             .unwrap();
         let after = remote.get(before.task_id).await.unwrap().unwrap();
-        assert_eq!(after.status, veoveo_platform_store::TaskStatus::Cancelled);
+        assert_eq!(after.status, TaskStatus::Cancelled);
         assert!(after.result.is_none());
     })
     .await
     .expect("Time selected snapshot stop controls exceeded 60 seconds");
+}
+
+#[tokio::test]
+async fn a_replica_runs_queued_time_tasks_to_completion() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let db = TimeDb::new().await;
+        let creator = runtime(&db.a).await;
+        let request = TimeTaskRequest::ValidateTimeline(
+            crate::contract::ValidateTimelineRequestValue {
+                points: vec![],
+                constraints: vec![],
+            }
+            .build()
+            .unwrap(),
+        );
+        let queued = creator
+            .create(CreateTask {
+                task_id: TaskId::new(),
+                owner: owner(),
+                server: slug(),
+                task_type: request.task_type(),
+                request: serde_json::to_value(request).unwrap(),
+                recovery_class: RecoveryClass::Resume,
+                idempotency_key: None,
+                ttl_ms: Some(TASK_TTL_MS),
+                poll_interval_ms: Some(TASK_POLL_INTERVAL_MS),
+                retention_pins: BTreeSet::new(),
+            })
+            .await
+            .unwrap()
+            .snapshot;
+        assert_eq!(queued.status, TaskStatus::Queued);
+        // A replica that did not create the Task claims it from the queue.
+        let replica = runtime(&db.b).await;
+        let mut work = replica.work().await.unwrap();
+        let claimed = work.next().await.unwrap().unwrap();
+        assert_eq!(claimed.task_id, queued.task_id);
+        replica.ensure_owner(&claimed).unwrap();
+        assert!(creator.ensure_owner(&claimed).is_err());
+    })
+    .await
+    .expect("Time task claim control exceeded 60 seconds");
 }

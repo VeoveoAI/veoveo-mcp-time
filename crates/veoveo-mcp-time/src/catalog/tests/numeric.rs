@@ -1,8 +1,12 @@
-use super::{instant, metadata::set, scope};
-use crate::{catalog::TimeCatalog, contract::*, persistence::TimeClockPolicyRecord};
+use super::{instant, later, scope};
+use crate::{
+    catalog::TimeCatalog,
+    contract::*,
+    persistence::{TimeClockPolicyRecord, TimePersistence},
+    test_database::{Row, TimeDb, rejected_by_schema, set_record_version},
+};
 use std::time::Duration;
-use surrealdb::types::RecordId;
-use veoveo_platform_store::PlatformStore;
+use veoveo_platform_store::{PlatformStore, TenantId};
 
 fn policy(stratum: u8) -> ClockQualityPolicy {
     ClockQualityPolicy::builder()
@@ -14,22 +18,22 @@ fn policy(stratum: u8) -> ClockQualityPolicy {
         .unwrap()
 }
 
-async fn clock_row(store: &PlatformStore, record: &RecordId) -> TimeClockPolicyRecord {
-    store
-        .client()
-        .select::<Option<TimeClockPolicyRecord>>(record.clone())
+async fn clock_row(store: &PlatformStore, tenant: TenantId) -> TimeClockPolicyRecord {
+    TimePersistence::new(store.pool().clone())
+        .time_clock_policy(tenant)
         .await
         .unwrap()
         .unwrap()
 }
 
 #[tokio::test]
-async fn clock_policy_decoding_rejects_bad_scalars_and_versions_without_mutation() {
+async fn clock_policy_rows_admit_only_policy_ranges_and_positive_versions() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let owner = scope(&db.a, "time-clock-numeric", "owner").await;
         let foreign = scope(&db.a, "time-clock-numeric-other", "owner").await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let tenant = owner.identity.tenant_id;
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let (created, version) = catalog
             .replace_clock_policy(&owner, policy(4), TimeWriteGuard::Absent)
             .await
@@ -42,31 +46,46 @@ async fn clock_policy_decoding_rejects_bad_scalars_and_versions_without_mutation
                 .await
                 .is_err()
         );
-        let record = RecordId::new("time_clock_policy", owner.identity.tenant_id.to_string());
-        for (field, bad, restore) in [
-            ("maximum_error_nanoseconds", -1, 1000),
-            ("maximum_error_nanoseconds", 0, 1000),
-            ("maximum_stratum", -1, 4),
-            ("maximum_stratum", 0, 4),
-            ("maximum_stratum", 16, 4),
-            ("maximum_stratum", 256, 4),
-            ("minimum_source_diversity", -1, 2),
-            ("minimum_source_diversity", 0, 2),
-            ("minimum_source_diversity", u32::MAX as i64 + 1, 2),
-            ("maximum_holdover_seconds", -1, 300),
-            ("maximum_holdover_seconds", 0, 300),
-            ("record_version", -1, 1),
-            ("record_version", 0, 1),
+        let retained = clock_row(&db.a, tenant).await;
+        for (error_bound, stratum, diversity, holdover) in [
+            (-1_i64, 4_i16, 2_i64, 300_i64),
+            (0, 4, 2, 300),
+            (1000, -1, 2, 300),
+            (1000, 0, 2, 300),
+            (1000, 16, 2, 300),
+            (1000, 256, 2, 300),
+            (1000, 4, -1, 300),
+            (1000, 4, 0, 300),
+            (1000, 4, i64::from(u32::MAX) + 1, 300),
+            (1000, 4, 2, -1),
+            (1000, 4, 2, 0),
         ] {
-            set(&db.a, &record, field, bad).await;
-            let retained = clock_row(&db.a, &record).await;
-            let error = catalog.clock_policy(&owner).await.unwrap_err();
-            assert!(error.to_string().contains(field), "{error}");
-            assert!(catalog.clock_policy(&foreign).await.unwrap().is_none());
-            assert_eq!(clock_row(&db.a, &record).await, retained);
-            set(&db.a, &record, field, restore).await;
+            let error = sqlx::query_file_scalar!(
+                "src/tests/queries/set_clock_policy_limits.sql",
+                tenant as TenantId,
+                error_bound,
+                stratum,
+                diversity,
+                holdover,
+            )
+            .fetch_one(db.a.pool())
+            .await
+            .unwrap_err();
+            assert!(rejected_by_schema(&error), "{error}");
+            assert_eq!(clock_row(&db.a, tenant).await, retained);
         }
-        let other = TimeCatalog::new(db.a.clone());
+        for version in [-1, 0] {
+            let error = set_record_version(&db.a, tenant, Row::ClockPolicy, version)
+                .await
+                .unwrap_err();
+            assert!(rejected_by_schema(&error), "{error}");
+        }
+        assert_eq!(
+            catalog.clock_policy(&owner).await.unwrap().unwrap(),
+            (policy(4), TimeVersion::FIRST)
+        );
+        assert!(catalog.clock_policy(&foreign).await.unwrap().is_none());
+        let other = TimeCatalog::new(db.a.pool().clone());
         let (left, right) = tokio::join!(
             catalog.replace_clock_policy(
                 &owner,
@@ -83,8 +102,10 @@ async fn clock_policy_decoding_rejects_bad_scalars_and_versions_without_mutation
         let winner = left.or(right).unwrap();
         assert_eq!(winner.1.get(), 2);
         assert_eq!(catalog.clock_policy(&owner).await.unwrap().unwrap(), winner);
-        set(&db.a, &record, "record_version", i64::MAX).await;
-        let retained = clock_row(&db.a, &record).await;
+        set_record_version(&db.a, tenant, Row::ClockPolicy, i64::MAX)
+            .await
+            .unwrap();
+        let retained = clock_row(&db.a, tenant).await;
         let (_, max) = catalog.clock_policy(&owner).await.unwrap().unwrap();
         assert_eq!(max.get(), i64::MAX as u64);
         assert!(
@@ -93,7 +114,7 @@ async fn clock_policy_decoding_rejects_bad_scalars_and_versions_without_mutation
                 .await
                 .is_err()
         );
-        assert_eq!(clock_row(&db.a, &record).await, retained);
+        assert_eq!(clock_row(&db.a, tenant).await, retained);
     })
     .await
     .expect("Time clock numeric qualification exceeded 90 seconds");
@@ -102,9 +123,10 @@ async fn clock_policy_decoding_rejects_bad_scalars_and_versions_without_mutation
 #[tokio::test]
 async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let owner = scope(&db.a, "time-version-numeric", "owner").await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let tenant = owner.identity.tenant_id;
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let max = TimeVersion::new(i64::MAX as u64).unwrap();
         let source = catalog
             .create_source(
@@ -126,8 +148,9 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
             )
             .await
             .unwrap();
-        let source_record = RecordId::new("time_source", source.source_id.to_string());
-        set(&db.a, &source_record, "record_version", i64::MAX).await;
+        set_record_version(&db.a, tenant, Row::Source(&source.source_id), i64::MAX)
+            .await
+            .unwrap();
         let retained = catalog
             .source(&owner, &source.source_id)
             .await
@@ -173,8 +196,14 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_acquisition", acquisition.acquisition_id.to_string());
-        set(&db.a, &record, "record_version", i64::MAX).await;
+        set_record_version(
+            &db.a,
+            tenant,
+            Row::Acquisition(&acquisition.acquisition_id),
+            i64::MAX,
+        )
+        .await
+        .unwrap();
         let retained = catalog
             .acquisition(&owner, &acquisition.acquisition_id)
             .await
@@ -214,12 +243,14 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
                     state: EventState::Scheduled,
                     record_version: crate::TimeVersion::new(1).unwrap(),
                 },
+                later(),
                 "numeric".into(),
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_event", event.event_id.to_string());
-        set(&db.a, &record, "record_version", i64::MAX).await;
+        set_record_version(&db.a, tenant, Row::Event(&event.event_id), i64::MAX)
+            .await
+            .unwrap();
         let retained = catalog
             .event(&owner, &event.event_id)
             .await
@@ -231,12 +262,9 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
                 .await
                 .is_err()
         );
-        assert!(
-            catalog
-                .mark_event_due(&owner, &event.event_id, max)
-                .await
-                .is_err()
-        );
+        // The due statement skips an exhausted event instead of failing the batch.
+        set_due_now(&db.a, tenant, &event.event_id).await;
+        assert!(catalog.mark_due_events().await.unwrap().is_empty());
         assert_eq!(
             catalog
                 .event(&owner, &event.event_id)
@@ -248,4 +276,17 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
     })
     .await
     .expect("Time version numeric qualification exceeded 90 seconds");
+}
+
+/// Make a stored event due a second ago, bypassing the catalog.
+pub(crate) async fn set_due_now(store: &PlatformStore, tenant: TenantId, event: &EventId) {
+    sqlx::query_file_scalar!(
+        "src/tests/queries/set_event_due.sql",
+        tenant as TenantId,
+        event as &EventId,
+        chrono::Utc::now() - chrono::TimeDelta::seconds(1),
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
 }

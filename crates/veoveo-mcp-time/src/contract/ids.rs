@@ -1,14 +1,58 @@
-#[veoveo_types::id(prefixed(TimeIds, "time-source-"))]
+// The runtime binds these identifiers to PostgreSQL `text`; contract consumers carry no
+// database dependency.
+#[cfg_attr(
+    feature = "runtime",
+    veoveo_types::id(prefixed(TimeIds, "time-source-"), postgres)
+)]
+#[cfg_attr(
+    not(feature = "runtime"),
+    veoveo_types::id(prefixed(TimeIds, "time-source-"))
+)]
 pub struct TimeSourceId(String);
-#[veoveo_types::id(prefixed(TimeIds, "time-release-"))]
+#[cfg_attr(
+    feature = "runtime",
+    veoveo_types::id(prefixed(TimeIds, "time-release-"), postgres)
+)]
+#[cfg_attr(
+    not(feature = "runtime"),
+    veoveo_types::id(prefixed(TimeIds, "time-release-"))
+)]
 pub struct AuthorityReleaseId(String);
-#[veoveo_types::id(prefixed(TimeIds, "time-acquisition-"))]
+#[cfg_attr(
+    feature = "runtime",
+    veoveo_types::id(prefixed(TimeIds, "time-acquisition-"), postgres)
+)]
+#[cfg_attr(
+    not(feature = "runtime"),
+    veoveo_types::id(prefixed(TimeIds, "time-acquisition-"))
+)]
 pub struct TimeAcquisitionId(String);
-#[veoveo_types::id(prefixed(TimeIds, "calendar-"))]
+#[cfg_attr(
+    feature = "runtime",
+    veoveo_types::id(prefixed(TimeIds, "calendar-"), postgres)
+)]
+#[cfg_attr(
+    not(feature = "runtime"),
+    veoveo_types::id(prefixed(TimeIds, "calendar-"))
+)]
 pub struct CalendarId(String);
-#[veoveo_types::id(prefixed(TimeIds, "epoch-"))]
+#[cfg_attr(
+    feature = "runtime",
+    veoveo_types::id(prefixed(TimeIds, "epoch-"), postgres)
+)]
+#[cfg_attr(
+    not(feature = "runtime"),
+    veoveo_types::id(prefixed(TimeIds, "epoch-"))
+)]
 pub struct EpochId(String);
-#[veoveo_types::id(prefixed(TimeIds, "event-"))]
+#[cfg_attr(
+    feature = "runtime",
+    veoveo_types::id(prefixed(TimeIds, "event-"), postgres)
+)]
+#[cfg_attr(
+    not(feature = "runtime"),
+    veoveo_types::id(prefixed(TimeIds, "event-"))
+)]
 pub struct EventId(String);
 
 use veoveo_types::{IdProfile, IdProfileSpec};

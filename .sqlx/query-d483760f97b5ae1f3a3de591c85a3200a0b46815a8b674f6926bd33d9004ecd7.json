@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT release_key::text AS \"candidate!\"\nFROM time.authority_release\nWHERE tenant = $1 AND strpos(lower(release_key), $2) > 0\nORDER BY 1\nLIMIT $3\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "candidate!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".authority_release",
+            "name": "release_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d483760f97b5ae1f3a3de591c85a3200a0b46815a8b674f6926bd33d9004ecd7"
+}

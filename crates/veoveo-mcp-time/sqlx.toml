@@ -1,0 +1,5 @@
+# Read by `sqlx::migrate!()` in this crate and by `cargo sqlx migrate --config`. Time's
+# migrations record their history in its own schema, which the Gateway creates when Time
+# registers.
+[migrate]
+table-name = "time._sqlx_migrations"

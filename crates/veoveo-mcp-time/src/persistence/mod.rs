@@ -1,14 +1,15 @@
-//! Time-owned persistence over the shared Store connection.
+//! Time's tables in its PostgreSQL schema `time`. Every statement is a query file that
+//! sqlx checks against the migrated schema at compile time.
 
 use crate::catalog::TimeCompletion;
 use crate::contract::{
     AuthorityReleaseId, CalendarId, ClockQualityPolicy, EpochId, EventId, SubsecondNanoseconds,
-    TimeAcquisitionId, TimeSourceId, TimeVersion, TimeVersionError, TimeWriteGuard,
+    TimeAcquisitionId, TimeAcquisitionPhase, TimeSourceId, TimeVersion, TimeVersionError,
+    TimeWriteGuard,
 };
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use surrealdb::types::{RecordId, SurrealValue};
-use veoveo_platform_store::{PlatformIdentity, PlatformStore, TenantId};
+use sqlx::PgPool;
+use veoveo_platform_store::{PlatformIdentity, PrincipalId, TenantId};
 use veoveo_types::Sha256Digest;
 
 mod acquisitions;
@@ -20,6 +21,7 @@ mod clock;
 mod collections;
 mod completion;
 mod drafts;
+mod due;
 mod events;
 mod provenance;
 mod records;
@@ -28,23 +30,25 @@ mod validation;
 pub(crate) use activation::AuthorityActivation;
 pub(crate) use active::ActiveAuthoritySnapshot;
 pub(crate) use drafts::*;
-pub(crate) use provenance::TimeProvenanceRecord;
+pub(crate) use due::{DueEvent, NextDue};
 pub(crate) use records::*;
 pub(crate) use validation::validate_key;
 use validation::*;
 
+/// Time's migrations in `migrations/`. The server applies them in its schema under its
+/// group role; their history lives in `time._sqlx_migrations`.
+pub(crate) fn migrator() -> sqlx::migrate::Migrator {
+    sqlx::migrate!()
+}
+
 #[derive(Clone)]
 pub(crate) struct TimePersistence {
-    store: PlatformStore,
+    pool: PgPool,
 }
 
 impl TimePersistence {
-    pub(crate) fn new(store: PlatformStore) -> Self {
-        Self { store }
-    }
-
-    fn client(&self) -> &surrealdb::Surreal<veoveo_platform_store::PlatformClient> {
-        self.store.client()
+    pub(crate) fn new(pool: PgPool) -> Self {
+        Self { pool }
     }
 }
 
@@ -53,7 +57,7 @@ pub(crate) enum PersistenceError {
     #[error(transparent)]
     Version(#[from] TimeVersionError),
     #[error(transparent)]
-    Database(#[from] surrealdb::Error),
+    Database(#[from] sqlx::Error),
     #[error("invalid time field {field}: {reason}")]
     InvalidTimeField {
         field: &'static str,
@@ -61,77 +65,39 @@ pub(crate) enum PersistenceError {
     },
     #[error("time {entity} `{key}` conflicts with the current durable record")]
     TimeRecordConflict { entity: &'static str, key: String },
-    #[error("missing record during {operation}")]
-    MissingRecord { operation: &'static str },
-}
-
-async fn create_only<T: SurrealValue>(
-    store: &TimePersistence,
-    record: RecordId,
-    content: T,
-) -> Result<(), PersistenceError> {
-    store
-        .client()
-        .query(include_str!("queries/create_record.surql"))
-        .bind(("record", record))
-        .bind(("content", content))
-        .await?
-        .check()?;
-    Ok(())
-}
-
-async fn select_one<T>(
-    store: &TimePersistence,
-    record: RecordId,
-    tenant_id: TenantId,
-) -> Result<Option<T>, PersistenceError>
-where
-    T: for<'de> Deserialize<'de> + SurrealValue,
-{
-    let mut response = store
-        .client()
-        .query(include_str!("queries/read_tenant_record.surql"))
-        .bind(("record", record))
-        .bind(("tenant", tenant_id.record_id()))
-        .await?
-        .check()?;
-    Ok(response.take(0)?)
-}
-
-async fn select_list<T>(
-    store: &TimePersistence,
-    query: &'static str,
-    tenant_id: TenantId,
-) -> Result<Vec<T>, PersistenceError>
-where
-    T: for<'de> Deserialize<'de> + SurrealValue,
-{
-    let mut response = store
-        .client()
-        .query(query)
-        .bind(("tenant", tenant_id.record_id()))
-        .await?
-        .check()?;
-    Ok(response.take(0)?)
-}
-
-fn time_record(table: &'static str, key: impl AsRef<str>) -> RecordId {
-    RecordId::new(table, key.as_ref().to_owned())
-}
-
-fn dataset_kind_key(kind: TimeDatasetKind) -> &'static str {
-    match kind {
-        TimeDatasetKind::Tzdb => "tzdb",
-        TimeDatasetKind::LeapSeconds => "leap_seconds",
-    }
+    #[error(
+        "time authority activation of `{release_key}` conflicts with the current records: {conflict}"
+    )]
+    ActivationConflict {
+        release_key: AuthorityReleaseId,
+        conflict: activation::ActivationConflict,
+    },
 }
 
 fn invalid(field: &'static str, reason: &'static str) -> PersistenceError {
     PersistenceError::InvalidTimeField { field, reason }
 }
 
-fn conflict(entity: &'static str, key: String) -> PersistenceError {
-    PersistenceError::TimeRecordConflict { entity, key }
+fn conflict(entity: &'static str, key: impl ToString) -> PersistenceError {
+    PersistenceError::TimeRecordConflict {
+        entity,
+        key: key.to_string(),
+    }
+}
+
+/// A stored version as the database's signed integer.
+fn version(value: TimeVersion) -> i64 {
+    i64::try_from(value.get()).expect("TimeVersion admits only the signed database range")
+}
+
+/// The next stored version after `value`, or a version error when it is exhausted.
+fn next_version(value: TimeVersion) -> Result<i64, PersistenceError> {
+    Ok(version(value.checked_next()?))
+}
+
+/// A subsecond coordinate as the database's `integer`.
+fn nanosecond(value: SubsecondNanoseconds) -> i32 {
+    i32::try_from(value.get()).expect("subsecond nanoseconds are below one billion")
 }
 
 #[cfg(test)]

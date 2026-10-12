@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT epoch_key::text AS \"candidate!\"\nFROM time.epoch\nWHERE tenant = $1 AND strpos(lower(epoch_key), $2) > 0\nORDER BY 1\nLIMIT $3\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "candidate!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".epoch",
+            "name": "epoch_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "69c6612a9445e4186a8e8a8dbff70ffaf0c4344fdf079c3dd94431d20ba3670a"
+}

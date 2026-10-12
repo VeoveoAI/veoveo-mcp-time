@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Runs the current `time.test_interleave` body inside an activation, right after the\n-- candidate becomes active and before the pointer and previous release change.\nCREATE TRIGGER test_interleave AFTER UPDATE ON time.authority_release\nFOR EACH ROW WHEN (OLD.state = 'staged' AND NEW.state = 'active')\nEXECUTE FUNCTION time.test_interleave()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "975fe7c46bde53f82daca88e4c40595e0cbacb210302a8c3a2e0b982bdd2e6ff"
+}

@@ -7,7 +7,7 @@ use veoveo_mcp_ext_registration::{
 };
 
 use super::config::Args;
-use crate::mcp::{declarations, requirements::AUTHORIZATION};
+use crate::mcp::requirements::AUTHORIZATION;
 
 /// Register Time and return the client that maintains the registration.
 pub(super) async fn register(
@@ -17,12 +17,7 @@ pub(super) async fn register(
     let key = KeyDirectory::new(&args.key_directory)
         .load_or_generate()
         .context("loading Time's registration key")?;
-    let metadata = ClientMetadata::new(
-        *key.public_key(),
-        declaration,
-        AUTHORIZATION.clone(),
-        Some(declarations::module()?),
-    )?;
+    let metadata = ClientMetadata::new(*key.public_key(), declaration, AUTHORIZATION.clone())?;
     let http = reqwest::Client::builder()
         .build()
         .context("building the registration HTTP client")?;

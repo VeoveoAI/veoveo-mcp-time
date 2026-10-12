@@ -1,0 +1,179 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time.acquisition\nSET\n    status = $3,\n    phase = $4,\n    staged_release_key = $5,\n    body = $6,\n    record_version = $8,\n    updated_at = now()\nWHERE tenant = $1 AND acquisition_key = $2 AND record_version = $7\nRETURNING\n    tenant AS \"tenant: TenantId\",\n    acquisition_key AS \"acquisition_key: TimeAcquisitionId\",\n    owner AS \"owner: PrincipalId\",\n    source_key AS \"source_key: TimeSourceId\",\n    expected_source_digest,\n    idempotency_key,\n    status AS \"status: TimeAcquisitionState\",\n    phase AS \"phase: TimeAcquisitionPhase\",\n    staged_release_key AS \"staged_release_key: AuthorityReleaseId\",\n    body,\n    record_version,\n    created_at,\n    updated_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant: TenantId",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "tenant"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "acquisition_key: TimeAcquisitionId",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "acquisition_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "owner: PrincipalId",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "owner"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "source_key: TimeSourceId",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "expected_source_digest",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "expected_source_digest"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "idempotency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "idempotency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "status: TimeAcquisitionState",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "phase: TimeAcquisitionPhase",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "phase"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "staged_release_key: AuthorityReleaseId",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "staged_release_key"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "body",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "record_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "record_version"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "\"time\".acquisition",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0378f86159c8f87d407b46eecc303202500935fed1494a796ddf84890171a09b"
+}

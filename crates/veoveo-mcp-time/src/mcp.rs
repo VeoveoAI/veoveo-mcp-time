@@ -234,6 +234,7 @@ impl TimeMcp {
                 scales: Vec::new(),
             })
             .map_err(invalid_params)?;
+        let due = engine.utc_due(&request.due).map_err(invalid_params)?;
         if request.name.trim().is_empty()
             || request.name.len() > 256
             || request.idempotency_key.trim().is_empty()
@@ -253,20 +254,9 @@ impl TimeMcp {
         let event = self
             .state
             .catalog
-            .create_event(&scope, event, request.idempotency_key)
+            .create_event(&scope, event, due, request.idempotency_key)
             .await
             .map_err(internal)?;
-        self.state
-            .cancel_event_watcher(&scope, &event.event_id)
-            .await;
-        self.state
-            .schedule_event(scope, event.clone())
-            .await
-            .map_err(internal)?;
-        self.state
-            .subscriptions
-            .notify_resource_updated(uris::EVENTS_URI)
-            .await;
         structured_result(format!("scheduled {}", event.event_id), &event)
     }
 
@@ -289,19 +279,6 @@ impl TimeMcp {
             .cancel_event(&scope, &request.event_id, request.expected_record_version)
             .await
             .map_err(internal)?;
-        self.state
-            .cancel_event_watcher(&scope, &event.event_id)
-            .await;
-        self.state
-            .subscriptions
-            .notify_resource_updated(uris::EVENTS_URI)
-            .await;
-        self.state
-            .subscriptions
-            .notify_resource_updated(
-                crate::contract::TimeResource::Event(event.event_id.clone()).to_string(),
-            )
-            .await;
         structured_result(format!("cancelled {}", event.event_id), &event)
     }
 }

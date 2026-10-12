@@ -9,7 +9,7 @@ pub(crate) struct TimeSourceDraft {
     pub(crate) source_url: String,
     pub(crate) expected_content_type: String,
     pub(crate) enabled: bool,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -26,7 +26,7 @@ pub(crate) struct TimeAuthorityReleaseDraft {
     pub(crate) artifact_path: String,
     pub(crate) retrieved_at: DateTime<Utc>,
     pub(crate) validated_at: DateTime<Utc>,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -37,9 +37,9 @@ pub(crate) struct TimeAcquisitionDraft {
     pub(crate) expected_source_digest: Option<Sha256Digest>,
     pub(crate) idempotency_key: String,
     pub(crate) status: TimeAcquisitionState,
-    pub(crate) phase: crate::TimeAcquisitionPhase,
+    pub(crate) phase: TimeAcquisitionPhase,
     pub(crate) staged_release_key: Option<AuthorityReleaseId>,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -48,9 +48,9 @@ pub(crate) struct TimeAcquisitionUpdate {
     pub(crate) acquisition_key: TimeAcquisitionId,
     pub(crate) expected_record_version: TimeVersion,
     pub(crate) status: TimeAcquisitionState,
-    pub(crate) phase: crate::TimeAcquisitionPhase,
+    pub(crate) phase: TimeAcquisitionPhase,
     pub(crate) staged_release_key: Option<AuthorityReleaseId>,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -62,7 +62,7 @@ pub(crate) struct TimeCalendarVersionDraft {
     pub(crate) name: String,
     pub(crate) zone_id: String,
     pub(crate) state: TimeCalendarState,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -74,7 +74,7 @@ pub(crate) struct TimeEpochDraft {
     pub(crate) epoch_version: TimeVersion,
     pub(crate) tai_seconds_since_1970: i64,
     pub(crate) nanosecond: SubsecondNanoseconds,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -86,8 +86,10 @@ pub(crate) struct TimeEventDraft {
     pub(crate) state: TimeEventState,
     pub(crate) due_tai_seconds_since_1970: i64,
     pub(crate) due_nanosecond: SubsecondNanoseconds,
+    /// The UTC instant at which the event becomes due.
+    pub(crate) due: DateTime<Utc>,
     pub(crate) idempotency_key: String,
-    pub(crate) canonical_json: String,
+    pub(crate) body: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]

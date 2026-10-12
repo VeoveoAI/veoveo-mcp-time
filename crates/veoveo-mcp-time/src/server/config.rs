@@ -152,7 +152,7 @@ mod tests {
         assert!(
             Args::try_parse_from(["veoveo-mcp-time", "--public-base-url", "https://t"]).is_err()
         );
-        assert!(args(&["--surreal-endpoint", "ws://127.0.0.1:1"]).is_err());
+        assert!(args(&["--database-url", "postgres://127.0.0.1/veoveo"]).is_err());
     }
 
     #[test]

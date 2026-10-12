@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time.active_authority\nSET\n    release_key = $3,\n    previous_release_key = $4,\n    activated_by = $5,\n    activated_at = now(),\n    record_version = $7\nWHERE tenant = $1\n    AND dataset_kind = $2\n    AND release_key = $4\n    AND previous_release_key IS NOT DISTINCT FROM $8\n    AND record_version = $6\nRETURNING record_version\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "record_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"time\".active_authority",
+            "name": "record_version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e620bb8a5d33cc2812c5ee353d1614cd4999aded5bec974d823bd4256d935a33"
+}

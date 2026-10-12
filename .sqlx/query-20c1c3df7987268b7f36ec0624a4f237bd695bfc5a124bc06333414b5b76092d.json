@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time.authority_release\nSET\n    tenant = $3,\n    dataset_kind = $4,\n    release_key = $5,\n    state = $6,\n    source_digest = $7,\n    artifact_path = $8\nWHERE tenant = $1 AND release_key = $2\nRETURNING 1 AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "20c1c3df7987268b7f36ec0624a4f237bd695bfc5a124bc06333414b5b76092d"
+}

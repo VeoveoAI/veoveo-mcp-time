@@ -70,10 +70,6 @@ impl TimeMcp {
                     .events_page(&scope, after.as_ref(), None)
                     .await
                     .map_err(crate::index::query_error)?;
-                self.state
-                    .schedule_events(scope.clone(), page.items.clone())
-                    .await
-                    .map_err(internal)?;
                 json_read(
                     uri,
                     &Page::from_page(page, |event| {
@@ -225,10 +221,6 @@ impl TimeMcp {
                     .await
                     .map_err(internal)?
                     .ok_or_else(|| not_found("event"))?;
-                self.state
-                    .schedule_event(scope, member.value().clone())
-                    .await
-                    .map_err(internal)?;
                 observed_resource(&resource, member, context)
             }
             TimeResource::ClockQuality => {

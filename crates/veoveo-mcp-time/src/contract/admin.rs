@@ -101,6 +101,7 @@ pub enum TimeAcquisitionStatus {
 
 /// Progress vocabulary emitted by the acquisition worker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, veoveo_types::Vocabulary)]
+#[cfg_attr(feature = "runtime", vocabulary(postgres))]
 pub enum TimeAcquisitionPhase {
     #[vocabulary(rename = "queued")]
     Queued,

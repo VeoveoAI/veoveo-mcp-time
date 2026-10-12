@@ -2,23 +2,25 @@ mod activation;
 #[cfg(feature = "mcp")]
 mod active_authorities;
 mod digest;
+mod due;
 #[cfg(feature = "mcp")]
 mod events;
 #[cfg(feature = "mcp")]
 mod hosted;
+mod knowledge;
 mod lifecycle;
+mod notifications;
 #[cfg(feature = "mcp")]
 mod permissions;
 #[cfg(feature = "mcp")]
 mod tool_input_tests;
 use super::*;
 use crate::contract::*;
+use crate::test_database::{Row, TimeDb, body, rejected_by_schema, set_body};
 use chrono::Utc;
-use futures::StreamExt;
 use sha2::{Digest, Sha256};
-use surrealdb::types::{RecordId, SurrealValue};
 use uuid::Uuid;
-use veoveo_platform_store::{PlatformStore, PrincipalKind, ResourceInvalidation};
+use veoveo_platform_store::{PlatformStore, PrincipalKind};
 use veoveo_types::Sha256Digest;
 
 struct AuthorityFiles {
@@ -37,7 +39,7 @@ impl AuthorityFiles {
         tokio::fs::create_dir_all(tzdb.join("Mission"))
             .await
             .unwrap();
-        // Same Linux tzdata prerequisite as the existing temporal-engine tests.
+        // Same tzdata prerequisite as the existing temporal-engine tests.
         tokio::fs::copy("/usr/share/zoneinfo/UTC", tzdb.join("UTC"))
             .await
             .unwrap();
@@ -225,31 +227,40 @@ fn resolved(engine: &TemporalEngine) -> TimeInstant {
         .into_instant()
 }
 
-async fn set(store: &PlatformStore, record: RecordId, field: &str, value: impl SurrealValue) {
-    store
-        .client()
-        .query(include_str!("../tests/queries/merge_record.surql"))
-        .bind(("record", record))
-        .bind((
-            "patch",
-            BTreeMap::from([(field.to_owned(), value.into_value())]),
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+/// Set an acquisition's staged release, bypassing the catalog.
+async fn set_staged_release(
+    store: &PlatformStore,
+    scope: &TimeAccessContext,
+    acquisition: &TimeAcquisition,
+    staged: Option<&AuthorityReleaseId>,
+) {
+    sqlx::query_file_scalar!(
+        "src/tests/queries/set_acquisition_columns.sql",
+        scope.identity.tenant_id as veoveo_platform_store::TenantId,
+        &acquisition.acquisition_id as &TimeAcquisitionId,
+        acquisition.phase as crate::TimeAcquisitionPhase,
+        staged.map(AuthorityReleaseId::as_str),
+        acquisition
+            .expected_source_digest
+            .as_ref()
+            .map(Sha256Digest::as_str),
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn replicas_load_persisted_authority_before_serving_and_validate_cache_reuse() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let files = AuthorityFiles::new().await;
         let registry = files.registry();
-        let writer = TimeCatalog::new(db.a.clone());
-        let reader = TimeCatalog::new(db.b.clone());
+        let writer = TimeCatalog::new(db.a.pool().clone());
+        let reader = TimeCatalog::new(db.b.pool().clone());
         let owner = scope(&db.a, "registry-owner").await;
         let foreign = scope(&db.a, "registry-other").await;
+        let tenant = owner.identity.tenant_id;
         let bootstrap = registry.authority_engine(&reader, &owner).await.unwrap();
         assert_eq!(
             bootstrap.authority().effective(),
@@ -330,37 +341,13 @@ async fn replicas_load_persisted_authority_before_serving_and_validate_cache_reu
         );
 
         // A warm context cannot hide missing or malformed producing provenance.
-        let acquisition_id =
-            RecordId::new("time_acquisition", acquisition.acquisition_id.to_string());
-        set(
-            &db.a,
-            acquisition_id.clone(),
-            "staged_release_key",
-            None::<String>,
-        )
-        .await;
+        set_staged_release(&db.a, &owner, &acquisition, None).await;
         assert!(registry.authority_engine(&reader, &owner).await.is_err());
-        set(
-            &db.a,
-            acquisition_id,
-            "staged_release_key",
-            Some(first.release_id.to_string()),
-        )
-        .await;
+        set_staged_release(&db.a, &owner, &acquisition, Some(&first.release_id)).await;
         assert!(registry.authority_engine(&reader, &owner).await.is_ok());
-        let release_id = RecordId::new("time_authority_release", first.release_id.to_string());
-        let body =
-            db.a.client()
-                .query(include_str!("../tests/queries/read_canonical_json.surql"))
-                .bind(("record", release_id.clone()))
-                .await
-                .unwrap()
-                .check()
-                .unwrap()
-                .take::<Option<String>>(0)
-                .unwrap()
-                .unwrap();
-        set(&db.a, release_id.clone(), "canonical_json", "{}").await;
+        let release_row = Row::Release(&first.release_id);
+        let release_body = body(&db.a, tenant, release_row).await;
+        set_body(&db.a, tenant, release_row, &serde_json::json!({})).await;
         assert!(registry.authority_engine(&reader, &owner).await.is_err());
         assert_eq!(
             registry
@@ -369,7 +356,7 @@ async fn replicas_load_persisted_authority_before_serving_and_validate_cache_reu
             files.bootstrap.effective().tzdb().clone()
         );
         assert!(registry.bootstrap_reference(&first.release_id).is_none());
-        set(&db.a, release_id.clone(), "canonical_json", body).await;
+        set_body(&db.a, tenant, release_row, &release_body).await;
         assert!(registry.authority_engine(&reader, &owner).await.is_ok());
 
         // Explicit reload failure evicts the old context; repair can recover it.
@@ -380,14 +367,17 @@ async fn replicas_load_persisted_authority_before_serving_and_validate_cache_reu
             .await
             .unwrap();
         assert!(registry.authority_engine(&reader, &owner).await.is_ok());
-        db.a.client()
-            .query(include_str!("../tests/queries/delete_record.surql"))
-            .bind(("record", release_id))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
-        assert!(registry.authority_engine(&reader, &owner).await.is_err());
+        // The active release cannot disappear from under its pointer.
+        let error = sqlx::query_file_scalar!(
+            "src/tests/queries/delete_release.sql",
+            tenant as veoveo_platform_store::TenantId,
+            &first.release_id as &AuthorityReleaseId,
+        )
+        .fetch_optional(db.a.pool())
+        .await
+        .unwrap_err();
+        assert!(rejected_by_schema(&error), "{error}");
+        assert!(registry.authority_engine(&reader, &owner).await.is_ok());
         assert_eq!(
             registry
                 .authority_engine(&reader, &foreign)
@@ -401,226 +391,3 @@ async fn replicas_load_persisted_authority_before_serving_and_validate_cache_reu
     .await
     .expect("authority registry qualification exceeded 90 seconds");
 }
-
-#[tokio::test]
-async fn live_and_reconciliation_invalidate_contexts_without_becoming_a_freshness_dependency() {
-    tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
-        let files = AuthorityFiles::new().await;
-        let registry = files.registry();
-        let writer = TimeCatalog::new(db.a.clone());
-        let reader = TimeCatalog::new(db.b.clone());
-        let owner = scope(&db.a, "registry-observation").await;
-        let tables = vec![
-            crate::TimeObservationTable::TimeActiveAuthority,
-            crate::TimeObservationTable::TimeAuthorityRelease,
-            crate::TimeObservationTable::TimeAcquisition,
-        ];
-        let mut changes = db.b.resource_changes(tables.clone());
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(10), changes.next())
-                .await
-                .unwrap(),
-            Some(ResourceInvalidation::Reconcile)
-        );
-        registry.invalidate().await;
-        let bootstrap = registry.authority_engine(&reader, &owner).await.unwrap();
-        let (first, _) = stage(
-            &writer,
-            &owner,
-            AuthorityDatasetKind::LeapSeconds,
-            &files.first_leaps,
-        )
-        .await;
-        activate(&writer, &registry, &owner, &first, TimeWriteGuard::Absent).await;
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(10), changes.next())
-                .await
-                .unwrap(),
-            Some(ResourceInvalidation::Live)
-        );
-        registry.invalidate().await;
-        let first_engine = registry.authority_engine(&reader, &owner).await.unwrap();
-        assert_ne!(
-            first_engine.authority().binding(),
-            bootstrap.authority().binding()
-        );
-        drop(changes);
-        let (next, _) = stage(
-            &writer,
-            &owner,
-            AuthorityDatasetKind::LeapSeconds,
-            &files.next_leaps,
-        )
-        .await;
-        activate(
-            &writer,
-            &registry,
-            &owner,
-            &next,
-            TimeWriteGuard::Existing(TimeVersion::FIRST),
-        )
-        .await;
-        let next_engine = registry.authority_engine(&reader, &owner).await.unwrap();
-        assert_eq!(
-            next_engine.authority().binding().leap_seconds_release_id(),
-            &next.release_id
-        );
-        assert_eq!(
-            resolved(&next_engine).tai_seconds_since_1970,
-            resolved(&first_engine).tai_seconds_since_1970 + 1
-        );
-        let mut changes = db.b.resource_changes(tables);
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(10), changes.next())
-                .await
-                .unwrap(),
-            Some(ResourceInvalidation::Reconcile)
-        );
-        registry.invalidate().await;
-        let reloaded = registry.authority_engine(&reader, &owner).await.unwrap();
-        assert_eq!(
-            reloaded.authority().effective(),
-            next_engine.authority().effective()
-        );
-        assert!(!Arc::ptr_eq(
-            reloaded.authority().leap_seconds(),
-            next_engine.authority().leap_seconds()
-        ));
-    })
-    .await
-    .expect("authority observation qualification exceeded 90 seconds");
-}
-
-#[tokio::test]
-async fn event_batches_reuse_authority_and_skip_registered_or_terminal_events() {
-    tokio::time::timeout(Duration::from_secs(90), async {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
-        let files = AuthorityFiles::new().await;
-        let registry = files.registry();
-        let catalog = TimeCatalog::new(db.b.clone());
-        let owner = scope(&db.a, "registry-events").await;
-        let (release, _) = stage(
-            &catalog,
-            &owner,
-            AuthorityDatasetKind::LeapSeconds,
-            &files.first_leaps,
-        )
-        .await;
-        activate(
-            &catalog,
-            &registry,
-            &owner,
-            &release,
-            TimeWriteGuard::Absent,
-        )
-        .await;
-        let engine = registry.authority_engine(&catalog, &owner).await.unwrap();
-        let due = engine
-            .resolve(&ResolveTimeRequest {
-                expression: crate::TimeExpressionValue::Rfc3339 {
-                    value: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
-                }
-                .build()
-                .unwrap(),
-                additional_uncertainty_nanoseconds: 0,
-            })
-            .unwrap()
-            .into_instant();
-        let acquisitions = crate::acquisition::AcquisitionService::new(
-            crate::acquisition::AcquisitionServiceConfig {
-                scratch_root: files.root.path().join("scratch"),
-                release_root: files.root.path().join("releases"),
-                zic_executable: "/usr/sbin/zic".into(),
-                maximum_source_bytes: 1024,
-                maximum_expanded_bytes: 4096,
-                timeout: Duration::from_secs(5),
-            },
-            catalog.clone(),
-        )
-        .unwrap();
-        let state = Arc::new(crate::state::TimeApplication {
-            tasks: veoveo_task_runtime::TaskRuntime::new(db.b.clone(), "time", "fixture"),
-            catalog,
-            authorities: registry,
-            clock: crate::clock::ClockMonitor::new(
-                crate::clock::ClockSource::System,
-                Duration::from_secs(1),
-            ),
-            acquisitions: Arc::new(acquisitions),
-            subscriptions: Arc::new(veoveo_mcp_contract::SubscriptionHub::new()),
-            event_watchers: Arc::default(),
-        });
-        let mut events = Vec::new();
-        for index in 0..4 {
-            events.push(
-                state
-                    .catalog
-                    .create_event(
-                        &owner,
-                        Event {
-                            event_id: EventId::parse(format!("event-{}", Uuid::now_v7())).unwrap(),
-                            name: format!("event {index}"),
-                            due: due.clone(),
-                            state: EventState::Scheduled,
-                            record_version: crate::TimeVersion::new(1).unwrap(),
-                        },
-                        format!("fixture-{index}"),
-                    )
-                    .await
-                    .unwrap(),
-            );
-        }
-        state
-            .schedule_events(owner.clone(), events[..3].iter().cloned())
-            .await
-            .unwrap();
-        assert_eq!(state.event_watchers.lock().await.len(), 3);
-        let record = RecordId::new("time_authority_release", release.release_id.to_string());
-        let body =
-            db.a.client()
-                .query(include_str!("../tests/queries/read_canonical_json.surql"))
-                .bind(("record", record.clone()))
-                .await
-                .unwrap()
-                .check()
-                .unwrap()
-                .take::<Option<String>>(0)
-                .unwrap()
-                .unwrap();
-        set(&db.a, record.clone(), "canonical_json", "{}").await;
-        // Existing watchers need no new clock selection, even if the catalog is
-        // unavailable for a new watcher. The fourth event must remain unregistered.
-        state
-            .schedule_events(owner.clone(), events[..3].iter().cloned())
-            .await
-            .unwrap();
-        assert!(
-            state
-                .schedule_events(owner.clone(), events.clone())
-                .await
-                .is_err()
-        );
-        assert_eq!(state.event_watchers.lock().await.len(), 3);
-        let cancelled = state
-            .catalog
-            .cancel_event(&owner, &events[3].event_id, TimeVersion::FIRST)
-            .await
-            .unwrap();
-        state
-            .schedule_event(owner.clone(), cancelled)
-            .await
-            .unwrap();
-        assert_eq!(state.event_watchers.lock().await.len(), 3);
-        set(&db.a, record, "canonical_json", body).await;
-        for event in &events[..3] {
-            state.cancel_event_watcher(&owner, &event.event_id).await;
-        }
-        assert!(state.event_watchers.lock().await.is_empty());
-    })
-    .await
-    .expect("event authority batch qualification exceeded 90 seconds");
-}
-
-mod knowledge;

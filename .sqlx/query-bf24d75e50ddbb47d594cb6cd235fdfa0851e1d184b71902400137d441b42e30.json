@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time.acquisition\nSET phase = $3, staged_release_key = $4, expected_source_digest = $5\nWHERE tenant = $1 AND acquisition_key = $2\nRETURNING 1 AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bf24d75e50ddbb47d594cb6cd235fdfa0851e1d184b71902400137d441b42e30"
+}

@@ -1,3 +1,5 @@
+//! Acquisitions of authority releases. A repeated idempotency key returns the first
+//! acquisition when the request matches it.
 use super::*;
 
 impl TimePersistence {
@@ -6,55 +8,50 @@ impl TimePersistence {
         draft: TimeAcquisitionDraft,
     ) -> Result<TimeAcquisitionRecord, PersistenceError> {
         validate_acquisition(&draft)?;
-        if let Some(existing) = self
+        let created = sqlx::query_file_as!(
+            TimeAcquisitionRecord,
+            "src/persistence/queries/insert_acquisition.sql",
+            draft.identity.tenant_id as TenantId,
+            &draft.acquisition_key as &TimeAcquisitionId,
+            draft.identity.principal_id as PrincipalId,
+            &draft.source_key as &TimeSourceId,
+            draft
+                .expected_source_digest
+                .as_ref()
+                .map(Sha256Digest::as_str),
+            draft.idempotency_key,
+            draft.status as TimeAcquisitionState,
+            draft.phase as TimeAcquisitionPhase,
+            draft.staged_release_key.as_ref() as Option<&AuthorityReleaseId>,
+            draft.body,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(created) = created {
+            return Ok(created);
+        }
+        let existing = self
             .time_acquisition_for_idempotency(
                 draft.identity.tenant_id,
                 draft.identity.principal_id,
                 &draft.idempotency_key,
             )
             .await?
-        {
-            if existing.source_key == draft.source_key.as_str()
-                && existing.expected_source_digest.as_deref()
-                    == draft
-                        .expected_source_digest
-                        .as_ref()
-                        .map(Sha256Digest::as_str)
-            {
-                return Ok(existing);
-            }
-            return Err(conflict(
+            .ok_or_else(|| conflict("acquisition idempotency key", &draft.idempotency_key))?;
+        let same_request = existing.source_key == draft.source_key
+            && existing.expected_source_digest.as_deref()
+                == draft
+                    .expected_source_digest
+                    .as_ref()
+                    .map(Sha256Digest::as_str);
+        if same_request {
+            Ok(existing)
+        } else {
+            Err(conflict(
                 "acquisition idempotency key",
                 draft.idempotency_key,
-            ));
+            ))
         }
-        let now = Utc::now();
-        let content = TimeAcquisitionContent {
-            tenant: draft.identity.tenant_id.record_id(),
-            owner: draft.identity.principal_id.record_id(),
-            acquisition_key: draft.acquisition_key.to_string(),
-            source_key: draft.source_key.to_string(),
-            expected_source_digest: draft.expected_source_digest.map(String::from),
-            idempotency_key: draft.idempotency_key,
-            status: draft.status,
-            phase: draft.phase,
-            staged_release_key: draft.staged_release_key.map(String::from),
-            canonical_json: draft.canonical_json,
-            record_version: 1,
-            created_at: now,
-            updated_at: now,
-        };
-        create_only(
-            self,
-            time_record("time_acquisition", &draft.acquisition_key),
-            content,
-        )
-        .await?;
-        self.time_acquisition(draft.identity.tenant_id, &draft.acquisition_key)
-            .await?
-            .ok_or(PersistenceError::MissingRecord {
-                operation: "time acquisition creation readback",
-            })
     }
 
     pub(crate) async fn time_acquisition(
@@ -63,19 +60,27 @@ impl TimePersistence {
         key: &TimeAcquisitionId,
     ) -> Result<Option<TimeAcquisitionRecord>, PersistenceError> {
         validate_key("acquisition_key", key, "time-acquisition-")?;
-        select_one(self, time_record("time_acquisition", key), tenant_id).await
+        Ok(sqlx::query_file_as!(
+            TimeAcquisitionRecord,
+            "src/persistence/queries/acquisition.sql",
+            tenant_id as TenantId,
+            key as &TimeAcquisitionId,
+        )
+        .fetch_optional(&self.pool)
+        .await?)
     }
 
     pub(crate) async fn list_time_acquisitions(
         &self,
         tenant_id: TenantId,
     ) -> Result<Vec<TimeAcquisitionRecord>, PersistenceError> {
-        select_list(
-            self,
-            include_str!("queries/list_acquisitions.surql"),
-            tenant_id,
+        Ok(sqlx::query_file_as!(
+            TimeAcquisitionRecord,
+            "src/persistence/queries/acquisitions.sql",
+            tenant_id as TenantId,
         )
-        .await
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     pub(crate) async fn time_acquisition_for_release(
@@ -84,15 +89,14 @@ impl TimePersistence {
         release_key: &AuthorityReleaseId,
     ) -> Result<Option<TimeAcquisitionRecord>, PersistenceError> {
         validate_key("staged_release_key", release_key, "time-release-")?;
-        let mut response = self
-            .client()
-            .query(include_str!("queries/acquisition_for_release.surql"))
-            .bind(("tenant", tenant_id.record_id()))
-            .bind(("release_key", release_key.to_string()))
-            .await?
-            .check()?;
-        let records: Vec<TimeAcquisitionRecord> = response.take(0)?;
-        Ok(records.into_iter().next())
+        Ok(sqlx::query_file_as!(
+            TimeAcquisitionRecord,
+            "src/persistence/queries/acquisition_for_release.sql",
+            tenant_id as TenantId,
+            release_key as &AuthorityReleaseId,
+        )
+        .fetch_optional(&self.pool)
+        .await?)
     }
 
     pub(crate) async fn update_time_acquisition(
@@ -104,51 +108,42 @@ impl TimePersistence {
             &update.acquisition_key,
             "time-acquisition-",
         )?;
-
-        validate_json(&update.canonical_json)?;
+        validate_body(&update.body)?;
         if let Some(release) = &update.staged_release_key {
             validate_key("staged_release_key", release, "time-release-")?;
         }
-        let mut response = self
-            .client()
-            .query(include_str!("queries/update_acquisition.surql"))
-            .bind((
-                "record",
-                time_record("time_acquisition", &update.acquisition_key),
-            ))
-            .bind(("tenant", update.tenant_id.record_id()))
-            .bind(("status", update.status))
-            .bind(("phase", update.phase.as_str().to_owned()))
-            .bind(("staged", update.staged_release_key.map(String::from)))
-            .bind(("canonical_json", update.canonical_json))
-            .bind(("expected", update.expected_record_version.get() as i64))
-            .bind((
-                "next",
-                update.expected_record_version.checked_next()?.get() as i64,
-            ))
-            .await?
-            .check()?;
-        response
-            .take::<Option<TimeAcquisitionRecord>>(0)?
-            .ok_or_else(|| conflict("acquisition", update.acquisition_key.to_string()))
+        sqlx::query_file_as!(
+            TimeAcquisitionRecord,
+            "src/persistence/queries/update_acquisition.sql",
+            update.tenant_id as TenantId,
+            &update.acquisition_key as &TimeAcquisitionId,
+            update.status as TimeAcquisitionState,
+            update.phase as TimeAcquisitionPhase,
+            update.staged_release_key.as_ref() as Option<&AuthorityReleaseId>,
+            update.body,
+            version(update.expected_record_version),
+            next_version(update.expected_record_version)?,
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| conflict("acquisition", &update.acquisition_key))
     }
 
     pub(crate) async fn time_acquisition_for_idempotency(
         &self,
         tenant_id: TenantId,
-        owner: veoveo_platform_store::PrincipalId,
+        owner: PrincipalId,
         key: &str,
     ) -> Result<Option<TimeAcquisitionRecord>, PersistenceError> {
         validate_text("idempotency_key", key, 256)?;
-        let mut response = self
-            .client()
-            .query(include_str!("queries/acquisition_by_idempotency.surql"))
-            .bind(("tenant", tenant_id.record_id()))
-            .bind(("owner", owner.record_id()))
-            .bind(("key", key.to_owned()))
-            .await?
-            .check()?;
-        let records: Vec<TimeAcquisitionRecord> = response.take(0)?;
-        Ok(records.into_iter().next())
+        Ok(sqlx::query_file_as!(
+            TimeAcquisitionRecord,
+            "src/persistence/queries/acquisition_by_idempotency.sql",
+            tenant_id as TenantId,
+            owner as PrincipalId,
+            key,
+        )
+        .fetch_optional(&self.pool)
+        .await?)
     }
 }

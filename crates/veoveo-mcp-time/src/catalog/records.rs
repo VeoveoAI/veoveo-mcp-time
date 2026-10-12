@@ -3,8 +3,7 @@ use super::{
     acquisition_state_from_store, event_state_from_store, release_state_from_store, source_kind,
 };
 use crate::contract::{
-    AuthorityRelease, AuthorityReleaseId, Epoch, Event, OperationalCalendar, TimeAcquisition,
-    TimeSource, TimeVersion,
+    AuthorityRelease, Epoch, Event, OperationalCalendar, TimeAcquisition, TimeSource, TimeVersion,
 };
 use crate::persistence::{
     TimeAcquisitionRecord, TimeAuthorityReleaseRecord, TimeCalendarVersionRecord, TimeEpochRecord,
@@ -12,7 +11,6 @@ use crate::persistence::{
 };
 use anyhow::Result;
 use serde::de::DeserializeOwned;
-use surrealdb::types::RecordId;
 
 #[derive(Clone, Copy, Debug)]
 enum Entity {
@@ -25,17 +23,6 @@ enum Entity {
 }
 
 impl Entity {
-    fn table(self) -> &'static str {
-        match self {
-            Self::Source => "time_source",
-            Self::Release => "time_authority_release",
-            Self::Acquisition => "time_acquisition",
-            Self::Calendar => "time_calendar_version",
-            Self::Epoch => "time_epoch",
-            Self::Event => "time_event",
-        }
-    }
-
     fn prefix(self) -> &'static str {
         match self {
             Self::Source => "time-source-",
@@ -66,9 +53,9 @@ fn check(entity: Entity, field: &'static str, valid: bool) -> Result<()> {
     Ok(())
 }
 
-fn body<T: DeserializeOwned>(entity: Entity, json: &str) -> Result<T> {
+fn body<T: DeserializeOwned>(entity: Entity, json: serde_json::Value) -> Result<T> {
     // Serde's diagnostic may quote a stored value. Public errors name only the field.
-    serde_json::from_str(json).map_err(|_| invalid(entity, "canonical_json").into())
+    serde_json::from_value(json).map_err(|_| invalid(entity, "body").into())
 }
 
 fn version(entity: Entity, field: &'static str, value: i64) -> Result<TimeVersion> {
@@ -96,20 +83,11 @@ fn reference(
     )
 }
 
-fn record_id(entity: Entity, id: &RecordId, key: String) -> Result<()> {
-    check(
-        entity,
-        "record_id",
-        *id == RecordId::new(entity.table(), key),
-    )
-}
-
 pub(super) fn source_from_record(record: TimeSourceRecord) -> Result<TimeSource> {
     let kind = Entity::Source;
-    let mut value = crate::TimeSourceValue::from(body::<TimeSource>(kind, &record.canonical_json)?);
+    let mut value = crate::TimeSourceValue::from(body::<TimeSource>(kind, record.body)?);
     value.record_version = version(kind, "record_version", record.record_version)?;
-    identity(kind, &record.source_key, value.source_id.as_str())?;
-    record_id(kind, &record.id, record.source_key)?;
+    identity(kind, record.source_key.as_str(), value.source_id.as_str())?;
     check(kind, "name", value.name == record.name)?;
     check(
         kind,
@@ -129,14 +107,13 @@ pub(super) fn source_from_record(record: TimeSourceRecord) -> Result<TimeSource>
 pub(super) fn release_from_record(record: TimeAuthorityReleaseRecord) -> Result<AuthorityRelease> {
     let kind = Entity::Release;
     let mut value =
-        crate::AuthorityReleaseValue::from(body::<AuthorityRelease>(kind, &record.canonical_json)?);
+        crate::AuthorityReleaseValue::from(body::<AuthorityRelease>(kind, record.body)?);
     value.record_version = version(kind, "record_version", record.record_version)?;
-    identity(kind, &record.release_key, value.release_id.as_str())?;
-    record_id(kind, &record.id, record.release_key)?;
+    identity(kind, record.release_key.as_str(), value.release_id.as_str())?;
     reference(
         kind,
         "source_key",
-        &record.source_key,
+        record.source_key.as_str(),
         value.source_id.as_str(),
         Entity::Source,
     )?;
@@ -178,14 +155,17 @@ pub(super) fn release_from_record(record: TimeAuthorityReleaseRecord) -> Result<
 
 pub(super) fn acquisition_from_record(record: TimeAcquisitionRecord) -> Result<TimeAcquisition> {
     let kind = Entity::Acquisition;
-    let mut value = body::<TimeAcquisition>(kind, &record.canonical_json)?;
+    let mut value = body::<TimeAcquisition>(kind, record.body)?;
     value.record_version = version(kind, "record_version", record.record_version)?;
-    identity(kind, &record.acquisition_key, value.acquisition_id.as_str())?;
-    record_id(kind, &record.id, record.acquisition_key)?;
+    identity(
+        kind,
+        record.acquisition_key.as_str(),
+        value.acquisition_id.as_str(),
+    )?;
     reference(
         kind,
         "source_key",
-        &record.source_key,
+        record.source_key.as_str(),
         value.source_id.as_str(),
         Entity::Source,
     )?;
@@ -200,17 +180,14 @@ pub(super) fn acquisition_from_record(record: TimeAcquisitionRecord) -> Result<T
     )?;
     value.status = acquisition_state_from_store(record.status);
     value.phase = record.phase;
-    value.staged_release_id = record
-        .staged_release_key
-        .map(|key| -> Result<AuthorityReleaseId> {
-            check(
-                kind,
-                "staged_release_key",
-                validate_key("key", &key, Entity::Release.prefix()).is_ok(),
-            )?;
-            AuthorityReleaseId::parse(key).map_err(|_| invalid(kind, "staged_release_key").into())
-        })
-        .transpose()?;
+    if let Some(release) = &record.staged_release_key {
+        check(
+            kind,
+            "staged_release_key",
+            validate_key("key", release, Entity::Release.prefix()).is_ok(),
+        )?;
+    }
+    value.staged_release_id = record.staged_release_key;
     value.updated_at = record.updated_at;
     veoveo_types::Check::check(&value)?;
     Ok(value)
@@ -220,15 +197,14 @@ pub(super) fn calendar_from_record(
     record: TimeCalendarVersionRecord,
 ) -> Result<OperationalCalendar> {
     let kind = Entity::Calendar;
-    let value: OperationalCalendar = body(kind, &record.canonical_json)?;
-    identity(kind, &record.calendar_key, value.calendar_id.as_str())?;
+    let value: OperationalCalendar = body(kind, record.body)?;
+    identity(
+        kind,
+        record.calendar_key.as_str(),
+        value.calendar_id.as_str(),
+    )?;
     let version = version(kind, "calendar_version", record.calendar_version)?;
     check(kind, "calendar_version", value.version == version)?;
-    record_id(
-        kind,
-        &record.id,
-        format!("{}:{}", record.calendar_key, version.get()),
-    )?;
     check(kind, "name", value.name == record.name)?;
     check(kind, "zone_id", value.zone_id == record.zone_id)?;
     Ok(value)
@@ -236,15 +212,10 @@ pub(super) fn calendar_from_record(
 
 pub(super) fn epoch_from_record(record: TimeEpochRecord) -> Result<Epoch> {
     let kind = Entity::Epoch;
-    let value: Epoch = body(kind, &record.canonical_json)?;
-    identity(kind, &record.epoch_key, value.epoch_id.as_str())?;
+    let value: Epoch = body(kind, record.body)?;
+    identity(kind, record.epoch_key.as_str(), value.epoch_id.as_str())?;
     let version = version(kind, "epoch_version", record.epoch_version)?;
     check(kind, "epoch_version", value.version == version)?;
-    record_id(
-        kind,
-        &record.id,
-        format!("{}:{}", record.epoch_key, version.get()),
-    )?;
     check(kind, "name", value.name == record.name)?;
     check(
         kind,
@@ -254,17 +225,16 @@ pub(super) fn epoch_from_record(record: TimeEpochRecord) -> Result<Epoch> {
     check(
         kind,
         "nanosecond",
-        i64::from(value.instant.nanosecond.get()) == record.nanosecond,
+        i64::from(value.instant.nanosecond.get()) == i64::from(record.nanosecond),
     )?;
     Ok(value)
 }
 
 pub(super) fn event_from_record(record: TimeEventRecord) -> Result<Event> {
     let kind = Entity::Event;
-    let mut value = body::<Event>(kind, &record.canonical_json)?;
+    let mut value = body::<Event>(kind, record.body)?;
     value.record_version = version(kind, "record_version", record.record_version)?;
-    identity(kind, &record.event_key, value.event_id.as_str())?;
-    record_id(kind, &record.id, record.event_key)?;
+    identity(kind, record.event_key.as_str(), value.event_id.as_str())?;
     check(kind, "name", value.name == record.name)?;
     check(
         kind,
@@ -274,7 +244,7 @@ pub(super) fn event_from_record(record: TimeEventRecord) -> Result<Event> {
     check(
         kind,
         "due_nanosecond",
-        i64::from(value.due.nanosecond.get()) == record.due_nanosecond,
+        i64::from(value.due.nanosecond.get()) == i64::from(record.due_nanosecond),
     )?;
     value.state = event_state_from_store(record.state);
     Ok(value)

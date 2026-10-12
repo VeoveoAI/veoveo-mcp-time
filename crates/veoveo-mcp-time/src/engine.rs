@@ -116,6 +116,31 @@ impl TemporalEngine {
         })
     }
 
+    /// The earliest UTC instant at microsecond precision that does not precede `instant`.
+    /// An instant inside a positive leap second maps to the start of the next second.
+    /// Event storage compares this instant with the database clock.
+    pub fn utc_due(&self, instant: &TimeInstant) -> Result<chrono::DateTime<Utc>> {
+        self.ensure_authority(instant)?;
+        let coordinate = self
+            .authority
+            .leap_seconds()
+            .utc_from_tai(instant.tai_seconds_since_1970)?;
+        let (seconds, nanosecond) = if coordinate.is_leap_second {
+            (coordinate.unix_seconds.checked_add(1), 0)
+        } else {
+            (Some(coordinate.unix_seconds), instant.nanosecond.get())
+        };
+        let microsecond = nanosecond.div_ceil(1_000);
+        let (seconds, microsecond) = if microsecond == 1_000_000 {
+            (seconds.and_then(|seconds| seconds.checked_add(1)), 0)
+        } else {
+            (seconds, microsecond)
+        };
+        seconds
+            .and_then(|seconds| Utc.timestamp_opt(seconds, microsecond * 1_000).single())
+            .context("instant is outside the UTC projection range")
+    }
+
     pub fn evaluate_windows(
         &self,
         request: &EvaluateWindowsRequest,

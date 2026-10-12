@@ -2,7 +2,6 @@ use super::{TimeAccessContext, TimeCatalog};
 use crate::persistence::{TimeClockPolicyDraft, TimeClockPolicyRecord};
 use crate::{ClockPolicyField, ClockQualityPolicy, TimeVersion, TimeWriteGuard};
 use anyhow::Result;
-use surrealdb::types::RecordId;
 use veoveo_platform_store::TenantId;
 
 impl TimeCatalog {
@@ -47,17 +46,15 @@ fn invalid(field: &'static str) -> anyhow::Error {
     StoredClockPolicyError { field }.into()
 }
 
-fn unsigned<T: TryFrom<i64>>(field: &'static str, value: i64) -> Result<T> {
-    T::try_from(value).map_err(|_| invalid(field))
+fn unsigned<T: TryFrom<i64>>(field: &'static str, value: impl Into<i64>) -> Result<T> {
+    T::try_from(value.into()).map_err(|_| invalid(field))
 }
 
 fn decode(
     tenant: TenantId,
     record: TimeClockPolicyRecord,
 ) -> Result<(ClockQualityPolicy, TimeVersion)> {
-    if record.id != RecordId::new("time_clock_policy", tenant.to_string())
-        || record.tenant != tenant.record_id()
-    {
+    if record.tenant != tenant {
         return Err(invalid("identity"));
     }
     let policy = ClockQualityPolicy::builder()

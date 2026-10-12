@@ -6,8 +6,8 @@ use veoveo_types::{AccessSubject, ResourceAddress};
 #[tokio::test]
 async fn observations_use_stored_authority_and_versioned_members() {
     tokio::time::timeout(Duration::from_secs(60), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let db = crate::test_database::TimeDb::new().await;
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let owner = scope(&db.a, "time-knowledge", "creator").await;
         let mut peer = scope(&db.a, "time-knowledge", "reader").await;
         peer.work_context = "reader-context".parse().unwrap();
@@ -215,16 +215,15 @@ async fn observations_use_stored_authority_and_versioned_members() {
         assert!(second.modified_by().is_none());
 
         // Authorization happens in SQL even when the denied row cannot decode.
-        db.a.client()
-            .query(include_str!("../../tests/queries/corrupt_provenance.surql"))
-            .bind((
-                "record",
-                surrealdb::types::RecordId::new("time_event", event.event_id.to_string()),
-            ))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
+        sqlx::query_file_scalar!(
+            "src/tests/queries/set_event_provenance.sql",
+            owner.identity.tenant_id as veoveo_platform_store::TenantId,
+            &event.event_id as &EventId,
+            "malformed",
+        )
+        .fetch_one(db.a.pool())
+        .await
+        .unwrap();
         assert!(
             catalog
                 .observed_event(&peer, &event.event_id)

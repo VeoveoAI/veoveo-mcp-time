@@ -1,5 +1,10 @@
 use super::*;
+use crate::persistence::{
+    TimeActiveAuthorityRecord, TimeAuthorityReleaseRecord, TimeAuthorityReleaseState,
+    TimeDatasetKind, TimePersistence,
+};
 use std::time::Duration;
+use veoveo_platform_store::{PrincipalId, TenantId};
 
 async fn prepare(
     registry: &AuthorityRegistry,
@@ -20,13 +25,47 @@ async fn prepare(
         .unwrap()
 }
 
+async fn raw_release(
+    store: &PlatformStore,
+    tenant: TenantId,
+    key: &AuthorityReleaseId,
+) -> TimeAuthorityReleaseRecord {
+    TimePersistence::new(store.pool().clone())
+        .time_authority_release(tenant, key)
+        .await
+        .unwrap()
+        .unwrap()
+}
+
+/// Rewrite a release's artifact path, bypassing the catalog.
+async fn set_artifact_path(
+    store: &PlatformStore,
+    release: &TimeAuthorityReleaseRecord,
+    path: &str,
+) {
+    sqlx::query_file_scalar!(
+        "src/tests/queries/set_release_columns.sql",
+        release.tenant as TenantId,
+        &release.release_key as &AuthorityReleaseId,
+        release.tenant as TenantId,
+        release.dataset_kind as TimeDatasetKind,
+        &release.release_key as &AuthorityReleaseId,
+        release.state as TimeAuthorityReleaseState,
+        release.source_digest,
+        path,
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn activation_serializes_both_families_from_the_preflighted_pair() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::RocksDb).await;
+        let db = TimeDb::new().await;
         let files = AuthorityFiles::new().await;
-        let left = TimeCatalog::new(db.a.clone());
-        let right = TimeCatalog::new(db.b.clone());
+        let left = TimeCatalog::new(db.a.pool().clone());
+        let right = TimeCatalog::new(db.b.pool().clone());
         let registry = files.registry();
         let replica = files.registry();
         let owner = scope(&db.a, "pair-activation").await;
@@ -84,12 +123,13 @@ async fn activation_serializes_both_families_from_the_preflighted_pair() {
 #[tokio::test]
 async fn changed_preflight_inputs_reject_publication_without_advancing_authority() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let files = AuthorityFiles::new().await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let registry = files.registry();
         let owner = scope(&db.a, "changed-preflight").await;
         let foreign = scope(&db.a, "foreign-preflight").await;
+        let tenant = owner.identity.tenant_id;
         let (leaps, _) = stage(
             &catalog,
             &owner,
@@ -101,27 +141,10 @@ async fn changed_preflight_inputs_reject_publication_without_advancing_authority
         let (tzdb, _) = stage(&catalog, &owner, AuthorityDatasetKind::Tzdb, &files.tzdb).await;
         for target in [&leaps, &tzdb] {
             let draft = prepare(&registry, &catalog, &owner, &tzdb, TimeWriteGuard::Absent).await;
-            let record = RecordId::new("time_authority_release", target.release_id.to_string());
-            db.a.client()
-                .query(include_str!(
-                    "../../tests/queries/change_artifact_path.surql"
-                ))
-                .bind(("record", record.clone()))
-                .await
-                .unwrap()
-                .check()
-                .unwrap();
+            let record = raw_release(&db.a, tenant, &target.release_id).await;
+            set_artifact_path(&db.a, &record, "/changed-after-preflight").await;
             assert!(catalog.commit_activation(&owner, draft).await.is_err());
-            db.a.client()
-                .query(include_str!(
-                    "../../tests/queries/restore_artifact_path.surql"
-                ))
-                .bind(("record", record))
-                .bind(("path", target.artifact_path.clone()))
-                .await
-                .unwrap()
-                .check()
-                .unwrap();
+            set_artifact_path(&db.a, &record, &target.artifact_path).await;
             let pair = catalog.active_releases(&owner).await.unwrap();
             assert_eq!(pair.len(), 1);
             assert_eq!(pair[0].release_id, leaps.release_id);
@@ -138,14 +161,9 @@ async fn changed_preflight_inputs_reject_publication_without_advancing_authority
         assert!(catalog.active_releases(&foreign).await.unwrap().is_empty());
 
         let draft = prepare(&registry, &catalog, &owner, &tzdb, TimeWriteGuard::Absent).await;
-        db.a.client()
-            .query(include_str!(
-                "../../tests/queries/delete_active_authorities.surql"
-            ))
-            .bind(("tenant", owner.identity.tenant_id.record_id()))
+        sqlx::query_file_scalar!("src/tests/queries/delete_pointers.sql", tenant as TenantId,)
+            .fetch_all(db.a.pool())
             .await
-            .unwrap()
-            .check()
             .unwrap();
         assert!(
             catalog.commit_activation(&owner, draft).await.is_err(),
@@ -159,9 +177,9 @@ async fn changed_preflight_inputs_reject_publication_without_advancing_authority
 #[tokio::test]
 async fn failed_file_preflight_never_publishes_an_authority() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::Memory).await;
+        let db = TimeDb::new().await;
         let files = AuthorityFiles::new().await;
-        let catalog = TimeCatalog::new(db.b.clone());
+        let catalog = TimeCatalog::new(db.b.pool().clone());
         let registry = files.registry();
         let owner = scope(&db.a, "failed-file-preflight").await;
         let (leaps, _) = stage(
@@ -199,14 +217,22 @@ async fn failed_file_preflight_never_publishes_an_authority() {
     .expect("failed file preflight qualification exceeded 90 seconds");
 }
 
+/// Whether `error` is PostgreSQL's `lock_not_available`.
+fn lock_not_available(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .is_some_and(|database| database.code().as_deref() == Some("55P03"))
+}
+
 #[tokio::test]
-async fn locked_activation_inputs_detect_pointer_and_release_repairs() {
+async fn activation_locks_hold_off_concurrent_activations_and_input_repairs() {
     tokio::time::timeout(Duration::from_secs(90), async {
-        let db = crate::test_database(crate::test_store::StoreBackend::RocksDb).await;
+        let db = TimeDb::new().await;
         let files = AuthorityFiles::new().await;
-        let catalog = TimeCatalog::new(db.a.clone());
+        let catalog = TimeCatalog::new(db.a.pool().clone());
         let registry = files.registry();
         let owner = scope(&db.a, "locked-inputs").await;
+        let tenant = owner.identity.tenant_id;
         let mut releases = Vec::new();
         for (kind, path) in [
             (AuthorityDatasetKind::LeapSeconds, &files.first_leaps),
@@ -221,72 +247,98 @@ async fn locked_activation_inputs_detect_pointer_and_release_repairs() {
                 TimeWriteGuard::Absent,
             )
             .await;
-            releases.push(RecordId::new(
-                "time_authority_release",
-                release.release_id.to_string(),
-            ));
+            releases.push(release.release_id.clone());
         }
-        let pointers = ["leap_seconds", "tzdb"].map(|kind| {
-            RecordId::new(
-                "time_active_authority",
-                format!("{}:{kind}", owner.identity.tenant_id),
-            )
-        });
-        db.a.client()
-            .query(include_str!(
-                "../../tests/queries/define_activation_probe.surql"
-            ))
+        // An activation holds the tenant lock and its locked rows until it ends.
+        let mut activation = db.a.pool().begin().await.unwrap();
+        sqlx::query_file_scalar!(
+            "src/persistence/queries/lock_tenant_activation.sql",
+            tenant as TenantId,
+        )
+        .fetch_one(&mut *activation)
+        .await
+        .unwrap();
+        let pointers = sqlx::query_file_as!(
+            TimeActiveAuthorityRecord,
+            "src/persistence/queries/lock_pointers.sql",
+            tenant as TenantId,
+        )
+        .fetch_all(&mut *activation)
+        .await
+        .unwrap();
+        assert_eq!(pointers.len(), 2);
+        sqlx::query_file_scalar!(
+            "src/persistence/queries/lock_releases.sql",
+            tenant as TenantId,
+            &releases as &[AuthorityReleaseId],
+        )
+        .fetch_all(&mut *activation)
+        .await
+        .unwrap();
+
+        // Another activation of the tenant waits, even for a family without a pointer.
+        let mut writer = db.b.pool().begin().await.unwrap();
+        sqlx::query_file_scalar!("src/tests/queries/lock_timeout.sql", "200ms")
+            .fetch_one(&mut *writer)
             .await
-            .unwrap()
-            .check()
             .unwrap();
-        for changed in pointers.iter().chain(releases.iter()) {
-            let transaction = db.a.client().clone().begin().await.unwrap();
-            transaction
-                .query(include_str!(
-                    "../../persistence/queries/activation_locks.surql"
-                ))
-                .bind(("pointers", pointers.clone()))
-                .bind(("releases", releases.clone()))
+        let blocked = sqlx::query_file_scalar!(
+            "src/persistence/queries/lock_tenant_activation.sql",
+            tenant as TenantId,
+        )
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap_err();
+        assert!(lock_not_available(&blocked), "{blocked}");
+        writer.rollback().await.unwrap();
+
+        // A writer that repairs a locked pointer or release waits for the activation.
+        for pointer in &pointers {
+            let mut writer = db.b.pool().begin().await.unwrap();
+            sqlx::query_file_scalar!("src/tests/queries/lock_timeout.sql", "200ms")
+                .fetch_one(&mut *writer)
                 .await
-                .unwrap()
-                .check()
                 .unwrap();
-            // A separate writer can repair either family or its source metadata.
-            db.b.client()
-                .query(include_str!(
-                    "../../tests/queries/increment_record_version.surql"
-                ))
-                .bind(("changed", changed.clone()))
-                .await
-                .unwrap()
-                .check()
-                .unwrap();
-            transaction
-                .query(include_str!(
-                    "../../tests/queries/create_activation_probe.surql"
-                ))
-                .await
-                .unwrap()
-                .check()
-                .unwrap();
-            assert!(
-                transaction.commit().await.is_err(),
-                "locked input changed: {changed:?}"
-            );
-            let count: Option<i64> =
-                db.b.client()
-                    .query(include_str!(
-                        "../../tests/queries/count_activation_probes.surql"
-                    ))
-                    .await
-                    .unwrap()
-                    .check()
-                    .unwrap()
-                    .take(0)
-                    .unwrap();
-            assert_eq!(count, Some(0), "conflicting decision must roll back");
+            let blocked = sqlx::query_file_scalar!(
+                "src/tests/queries/set_pointer.sql",
+                tenant as TenantId,
+                pointer.dataset_kind as TimeDatasetKind,
+                tenant as TenantId,
+                pointer.dataset_kind as TimeDatasetKind,
+                &pointer.release_key as &AuthorityReleaseId,
+                pointer.previous_release_key.as_ref() as Option<&AuthorityReleaseId>,
+                pointer.record_version,
+            )
+            .fetch_one(&mut *writer)
+            .await
+            .unwrap_err();
+            assert!(lock_not_available(&blocked), "{blocked}");
+            writer.rollback().await.unwrap();
         }
+        for release in &releases {
+            let mut writer = db.b.pool().begin().await.unwrap();
+            sqlx::query_file_scalar!("src/tests/queries/lock_timeout.sql", "200ms")
+                .fetch_one(&mut *writer)
+                .await
+                .unwrap();
+            let blocked = sqlx::query_file_scalar!(
+                "src/tests/queries/set_record_version.sql",
+                "authority_release",
+                tenant as TenantId,
+                release.as_str(),
+                2_i64,
+            )
+            .fetch_one(&mut *writer)
+            .await
+            .unwrap_err();
+            assert!(lock_not_available(&blocked), "{blocked}");
+            writer.rollback().await.unwrap();
+        }
+        activation.rollback().await.unwrap();
+        // Once the activation ends, the same repair proceeds.
+        crate::test_database::set_record_version(&db.b, tenant, Row::Release(&releases[0]), 2)
+            .await
+            .unwrap();
     })
     .await
     .expect("locked activation inputs exceeded 90 seconds");
