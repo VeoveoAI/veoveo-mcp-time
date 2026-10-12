@@ -2,7 +2,7 @@ use super::{ClockQualityPolicy, SubsecondNanoseconds, TimeInstant};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{AuthorityReleaseId, MissionEpochId, ResolveTimeOutput};
+use super::{AuthorityReleaseId, EpochId, ResolveTimeOutput};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -77,7 +77,7 @@ pub enum TimeExpressionValue {
         value: String,
     },
     EpochRelative {
-        epoch_id: MissionEpochId,
+        epoch_id: EpochId,
         offset_nanoseconds: i64,
     },
 }

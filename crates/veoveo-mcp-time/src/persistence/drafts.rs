@@ -66,10 +66,10 @@ pub(crate) struct TimeCalendarVersionDraft {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct TimeMissionEpochDraft {
+pub(crate) struct TimeEpochDraft {
     pub(crate) work_context: veoveo_types::WorkContextId,
     pub(crate) identity: PlatformIdentity,
-    pub(crate) epoch_key: MissionEpochId,
+    pub(crate) epoch_key: EpochId,
     pub(crate) name: String,
     pub(crate) epoch_version: TimeVersion,
     pub(crate) tai_seconds_since_1970: i64,
@@ -78,12 +78,12 @@ pub(crate) struct TimeMissionEpochDraft {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct TimeTemporalEventDraft {
+pub(crate) struct TimeEventDraft {
     pub(crate) work_context: veoveo_types::WorkContextId,
     pub(crate) identity: PlatformIdentity,
-    pub(crate) event_key: TemporalEventId,
+    pub(crate) event_key: EventId,
     pub(crate) name: String,
-    pub(crate) state: TimeTemporalEventState,
+    pub(crate) state: TimeEventState,
     pub(crate) due_tai_seconds_since_1970: i64,
     pub(crate) due_nanosecond: SubsecondNanoseconds,
     pub(crate) idempotency_key: String,

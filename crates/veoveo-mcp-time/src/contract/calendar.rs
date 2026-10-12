@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{CalendarId, MissionEpochId, TemporalEventId, TimeExpression, TimeInstant, TimeWindow};
+use super::{CalendarId, EpochId, EventId, TimeExpression, TimeInstant, TimeWindow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -69,8 +69,8 @@ pub struct OperationalCalendarValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub struct MissionEpoch {
-    pub epoch_id: MissionEpochId,
+pub struct Epoch {
+    pub epoch_id: EpochId,
     pub name: String,
     pub instant: TimeInstant,
     pub version: super::TimeVersion,
@@ -180,17 +180,17 @@ pub struct ValidateTimelineOutputValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub struct TemporalEvent {
-    pub event_id: TemporalEventId,
+pub struct Event {
+    pub event_id: EventId,
     pub name: String,
     pub due: TimeInstant,
-    pub state: TemporalEventState,
+    pub state: EventState,
     pub record_version: super::TimeVersion,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum TemporalEventState {
+pub enum EventState {
     Scheduled,
     Due,
     Cancelled,
@@ -199,7 +199,7 @@ pub enum TemporalEventState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateTemporalEventRequest {
+pub struct CreateEventRequest {
     pub name: String,
     pub due: TimeInstant,
     pub idempotency_key: String,
@@ -207,17 +207,17 @@ pub struct CreateTemporalEventRequest {
 
 /// Cancellation requires the version of an existing event.
 /// ```compile_fail
-/// use veoveo_mcp_time::{CancelTemporalEventRequest, TemporalEventId, TimeWriteGuard};
-/// let request = CancelTemporalEventRequest {
-///     event_id: TemporalEventId::parse("event-example").unwrap(),
+/// use veoveo_mcp_time::{CancelEventRequest, EventId, TimeWriteGuard};
+/// let request = CancelEventRequest {
+///     event_id: EventId::parse("event-example").unwrap(),
 ///     expected_record_version: TimeWriteGuard::Absent,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub struct CancelTemporalEventRequest {
-    pub event_id: TemporalEventId,
+pub struct CancelEventRequest {
+    pub event_id: EventId,
     pub expected_record_version: super::TimeVersion,
 }
 

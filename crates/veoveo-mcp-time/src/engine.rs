@@ -19,18 +19,18 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, TimeZone as _, Utc};
-use hifitime::{Epoch, TimeScale as HifiTimeScale};
+use hifitime::{Epoch as HifiEpoch, TimeScale as HifiTimeScale};
 use jiff::{Timestamp, civil, tz};
 
 use crate::{
     authority::AuthorityContext,
     contract::{
-        ConvertTimeOutput, ConvertTimeRequest, Disambiguation, EvaluateWindowsOutput,
-        EvaluateWindowsRequest, ExpandScheduleOutput, ExpandScheduleRequest, MissionEpoch,
-        MissionEpochId, RecurrenceFrequency, ResolveTimeOutput, ResolveTimeRequest,
-        ScaleRepresentation, ScheduleOccurrence, SubsecondNanoseconds, TimeExpression, TimeInstant,
-        TimeScale, TimeWindow, TimelineViolation, ValidateTimelineOutput, ValidateTimelineRequest,
-        Weekday, ZonedRepresentation,
+        ConvertTimeOutput, ConvertTimeRequest, Disambiguation, Epoch, EpochId,
+        EvaluateWindowsOutput, EvaluateWindowsRequest, ExpandScheduleOutput, ExpandScheduleRequest,
+        RecurrenceFrequency, ResolveTimeOutput, ResolveTimeRequest, ScaleRepresentation,
+        ScheduleOccurrence, SubsecondNanoseconds, TimeExpression, TimeInstant, TimeScale,
+        TimeWindow, TimelineViolation, ValidateTimelineOutput, ValidateTimelineRequest, Weekday,
+        ZonedRepresentation,
     },
 };
 
@@ -42,7 +42,7 @@ const JULIAN_DAY_AT_1970_TAI: f64 = 2_440_587.5;
 #[derive(Clone)]
 pub struct TemporalEngine {
     authority: Arc<AuthorityContext>,
-    epochs: Arc<RwLock<BTreeMap<MissionEpochId, MissionEpoch>>>,
+    epochs: Arc<RwLock<BTreeMap<EpochId, Epoch>>>,
 }
 
 impl TemporalEngine {
@@ -61,8 +61,8 @@ impl TemporalEngine {
         Self::new(self.authority.as_ref().clone())
     }
 
-    pub fn replace_epochs(&self, epochs: impl IntoIterator<Item = MissionEpoch>) {
-        let mut active = self.epochs.write().expect("mission epoch lock poisoned");
+    pub fn replace_epochs(&self, epochs: impl IntoIterator<Item = Epoch>) {
+        let mut active = self.epochs.write().expect("epoch lock poisoned");
         active.clear();
         for epoch in epochs {
             let key = epoch.epoch_id.clone();
@@ -102,7 +102,7 @@ impl TemporalEngine {
             });
         }
         let tai_julian_day = julian_day_tai(&request.instant);
-        let epoch = Epoch::from_jde_tai(tai_julian_day);
+        let epoch = HifiEpoch::from_jde_tai(tai_julian_day);
         let scales = request
             .scales
             .iter()
@@ -366,7 +366,7 @@ impl TemporalEngine {
                 if !day.is_finite() {
                     bail!("Julian TAI day must be finite");
                 }
-                let epoch = Epoch::from_jde_tai(*day);
+                let epoch = HifiEpoch::from_jde_tai(*day);
                 let validated_day = epoch.to_jde_tai_days();
                 split_fractional_seconds((validated_day - JULIAN_DAY_AT_1970_TAI) * 86_400.0, 0)?
             }
@@ -382,10 +382,8 @@ impl TemporalEngine {
                 epoch_id,
                 offset_nanoseconds,
             } => {
-                let epochs = self.epochs.read().expect("mission epoch lock poisoned");
-                let epoch = epochs
-                    .get(epoch_id)
-                    .context("mission epoch is not active")?;
+                let epochs = self.epochs.read().expect("epoch lock poisoned");
+                let epoch = epochs.get(epoch_id).context("epoch is not active")?;
                 self.ensure_authority(&epoch.instant)?;
                 let total = epoch.instant.total_nanoseconds() + i128::from(*offset_nanoseconds);
                 return Ok(TimeInstant::from_total_nanoseconds(
@@ -560,7 +558,7 @@ fn julian_day_tai(instant: &TimeInstant) -> f64 {
 
 fn scale_representation(
     scale: TimeScale,
-    epoch: Epoch,
+    epoch: HifiEpoch,
     canonical: &ResolveTimeOutput,
 ) -> Result<ScaleRepresentation> {
     let (seconds, reference_epoch) = match scale {
@@ -668,8 +666,8 @@ mod tests {
     use crate::{
         authority::LeapSecondTable,
         contract::{
-            AuthorityDatasetKind, AuthorityReleaseId, CalendarId, EffectiveTimeAuthority,
-            MissionEpochId, TimeAuthorityReference, TimeAuthorityReleaseUri, TimeAuthoritySource,
+            AuthorityDatasetKind, AuthorityReleaseId, CalendarId, EffectiveTimeAuthority, EpochId,
+            TimeAuthorityReference, TimeAuthorityReleaseUri, TimeAuthoritySource,
             TimelineConstraint, TimelinePoint, WindowOperation,
         },
     };
@@ -1140,8 +1138,8 @@ mod tests {
     fn mission_relative_resolution_selects_the_highest_epoch_version() {
         let engine = engine();
         let authority = engine.authority.binding().clone();
-        let epoch = |version, seconds| MissionEpoch {
-            epoch_id: MissionEpochId::parse("epoch-launch").unwrap(),
+        let epoch = |version, seconds| Epoch {
+            epoch_id: EpochId::parse("epoch-launch").unwrap(),
             name: "Launch".to_owned(),
             instant: TimeInstant {
                 tai_seconds_since_1970: seconds,
@@ -1155,7 +1153,7 @@ mod tests {
         let resolved = engine
             .resolve(&ResolveTimeRequest {
                 expression: crate::TimeExpressionValue::EpochRelative {
-                    epoch_id: MissionEpochId::parse("epoch-launch").unwrap(),
+                    epoch_id: EpochId::parse("epoch-launch").unwrap(),
                     offset_nanoseconds: 1_000_000_000,
                 }
                 .build()
@@ -1215,8 +1213,8 @@ mod tests {
             })
             .unwrap()
             .into_instant();
-        let id = MissionEpochId::parse("epoch-uncertain-launch").unwrap();
-        let epoch = |instant| MissionEpoch {
+        let id = EpochId::parse("epoch-uncertain-launch").unwrap();
+        let epoch = |instant| Epoch {
             epoch_id: id.clone(),
             name: "launch".into(),
             instant,
@@ -1297,7 +1295,7 @@ mod tests {
     #[test]
     fn uncertainty_addition_rejects_overflow_without_changing_the_epoch() {
         let engine = engine();
-        let id = MissionEpochId::parse("epoch-uncertainty-limit").unwrap();
+        let id = EpochId::parse("epoch-uncertainty-limit").unwrap();
         let base = engine
             .resolve(&ResolveTimeRequest {
                 expression: crate::TimeExpressionValue::Rfc3339 {
@@ -1309,7 +1307,7 @@ mod tests {
             })
             .unwrap()
             .into_instant();
-        engine.replace_epochs([MissionEpoch {
+        engine.replace_epochs([Epoch {
             epoch_id: id.clone(),
             name: "uncertain".into(),
             instant: base,
@@ -1354,7 +1352,7 @@ mod tests {
     #[test]
     fn epoch_relative_coordinates_reject_seconds_overflow() {
         let engine = engine();
-        let id = crate::MissionEpochId::parse("epoch-coordinate-limit").unwrap();
+        let id = crate::EpochId::parse("epoch-coordinate-limit").unwrap();
         for (seconds, nanos, overflow_offset) in [
             (i64::MAX, SubsecondNanoseconds::MAX, 1),
             (i64::MIN, SubsecondNanoseconds::ZERO, -1),
@@ -1366,7 +1364,7 @@ mod tests {
                 authority: engine.authority.binding().clone(),
             };
             let total = instant.total_nanoseconds();
-            engine.replace_epochs([MissionEpoch {
+            engine.replace_epochs([Epoch {
                 epoch_id: id.clone(),
                 name: "limit".into(),
                 instant,

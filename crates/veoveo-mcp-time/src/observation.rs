@@ -13,10 +13,10 @@ pub enum TimeObservationTable {
     TimeAcquisition,
     #[vocabulary(rename = "time_calendar_version")]
     TimeCalendarVersion,
-    #[vocabulary(rename = "time_mission_epoch")]
-    TimeMissionEpoch,
-    #[vocabulary(rename = "time_temporal_event")]
-    TimeTemporalEvent,
+    #[vocabulary(rename = "time_epoch")]
+    TimeEpoch,
+    #[vocabulary(rename = "time_event")]
+    TimeEvent,
     #[vocabulary(rename = "time_clock_policy")]
     TimeClockPolicy,
 }

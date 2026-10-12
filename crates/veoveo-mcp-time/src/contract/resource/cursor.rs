@@ -4,9 +4,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use super::{TimeResourceError, TimeVersion};
 use crate::{
-    contract::{
-        AuthorityReleaseId, CalendarId, MissionEpochId, SubsecondNanoseconds, TemporalEventId,
-    },
+    contract::{AuthorityReleaseId, CalendarId, EpochId, EventId, SubsecondNanoseconds},
     uris,
 };
 
@@ -24,7 +22,7 @@ struct VersionPosition<I> {
 struct EventPosition {
     tai_seconds: i64,
     nanosecond: SubsecondNanoseconds,
-    event_key: TemporalEventId,
+    event_key: EventId,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -116,7 +114,7 @@ impl CalendarCursor {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct EpochCollection;
 impl CursorCollection for EpochCollection {
-    type Position = VersionPosition<MissionEpochId>;
+    type Position = VersionPosition<EpochId>;
     const URI: &'static str = uris::EPOCHS_URI;
 }
 
@@ -211,8 +209,8 @@ impl BootstrapAuthorityCursor {
 
 impl CalendarCursor {
     /// ```compile_fail
-    /// use veoveo_mcp_time::contract::{CalendarCursor, MissionEpochId, TimeVersion};
-    /// CalendarCursor::new(&MissionEpochId::parse("epoch-example").unwrap(), TimeVersion::new(1).unwrap());
+    /// use veoveo_mcp_time::contract::{CalendarCursor, EpochId, TimeVersion};
+    /// CalendarCursor::new(&EpochId::parse("epoch-example").unwrap(), TimeVersion::new(1).unwrap());
     /// ```
     pub fn new(key: &CalendarId, version: TimeVersion) -> Self {
         Self {
@@ -231,7 +229,7 @@ impl CalendarCursor {
 }
 
 impl EpochCursor {
-    pub fn new(key: &MissionEpochId, version: TimeVersion) -> Self {
+    pub fn new(key: &EpochId, version: TimeVersion) -> Self {
         Self {
             cursor: admit_position::<EpochCollection>(VersionPosition {
                 key: key.clone(),
@@ -239,7 +237,7 @@ impl EpochCursor {
             }),
         }
     }
-    pub fn epoch_id(&self) -> &MissionEpochId {
+    pub fn epoch_id(&self) -> &EpochId {
         &self.cursor.position().key
     }
     pub fn version(&self) -> TimeVersion {
@@ -249,10 +247,10 @@ impl EpochCursor {
 
 impl EventCursor {
     /// ```compile_fail
-    /// use veoveo_mcp_time::{EventCursor, TemporalEventId};
-    /// EventCursor::new(&TemporalEventId::parse("event-example").unwrap(), 0, 1_000_000_000);
+    /// use veoveo_mcp_time::{EventCursor, EventId};
+    /// EventCursor::new(&EventId::parse("event-example").unwrap(), 0, 1_000_000_000);
     /// ```
-    pub fn new(key: &TemporalEventId, tai_seconds: i64, nanosecond: SubsecondNanoseconds) -> Self {
+    pub fn new(key: &EventId, tai_seconds: i64, nanosecond: SubsecondNanoseconds) -> Self {
         let position = EventPosition {
             event_key: key.clone(),
             tai_seconds,
@@ -262,7 +260,7 @@ impl EventCursor {
             cursor: admit_position::<EventCollection>(position),
         }
     }
-    pub fn event_id(&self) -> &TemporalEventId {
+    pub fn event_id(&self) -> &EventId {
         &self.cursor.position().event_key
     }
     pub fn tai_seconds(&self) -> i64 {

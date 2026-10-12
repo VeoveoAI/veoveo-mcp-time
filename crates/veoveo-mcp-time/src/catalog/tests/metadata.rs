@@ -155,9 +155,8 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
         let epoch = catalog
             .create_epoch(
                 &owner,
-                MissionEpoch {
-                    epoch_id: MissionEpochId::parse("epoch-00000000-0000-7000-8000-000000000001")
-                        .unwrap(),
+                Epoch {
+                    epoch_id: EpochId::parse("epoch-00000000-0000-7000-8000-000000000001").unwrap(),
                     name: "mission".into(),
                     instant: instant(),
                     version: crate::TimeVersion::new(1).unwrap(),
@@ -165,7 +164,7 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_mission_epoch", format!("{}:1", epoch.epoch_id));
+        let record = RecordId::new("time_epoch", format!("{}:1", epoch.epoch_id));
         let original = body(&db.a, &record).await;
         let mut wrong_instant = instant();
         wrong_instant.tai_seconds_since_1970 += 1;
@@ -212,19 +211,18 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
         let event = catalog
             .create_event(
                 &owner,
-                TemporalEvent {
-                    event_id: TemporalEventId::parse("event-00000000-0000-7000-8000-000000000001")
-                        .unwrap(),
+                Event {
+                    event_id: EventId::parse("event-00000000-0000-7000-8000-000000000001").unwrap(),
                     name: "launch".into(),
                     due: instant(),
-                    state: TemporalEventState::Scheduled,
+                    state: EventState::Scheduled,
                     record_version: crate::TimeVersion::new(1).unwrap(),
                 },
                 "launch".into(),
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_temporal_event", event.event_id.to_string());
+        let record = RecordId::new("time_event", event.event_id.to_string());
         let original = body(&db.a, &record).await;
         let mut wrong_due = instant();
         wrong_due.nanosecond =
@@ -311,7 +309,7 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
                 .await
                 .unwrap()
                 .state,
-            TemporalEventState::Cancelled
+            EventState::Cancelled
         );
     })
     .await
@@ -657,9 +655,8 @@ async fn matching_subsecond_corruption_rejects_reads_without_rewriting_rows() {
         let epoch = catalog
             .create_epoch(
                 &owner,
-                MissionEpoch {
-                    epoch_id: MissionEpochId::parse("epoch-00000000-0000-7000-8000-000000000001")
-                        .unwrap(),
+                Epoch {
+                    epoch_id: EpochId::parse("epoch-00000000-0000-7000-8000-000000000001").unwrap(),
                     name: "epoch".into(),
                     instant: value.clone(),
                     version: TimeVersion::FIRST,
@@ -670,12 +667,11 @@ async fn matching_subsecond_corruption_rejects_reads_without_rewriting_rows() {
         let event = catalog
             .create_event(
                 &owner,
-                TemporalEvent {
-                    event_id: TemporalEventId::parse("event-00000000-0000-7000-8000-000000000001")
-                        .unwrap(),
+                Event {
+                    event_id: EventId::parse("event-00000000-0000-7000-8000-000000000001").unwrap(),
                     name: "event".into(),
                     due: value,
-                    state: TemporalEventState::Scheduled,
+                    state: EventState::Scheduled,
                     record_version: TimeVersion::FIRST,
                 },
                 "subseconds".into(),
@@ -684,12 +680,12 @@ async fn matching_subsecond_corruption_rejects_reads_without_rewriting_rows() {
             .unwrap();
         let records = [
             (
-                RecordId::new("time_mission_epoch", format!("{}:1", epoch.epoch_id)),
+                RecordId::new("time_epoch", format!("{}:1", epoch.epoch_id)),
                 "instant",
                 "nanosecond",
             ),
             (
-                RecordId::new("time_temporal_event", event.event_id.to_string()),
+                RecordId::new("time_event", event.event_id.to_string()),
                 "due",
                 "due_nanosecond",
             ),
@@ -771,9 +767,8 @@ async fn retained_instants_reject_ambiguous_authority_bindings_after_sql_visibil
         let epoch = catalog
             .create_epoch(
                 &owner,
-                MissionEpoch {
-                    epoch_id: MissionEpochId::parse("epoch-00000000-0000-7000-8000-000000000001")
-                        .unwrap(),
+                Epoch {
+                    epoch_id: EpochId::parse("epoch-00000000-0000-7000-8000-000000000001").unwrap(),
                     name: "epoch".into(),
                     instant: instant(),
                     version: TimeVersion::FIRST,
@@ -789,11 +784,11 @@ async fn retained_instants_reject_ambiguous_authority_bindings_after_sql_visibil
         .await;
         let records = [
             (
-                RecordId::new("time_mission_epoch", format!("{}:1", epoch.epoch_id)),
+                RecordId::new("time_epoch", format!("{}:1", epoch.epoch_id)),
                 "instant",
             ),
             (
-                RecordId::new("time_temporal_event", event.event_id.to_string()),
+                RecordId::new("time_event", event.event_id.to_string()),
                 "due",
             ),
         ];

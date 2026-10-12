@@ -1,12 +1,10 @@
 use std::time::Duration;
 
 use crate::catalog::TimeCompletion;
-use crate::persistence::{
-    TimeMissionEpochDraft, TimePersistence, TimeTemporalEventState as StoredEventState,
-};
+use crate::persistence::{TimeEpochDraft, TimeEventState as StoredEventState, TimePersistence};
 use crate::{
-    AuthorityBinding, AuthorityReleaseId, CalendarId, MissionEpoch, MissionEpochId,
-    OperationalCalendar, TemporalEvent, TemporalEventId, TemporalEventState, TimeInstant,
+    AuthorityBinding, AuthorityReleaseId, CalendarId, Epoch, EpochId, Event, EventId, EventState,
+    OperationalCalendar, TimeInstant,
     catalog::{TimeAccessContext, TimeCatalog},
 };
 use veoveo_platform_store::{PlatformStore, PrincipalKind};
@@ -44,15 +42,15 @@ fn instant() -> TimeInstant {
     }
 }
 
-async fn event(catalog: &TimeCatalog, owner: &TimeAccessContext, key: &str) -> TemporalEvent {
+async fn event(catalog: &TimeCatalog, owner: &TimeAccessContext, key: &str) -> Event {
     catalog
         .create_event(
             owner,
-            TemporalEvent {
-                event_id: TemporalEventId::parse(key).unwrap(),
+            Event {
+                event_id: EventId::parse(key).unwrap(),
                 name: key.into(),
                 due: instant(),
-                state: TemporalEventState::Scheduled,
+                state: EventState::Scheduled,
                 record_version: crate::TimeVersion::new(1).unwrap(),
             },
             key.into(),
@@ -91,8 +89,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             "event-00000000-0000-7000-9000-000000000000",
         )
         .await;
-        let peer_event =
-            TemporalEventId::parse("event-00000000-0000-7000-8000-000000000000").unwrap();
+        let peer_event = EventId::parse("event-00000000-0000-7000-8000-000000000000").unwrap();
         assert!(catalog.event(&owner, &peer_event).await.unwrap().is_none());
         assert!(
             catalog
@@ -102,7 +99,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .is_none()
         );
         let own = TimePersistence::new(db.a.clone())
-            .list_time_temporal_events(&owner.identity, None, None, 101)
+            .list_time_events(&owner.identity, None, None, 101)
             .await
             .unwrap();
         assert_eq!(own.len(), 101);
@@ -143,7 +140,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
         // A persistence caller cannot bypass the same owner predicate on a transition.
         assert!(
             TimePersistence::new(db.a.clone())
-                .transition_time_temporal_event(
+                .transition_time_event(
                     &owner.identity,
                     &peer_event,
                     crate::TimeVersion::FIRST,
@@ -160,16 +157,16 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .unwrap()
                 .unwrap()
                 .state,
-            TemporalEventState::Scheduled
+            EventState::Scheduled
         );
-        let own_id = TemporalEventId::parse("event-ffffffff-ffff-7000-8000-000000000000").unwrap();
+        let own_id = EventId::parse("event-ffffffff-ffff-7000-8000-000000000000").unwrap();
         assert_eq!(
             catalog
                 .cancel_event(&owner, &own_id, crate::TimeVersion::FIRST)
                 .await
                 .unwrap()
                 .state,
-            TemporalEventState::Cancelled
+            EventState::Cancelled
         );
         assert!(
             catalog
@@ -235,11 +232,9 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             catalog
                 .create_epoch(
                     &owner,
-                    MissionEpoch {
-                        epoch_id: MissionEpochId::parse(
-                            "epoch-00000000-0000-7000-8000-000000000001",
-                        )
-                        .unwrap(),
+                    Epoch {
+                        epoch_id: EpochId::parse("epoch-00000000-0000-7000-8000-000000000001")
+                            .unwrap(),
                         name: "launch".into(),
                         instant: instant(),
                         version: crate::TimeVersion::new(version).unwrap(),
@@ -284,7 +279,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             )
             .await
             .unwrap();
-        let epoch_id = MissionEpochId::parse("epoch-00000000-0000-7000-8000-000000000001").unwrap();
+        let epoch_id = EpochId::parse("epoch-00000000-0000-7000-8000-000000000001").unwrap();
         assert_eq!(
             catalog
                 .epoch(&owner, &epoch_id)
@@ -310,7 +305,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             catalog
                 .epoch(
                     &owner,
-                    &MissionEpochId::parse("epoch-00000000-0000-7000-8000-000000000002").unwrap()
+                    &EpochId::parse("epoch-00000000-0000-7000-8000-000000000002").unwrap()
                 )
                 .await
                 .unwrap()
@@ -384,7 +379,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             catalog
                 .create_epoch(
                     &owner,
-                    MissionEpoch {
+                    Epoch {
                         epoch_id: epoch_id.clone(),
                         name: "launch".into(),
                         instant: instant(),
@@ -460,7 +455,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
         assert!(second.next_cursor.is_none());
         assert_eq!(second.items.last().unwrap().version.get(), 42);
         let scheduled = catalog
-            .events_page(&owner, None, Some(TemporalEventState::Scheduled))
+            .events_page(&owner, None, Some(EventState::Scheduled))
             .await
             .unwrap();
         assert_eq!(scheduled.items.len(), 100);
@@ -469,13 +464,13 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             scheduled
                 .items
                 .iter()
-                .all(|e| e.state == TemporalEventState::Scheduled && e.event_id != own_id)
+                .all(|e| e.state == EventState::Scheduled && e.event_id != own_id)
         );
         let last = scheduled.items.last().unwrap();
         let position = scheduled.next_cursor.as_ref().unwrap();
         assert_eq!(position.event_id(), &last.event_id);
         let last_scheduled = catalog
-            .events_page(&owner, Some(position), Some(TemporalEventState::Scheduled))
+            .events_page(&owner, Some(position), Some(EventState::Scheduled))
             .await
             .unwrap();
         assert_eq!(last_scheduled.items.len(), 1);
@@ -483,11 +478,10 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
 
         // An unrelated malformed payload must never reach a request's epoch decoder.
         TimePersistence::new(db.a.clone())
-            .create_time_mission_epoch(TimeMissionEpochDraft {
+            .create_time_epoch(TimeEpochDraft {
                 work_context: owner.work_context.clone(),
                 identity: owner.identity.clone(),
-                epoch_key: MissionEpochId::parse("epoch-00000000-0000-7000-8000-000000000010")
-                    .unwrap(),
+                epoch_key: EpochId::parse("epoch-00000000-0000-7000-8000-000000000010").unwrap(),
                 name: "unrelated".into(),
                 epoch_version: crate::TimeVersion::new(1).unwrap(),
                 tai_seconds_since_1970: 0,
@@ -498,7 +492,7 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             .unwrap();
         let requested = vec![
             epoch_id.clone(),
-            MissionEpochId::parse("epoch-00000000-0000-7000-8000-000000000099").unwrap(),
+            EpochId::parse("epoch-00000000-0000-7000-8000-000000000099").unwrap(),
         ];
         let epochs = catalog.epochs_for_keys(&owner, &requested).await.unwrap();
         assert_eq!(epochs.len(), 1);
@@ -512,13 +506,13 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
         );
         assert!(
             TimePersistence::new(db.a.clone())
-                .latest_time_mission_epochs(owner.identity.tenant_id, &vec![epoch_id.clone(); 101])
+                .latest_time_epochs(owner.identity.tenant_id, &vec![epoch_id.clone(); 101])
                 .await
                 .is_err()
         );
         assert!(
             TimePersistence::new(db.a.clone())
-                .list_time_mission_epochs(owner.identity.tenant_id, None, 102)
+                .list_time_epochs(owner.identity.tenant_id, None, 102)
                 .await
                 .is_err()
         );

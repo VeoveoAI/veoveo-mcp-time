@@ -54,7 +54,7 @@ pub(crate) enum TimeCalendarState {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, veoveo_types::Vocabulary)]
 #[vocabulary(surreal)]
-pub(crate) enum TimeTemporalEventState {
+pub(crate) enum TimeEventState {
     #[vocabulary(rename = "scheduled")]
     Scheduled,
     #[vocabulary(rename = "due")]
@@ -150,7 +150,7 @@ pub(crate) struct TimeCalendarVersionRecord {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
-pub(crate) struct TimeMissionEpochRecord {
+pub(crate) struct TimeEpochRecord {
     pub(crate) provenance: TimeProvenanceRecord,
     pub(crate) id: RecordId,
     pub(crate) tenant: RecordId,
@@ -166,14 +166,14 @@ pub(crate) struct TimeMissionEpochRecord {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]
-pub(crate) struct TimeTemporalEventRecord {
+pub(crate) struct TimeEventRecord {
     pub(crate) provenance: TimeProvenanceRecord,
     pub(crate) id: RecordId,
     pub(crate) tenant: RecordId,
     pub(crate) owner: RecordId,
     pub(crate) event_key: String,
     pub(crate) name: String,
-    pub(crate) state: TimeTemporalEventState,
+    pub(crate) state: TimeEventState,
     pub(crate) due_tai_seconds_since_1970: i64,
     pub(crate) due_nanosecond: i64,
     pub(crate) idempotency_key: String,
@@ -268,7 +268,7 @@ pub(super) struct TimeCalendarVersionContent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
-pub(super) struct TimeMissionEpochContent {
+pub(super) struct TimeEpochContent {
     pub(super) provenance: TimeProvenanceRecord,
     pub(super) tenant: RecordId,
     pub(super) owner: RecordId,
@@ -283,13 +283,13 @@ pub(super) struct TimeMissionEpochContent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
-pub(super) struct TimeTemporalEventContent {
+pub(super) struct TimeEventContent {
     pub(super) provenance: TimeProvenanceRecord,
     pub(super) tenant: RecordId,
     pub(super) owner: RecordId,
     pub(super) event_key: String,
     pub(super) name: String,
-    pub(super) state: TimeTemporalEventState,
+    pub(super) state: TimeEventState,
     pub(super) due_tai_seconds_since_1970: i64,
     pub(super) due_nanosecond: i64,
     pub(super) idempotency_key: String,

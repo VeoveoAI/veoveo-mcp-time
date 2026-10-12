@@ -1,6 +1,6 @@
 //! Source observations are constructed from the same SQL-admitted row as the body.
 use super::*;
-use crate::{AuthorityCursor, MissionEpochId, TimeKnowledgeCollection, TimeVersion};
+use crate::{AuthorityCursor, EpochId, TimeKnowledgeCollection, TimeVersion};
 use anyhow::ensure;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -83,11 +83,11 @@ impl TimeCatalog {
     pub async fn observed_epoch(
         &self,
         scope: &TimeAccessContext,
-        id: &MissionEpochId,
+        id: &EpochId,
         version: TimeVersion,
-    ) -> Result<Option<ObservedTime<MissionEpoch>>> {
+    ) -> Result<Option<ObservedTime<Epoch>>> {
         self.persistence
-            .time_mission_epoch(scope.identity.tenant_id, id, version)
+            .time_epoch(scope.identity.tenant_id, id, version)
             .await?
             .map(|record| {
                 let access = record.provenance.access(
@@ -107,10 +107,10 @@ impl TimeCatalog {
     pub async fn observed_event(
         &self,
         scope: &TimeAccessContext,
-        id: &TemporalEventId,
-    ) -> Result<Option<ObservedTime<TemporalEvent>>> {
+        id: &EventId,
+    ) -> Result<Option<ObservedTime<Event>>> {
         self.persistence
-            .time_temporal_event(&scope.identity, id)
+            .time_event(&scope.identity, id)
             .await?
             .map(|record| {
                 let access = record.provenance.access(

@@ -32,11 +32,11 @@ async fn stored_columns_supply_versions_with_current_body_validation() {
         let event = catalog
             .create_event(
                 &owner,
-                TemporalEvent {
-                    event_id: TemporalEventId::parse(format!("event-{}", Uuid::now_v7())).unwrap(),
+                Event {
+                    event_id: EventId::parse(format!("event-{}", Uuid::now_v7())).unwrap(),
                     name: "fixture".into(),
                     due: resolved(&TemporalEngine::new(files.bootstrap.clone())),
-                    state: TemporalEventState::Scheduled,
+                    state: EventState::Scheduled,
                     record_version: TimeVersion::FIRST,
                 },
                 "fixture".into(),
@@ -47,7 +47,7 @@ async fn stored_columns_supply_versions_with_current_body_validation() {
             RecordId::new("time_source", release.source_id.to_string()),
             RecordId::new("time_authority_release", release.release_id.to_string()),
             RecordId::new("time_acquisition", acquisition.acquisition_id.to_string()),
-            RecordId::new("time_temporal_event", event.event_id.to_string()),
+            RecordId::new("time_event", event.event_id.to_string()),
         ];
         let mut bodies = Vec::new();
         for record in &records {

@@ -18,10 +18,7 @@ use crate::{
 };
 
 type EventWatchers = BTreeMap<
-    (
-        veoveo_platform_store::TenantId,
-        crate::contract::TemporalEventId,
-    ),
+    (veoveo_platform_store::TenantId, crate::contract::EventId),
     tokio_util::sync::CancellationToken,
 >;
 
@@ -128,7 +125,7 @@ impl TimeApplication {
                     .events_page(
                         scope,
                         after.as_ref(),
-                        Some(crate::contract::TemporalEventState::Scheduled),
+                        Some(crate::contract::EventState::Scheduled),
                     )
                     .await?;
                 self.schedule_events(scope.clone(), page.items).await?;
@@ -139,13 +136,13 @@ impl TimeApplication {
             }
         })
         .await
-        .map_err(|_| anyhow::anyhow!("temporal event recovery exceeded 60 seconds"))?
+        .map_err(|_| anyhow::anyhow!("event recovery exceeded 60 seconds"))?
     }
 
     pub async fn schedule_event(
         self: &Arc<Self>,
         scope: TimeAccessContext,
-        event: crate::contract::TemporalEvent,
+        event: crate::contract::Event,
     ) -> Result<()> {
         self.schedule_events(scope, [event]).await
     }
@@ -154,11 +151,11 @@ impl TimeApplication {
     pub async fn schedule_events(
         self: &Arc<Self>,
         scope: TimeAccessContext,
-        events: impl IntoIterator<Item = crate::contract::TemporalEvent>,
+        events: impl IntoIterator<Item = crate::contract::Event>,
     ) -> Result<()> {
         let mut pending: Vec<_> = events
             .into_iter()
-            .filter(|event| event.state == crate::contract::TemporalEventState::Scheduled)
+            .filter(|event| event.state == crate::contract::EventState::Scheduled)
             .collect();
         {
             let watchers = self.event_watchers.lock().await;
@@ -180,7 +177,7 @@ impl TimeApplication {
     async fn schedule_with_engine(
         self: &Arc<Self>,
         scope: TimeAccessContext,
-        event: crate::contract::TemporalEvent,
+        event: crate::contract::Event,
         engine: &TemporalEngine,
     ) -> Result<()> {
         let now = engine
@@ -212,7 +209,7 @@ impl TimeApplication {
             tokio::select! {
                 () = tokio::time::sleep(delay) => {
                     if let Ok(Some(current)) = state.catalog.event(&scope, &event.event_id).await
-                        && current.state == crate::contract::TemporalEventState::Scheduled
+                        && current.state == crate::contract::EventState::Scheduled
                         && state
                             .catalog
                             .mark_event_due(&scope, &current.event_id, current.record_version)
@@ -239,7 +236,7 @@ impl TimeApplication {
     pub async fn cancel_event_watcher(
         &self,
         scope: &TimeAccessContext,
-        event_id: &crate::contract::TemporalEventId,
+        event_id: &crate::contract::EventId,
     ) {
         let key = (scope.identity.tenant_id, event_id.clone());
         if let Some(cancellation) = self.event_watchers.lock().await.remove(&key) {

@@ -120,8 +120,8 @@ pub async fn run() -> Result<()> {
             TimeActiveAuthority,
             TimeAcquisition,
             TimeCalendarVersion,
-            TimeMissionEpoch,
-            TimeTemporalEvent,
+            TimeEpoch,
+            TimeEvent,
             TimeClockPolicy,
         ]);
         while changes.next().await.is_some() {

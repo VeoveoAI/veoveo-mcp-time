@@ -3,12 +3,12 @@ use super::{
     acquisition_state_from_store, event_state_from_store, release_state_from_store, source_kind,
 };
 use crate::contract::{
-    AuthorityRelease, AuthorityReleaseId, MissionEpoch, OperationalCalendar, TemporalEvent,
-    TimeAcquisition, TimeSource, TimeVersion,
+    AuthorityRelease, AuthorityReleaseId, Epoch, Event, OperationalCalendar, TimeAcquisition,
+    TimeSource, TimeVersion,
 };
 use crate::persistence::{
-    TimeAcquisitionRecord, TimeAuthorityReleaseRecord, TimeCalendarVersionRecord,
-    TimeMissionEpochRecord, TimeSourceRecord, TimeTemporalEventRecord, validate_key,
+    TimeAcquisitionRecord, TimeAuthorityReleaseRecord, TimeCalendarVersionRecord, TimeEpochRecord,
+    TimeEventRecord, TimeSourceRecord, validate_key,
 };
 use anyhow::Result;
 use serde::de::DeserializeOwned;
@@ -31,8 +31,8 @@ impl Entity {
             Self::Release => "time_authority_release",
             Self::Acquisition => "time_acquisition",
             Self::Calendar => "time_calendar_version",
-            Self::Epoch => "time_mission_epoch",
-            Self::Event => "time_temporal_event",
+            Self::Epoch => "time_epoch",
+            Self::Event => "time_event",
         }
     }
 
@@ -234,9 +234,9 @@ pub(super) fn calendar_from_record(
     Ok(value)
 }
 
-pub(super) fn epoch_from_record(record: TimeMissionEpochRecord) -> Result<MissionEpoch> {
+pub(super) fn epoch_from_record(record: TimeEpochRecord) -> Result<Epoch> {
     let kind = Entity::Epoch;
-    let value: MissionEpoch = body(kind, &record.canonical_json)?;
+    let value: Epoch = body(kind, &record.canonical_json)?;
     identity(kind, &record.epoch_key, value.epoch_id.as_str())?;
     let version = version(kind, "epoch_version", record.epoch_version)?;
     check(kind, "epoch_version", value.version == version)?;
@@ -259,9 +259,9 @@ pub(super) fn epoch_from_record(record: TimeMissionEpochRecord) -> Result<Missio
     Ok(value)
 }
 
-pub(super) fn event_from_record(record: TimeTemporalEventRecord) -> Result<TemporalEvent> {
+pub(super) fn event_from_record(record: TimeEventRecord) -> Result<Event> {
     let kind = Entity::Event;
-    let mut value = body::<TemporalEvent>(kind, &record.canonical_json)?;
+    let mut value = body::<Event>(kind, &record.canonical_json)?;
     value.record_version = version(kind, "record_version", record.record_version)?;
     identity(kind, &record.event_key, value.event_id.as_str())?;
     record_id(kind, &record.id, record.event_key)?;

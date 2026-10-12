@@ -92,12 +92,12 @@ async fn observations_use_stored_authority_and_versioned_members() {
                 .is_none()
         );
 
-        let epoch_id = MissionEpochId::parse("epoch-00000000-0000-7000-8000-000000000010").unwrap();
+        let epoch_id = EpochId::parse("epoch-00000000-0000-7000-8000-000000000010").unwrap();
         for version in [1, 2] {
             catalog
                 .create_epoch(
                     &owner,
-                    MissionEpoch {
+                    Epoch {
                         epoch_id: epoch_id.clone(),
                         name: "Mission".into(),
                         version: TimeVersion::new(version).unwrap(),
@@ -219,7 +219,7 @@ async fn observations_use_stored_authority_and_versioned_members() {
             .query(include_str!("../../tests/queries/corrupt_provenance.surql"))
             .bind((
                 "record",
-                surrealdb::types::RecordId::new("time_temporal_event", event.event_id.to_string()),
+                surrealdb::types::RecordId::new("time_event", event.event_id.to_string()),
             ))
             .await
             .unwrap()

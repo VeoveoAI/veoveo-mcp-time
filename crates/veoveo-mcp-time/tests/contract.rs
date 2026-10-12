@@ -1,7 +1,7 @@
 use serde::{Serialize, de::DeserializeOwned};
 use veoveo_mcp_time::contract::{
-    AuthorityReleaseId, CalendarId, MissionEpochId, ResolveTimeRequest, TemporalEventId,
-    TimeAcquisitionId, TimeAuthorityReleaseUri, TimeExpression, TimeScope, TimeSourceId,
+    AuthorityReleaseId, CalendarId, EpochId, EventId, ResolveTimeRequest, TimeAcquisitionId,
+    TimeAuthorityReleaseUri, TimeExpression, TimeScope, TimeSourceId,
 };
 use veoveo_types::{ResourceAddress, ResourceUri, ScopeDefinition, ScopeName};
 
@@ -50,8 +50,8 @@ fn public_id_deserialization_applies_domain_validation() {
     check_id::<AuthorityReleaseId>("time-release-iana", "time-source-iana");
     check_id::<TimeAcquisitionId>("time-acquisition-iana", "time-source-iana");
     check_id::<CalendarId>("calendar-mission", "epoch-launch");
-    check_id::<MissionEpochId>("epoch-launch", "calendar-mission");
-    check_id::<TemporalEventId>("event-launch", "epoch-launch");
+    check_id::<EpochId>("epoch-launch", "calendar-mission");
+    check_id::<EventId>("event-launch", "epoch-launch");
     assert!(
         serde_json::from_value::<TimeExpression>(serde_json::json!({
             "format": "epoch_relative", "epochId": "calendar-mission", "offsetNanoseconds": 0,
@@ -289,11 +289,10 @@ fn actual_owner_request_variants_refuse_retired_and_mixed_nested_members() {
         }
     }
     use veoveo_mcp_time::contract::{
-        AuthorityBinding, ClockQualityPolicy, TemporalEvent, TemporalEventState, TimeInstant,
-        TimeVersion,
+        AuthorityBinding, ClockQualityPolicy, Event, EventState, TimeInstant, TimeVersion,
     };
-    let event = TemporalEvent {
-        event_id: TemporalEventId::parse("event-current").unwrap(),
+    let event = Event {
+        event_id: EventId::parse("event-current").unwrap(),
         name: "Current event".into(),
         due: TimeInstant {
             tai_seconds_since_1970: 100,
@@ -305,7 +304,7 @@ fn actual_owner_request_variants_refuse_retired_and_mixed_nested_members() {
             )
             .unwrap(),
         },
-        state: TemporalEventState::Scheduled,
+        state: EventState::Scheduled,
         record_version: TimeVersion::FIRST,
     };
     assert_current_member_cut(event);
@@ -322,8 +321,8 @@ fn actual_owner_request_variants_refuse_retired_and_mixed_nested_members() {
 #[test]
 fn authority_source_and_current_page_refuse_retired_members() {
     use veoveo_mcp_time::contract::{
-        AuthorityBinding, CollectionPage, EventCursor, SubsecondNanoseconds, TemporalEvent,
-        TemporalEventState, TimeAuthoritySource, TimeInstant, TimeVersion,
+        AuthorityBinding, CollectionPage, Event, EventCursor, EventState, SubsecondNanoseconds,
+        TimeAuthoritySource, TimeInstant, TimeVersion,
     };
     assert_current_member_cut(TimeAuthoritySource::Acquisition {
         source_id: TimeSourceId::parse("time-source-fixture").unwrap(),
@@ -356,8 +355,8 @@ fn authority_source_and_current_page_refuse_retired_members() {
             "{field}"
         );
     }
-    let event = TemporalEvent {
-        event_id: TemporalEventId::parse("event-fixture").unwrap(),
+    let event = Event {
+        event_id: EventId::parse("event-fixture").unwrap(),
         name: "Fixture".into(),
         due: TimeInstant {
             tai_seconds_since_1970: 0,
@@ -369,7 +368,7 @@ fn authority_source_and_current_page_refuse_retired_members() {
             )
             .unwrap(),
         },
-        state: TemporalEventState::Scheduled,
+        state: EventState::Scheduled,
         record_version: TimeVersion::FIRST,
     };
     let cursor = EventCursor::new(&event.event_id, 0, SubsecondNanoseconds::ZERO);

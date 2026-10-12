@@ -36,7 +36,7 @@ impl TimeKnowledgeCollection {
                 uris::CALENDARS_TEMPLATE,
             ),
             Self::Epochs => ("time.epochs", "epoch-version", uris::EPOCHS_TEMPLATE),
-            Self::Events => ("time.events", "temporal-event", uris::EVENTS_TEMPLATE),
+            Self::Events => ("time.events", "event", uris::EVENTS_TEMPLATE),
             Self::AuthorityReleases => (
                 "time.authority-releases",
                 "authority-release",

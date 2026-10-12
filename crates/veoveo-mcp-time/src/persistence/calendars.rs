@@ -64,17 +64,17 @@ impl TimePersistence {
         .await
     }
 
-    pub(crate) async fn create_time_mission_epoch(
+    pub(crate) async fn create_time_epoch(
         &self,
-        draft: TimeMissionEpochDraft,
-    ) -> Result<TimeMissionEpochRecord, PersistenceError> {
+        draft: TimeEpochDraft,
+    ) -> Result<TimeEpochRecord, PersistenceError> {
         validate_key("epoch_key", &draft.epoch_key, "epoch-")?;
         validate_text("name", &draft.name, 256)?;
         validate_positive("epoch_version", draft.epoch_version.get() as i64)?;
         validate_json(&draft.canonical_json)?;
         let now = Utc::now();
         let record_key = format!("{}:{}", draft.epoch_key, draft.epoch_version.get());
-        let content = TimeMissionEpochContent {
+        let content = TimeEpochContent {
             provenance: TimeProvenanceRecord::new(&draft.identity, &draft.work_context),
             tenant: draft.identity.tenant_id.record_id(),
             owner: draft.identity.principal_id.record_id(),
@@ -87,48 +87,40 @@ impl TimePersistence {
             created_at: now,
             updated_at: now,
         };
-        create_only(
-            self,
-            time_record("time_mission_epoch", &record_key),
-            content,
-        )
-        .await?;
-        self.time_mission_epoch(
+        create_only(self, time_record("time_epoch", &record_key), content).await?;
+        self.time_epoch(
             draft.identity.tenant_id,
             &draft.epoch_key,
             draft.epoch_version,
         )
         .await?
         .ok_or(PersistenceError::MissingRecord {
-            operation: "time mission epoch creation readback",
+            operation: "time epoch creation readback",
         })
     }
 
-    pub(crate) async fn time_mission_epoch(
+    pub(crate) async fn time_epoch(
         &self,
         tenant_id: TenantId,
-        epoch_key: &MissionEpochId,
+        epoch_key: &EpochId,
         version: TimeVersion,
-    ) -> Result<Option<TimeMissionEpochRecord>, PersistenceError> {
+    ) -> Result<Option<TimeEpochRecord>, PersistenceError> {
         validate_key("epoch_key", epoch_key, "epoch-")?;
 
         select_one(
             self,
-            time_record(
-                "time_mission_epoch",
-                format!("{epoch_key}:{}", version.get()),
-            ),
+            time_record("time_epoch", format!("{epoch_key}:{}", version.get())),
             tenant_id,
         )
         .await
     }
 
     /// Read the latest version of one tenant epoch without loading other epochs.
-    pub(crate) async fn latest_time_mission_epoch(
+    pub(crate) async fn latest_time_epoch(
         &self,
         tenant_id: TenantId,
-        epoch_key: &MissionEpochId,
-    ) -> Result<Option<TimeMissionEpochRecord>, PersistenceError> {
+        epoch_key: &EpochId,
+    ) -> Result<Option<TimeEpochRecord>, PersistenceError> {
         validate_key("epoch_key", epoch_key, "epoch-")?;
         let mut response = self
             .client()
@@ -137,7 +129,7 @@ impl TimePersistence {
             .bind(("key", epoch_key.to_string()))
             .await?
             .check()?;
-        let rows: Vec<TimeMissionEpochRecord> = response.take(0)?;
+        let rows: Vec<TimeEpochRecord> = response.take(0)?;
         Ok(rows.into_iter().next())
     }
 }

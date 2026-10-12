@@ -10,11 +10,11 @@ DEFINE TABLE time_calendar_version TYPE NORMAL SCHEMAFULL CHANGEFEED 4w2d PERMIS
 
 DEFINE TABLE time_clock_policy TYPE NORMAL SCHEMAFULL CHANGEFEED 4w2d PERMISSIONS NONE;
 
-DEFINE TABLE time_mission_epoch TYPE NORMAL SCHEMAFULL CHANGEFEED 4w2d PERMISSIONS NONE;
+DEFINE TABLE time_epoch TYPE NORMAL SCHEMAFULL CHANGEFEED 4w2d PERMISSIONS NONE;
 
 DEFINE TABLE time_source TYPE NORMAL SCHEMAFULL CHANGEFEED 4w2d PERMISSIONS NONE;
 
-DEFINE TABLE time_temporal_event TYPE NORMAL SCHEMAFULL CHANGEFEED 4w2d PERMISSIONS NONE;
+DEFINE TABLE time_event TYPE NORMAL SCHEMAFULL CHANGEFEED 4w2d PERMISSIONS NONE;
 
 DEFINE FIELD OVERWRITE acquisition_key ON time_acquisition TYPE string PERMISSIONS FULL;
 
@@ -168,37 +168,37 @@ DEFINE FIELD OVERWRITE updated_at ON time_clock_policy TYPE datetime PERMISSIONS
 
 DEFINE INDEX time_clock_policy_tenant_unique ON time_clock_policy FIELDS tenant UNIQUE;
 
-DEFINE FIELD OVERWRITE canonical_json ON time_mission_epoch TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE canonical_json ON time_epoch TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE created_at ON time_mission_epoch TYPE datetime PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE created_at ON time_epoch TYPE datetime PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE epoch_key ON time_mission_epoch TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE epoch_key ON time_epoch TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE epoch_version ON time_mission_epoch TYPE int PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE epoch_version ON time_epoch TYPE int PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE id ON time_mission_epoch TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE id ON time_epoch TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE name ON time_mission_epoch TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE name ON time_epoch TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE nanosecond ON time_mission_epoch TYPE int PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE nanosecond ON time_epoch TYPE int PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE owner ON time_mission_epoch TYPE record<principal> PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE owner ON time_epoch TYPE record<principal> PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE provenance ON time_mission_epoch TYPE object PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE provenance ON time_epoch TYPE object PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE provenance.owner_key ON time_mission_epoch TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE provenance.owner_key ON time_epoch TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE provenance.tenant_key ON time_mission_epoch TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE provenance.tenant_key ON time_epoch TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE provenance.work_context ON time_mission_epoch TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE provenance.work_context ON time_epoch TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE tai_seconds_since_1970 ON time_mission_epoch TYPE int PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE tai_seconds_since_1970 ON time_epoch TYPE int PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE tenant ON time_mission_epoch TYPE record<tenant> PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE tenant ON time_epoch TYPE record<tenant> PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE updated_at ON time_mission_epoch TYPE datetime PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE updated_at ON time_epoch TYPE datetime PERMISSIONS FULL;
 
-DEFINE INDEX time_epoch_tenant_version_unique ON time_mission_epoch FIELDS tenant, epoch_key, epoch_version UNIQUE;
+DEFINE INDEX time_epoch_tenant_version_unique ON time_epoch FIELDS tenant, epoch_key, epoch_version UNIQUE;
 
 DEFINE FIELD OVERWRITE canonical_json ON time_source TYPE string PERMISSIONS FULL;
 
@@ -228,42 +228,42 @@ DEFINE FIELD OVERWRITE updated_at ON time_source TYPE datetime PERMISSIONS FULL;
 
 DEFINE INDEX time_source_tenant_key_unique ON time_source FIELDS tenant, source_key UNIQUE;
 
-DEFINE FIELD OVERWRITE canonical_json ON time_temporal_event TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE canonical_json ON time_event TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE created_at ON time_temporal_event TYPE datetime PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE created_at ON time_event TYPE datetime PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE due_nanosecond ON time_temporal_event TYPE int PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE due_nanosecond ON time_event TYPE int PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE due_tai_seconds_since_1970 ON time_temporal_event TYPE int PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE due_tai_seconds_since_1970 ON time_event TYPE int PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE event_key ON time_temporal_event TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE event_key ON time_event TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE id ON time_temporal_event TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE id ON time_event TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE idempotency_key ON time_temporal_event TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE idempotency_key ON time_event TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE name ON time_temporal_event TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE name ON time_event TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE owner ON time_temporal_event TYPE record<principal> PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE owner ON time_event TYPE record<principal> PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE provenance ON time_temporal_event TYPE object PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE provenance ON time_event TYPE object PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE provenance.owner_key ON time_temporal_event TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE provenance.owner_key ON time_event TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE provenance.tenant_key ON time_temporal_event TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE provenance.tenant_key ON time_event TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE provenance.work_context ON time_temporal_event TYPE string PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE provenance.work_context ON time_event TYPE string PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE record_version ON time_temporal_event TYPE int PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE record_version ON time_event TYPE int PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE state ON time_temporal_event TYPE 'scheduled' | 'due' | 'cancelled' PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE state ON time_event TYPE 'scheduled' | 'due' | 'cancelled' PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE tenant ON time_temporal_event TYPE record<tenant> PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE tenant ON time_event TYPE record<tenant> PERMISSIONS FULL;
 
-DEFINE FIELD OVERWRITE updated_at ON time_temporal_event TYPE datetime PERMISSIONS FULL;
+DEFINE FIELD OVERWRITE updated_at ON time_event TYPE datetime PERMISSIONS FULL;
 
-DEFINE INDEX time_event_due ON time_temporal_event FIELDS tenant, state, due_tai_seconds_since_1970, due_nanosecond;
+DEFINE INDEX time_event_due ON time_event FIELDS tenant, state, due_tai_seconds_since_1970, due_nanosecond;
 
-DEFINE INDEX time_event_idempotency_unique ON time_temporal_event FIELDS tenant, owner, idempotency_key UNIQUE;
+DEFINE INDEX time_event_idempotency_unique ON time_event FIELDS tenant, owner, idempotency_key UNIQUE;
 
-DEFINE INDEX time_event_tenant_key_unique ON time_temporal_event FIELDS tenant, event_key UNIQUE;
+DEFINE INDEX time_event_tenant_key_unique ON time_event FIELDS tenant, event_key UNIQUE;

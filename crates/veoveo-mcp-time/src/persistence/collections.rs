@@ -52,12 +52,12 @@ impl TimePersistence {
         Ok(response.take(0)?)
     }
 
-    pub(crate) async fn list_time_mission_epochs(
+    pub(crate) async fn list_time_epochs(
         &self,
         tenant_id: TenantId,
         after: Option<&EpochCursor>,
         limit: u32,
-    ) -> Result<Vec<TimeMissionEpochRecord>, PersistenceError> {
+    ) -> Result<Vec<TimeEpochRecord>, PersistenceError> {
         validate_limit(limit)?;
         if let Some(after) = after {
             validate_key("epoch_key", after.epoch_id(), "epoch-")?;
@@ -78,13 +78,13 @@ impl TimePersistence {
         Ok(response.take(0)?)
     }
 
-    pub(crate) async fn list_time_temporal_events(
+    pub(crate) async fn list_time_events(
         &self,
         identity: &PlatformIdentity,
         after: Option<&EventCursor>,
-        state: Option<TimeTemporalEventState>,
+        state: Option<TimeEventState>,
         limit: u32,
-    ) -> Result<Vec<TimeTemporalEventRecord>, PersistenceError> {
+    ) -> Result<Vec<TimeEventRecord>, PersistenceError> {
         validate_limit(limit)?;
         if let Some(after) = after {
             validate_key("event_key", after.event_id(), "event-")?;
@@ -108,11 +108,11 @@ impl TimePersistence {
     }
 
     /// Fetch only the latest versions of up to 100 explicitly requested epochs.
-    pub(crate) async fn latest_time_mission_epochs(
+    pub(crate) async fn latest_time_epochs(
         &self,
         tenant_id: TenantId,
-        keys: &[MissionEpochId],
-    ) -> Result<Vec<TimeMissionEpochRecord>, PersistenceError> {
+        keys: &[EpochId],
+    ) -> Result<Vec<TimeEpochRecord>, PersistenceError> {
         if keys.len() > 100 {
             return Err(invalid("epoch_keys", "must contain at most 100 keys"));
         }

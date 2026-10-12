@@ -305,8 +305,8 @@ async fn replicas_load_persisted_authority_before_serving_and_validate_cache_reu
                 .available()
                 .any(|zone| zone.to_string() == "Mission/Test")
         );
-        let epoch_id = MissionEpochId::parse("epoch-private").unwrap();
-        engine.replace_epochs([MissionEpoch {
+        let epoch_id = EpochId::parse("epoch-private").unwrap();
+        engine.replace_epochs([Epoch {
             epoch_id: epoch_id.clone(),
             name: "request local".into(),
             version: crate::TimeVersion::new(1).unwrap(),
@@ -557,12 +557,11 @@ async fn event_batches_reuse_authority_and_skip_registered_or_terminal_events() 
                     .catalog
                     .create_event(
                         &owner,
-                        TemporalEvent {
-                            event_id: TemporalEventId::parse(format!("event-{}", Uuid::now_v7()))
-                                .unwrap(),
+                        Event {
+                            event_id: EventId::parse(format!("event-{}", Uuid::now_v7())).unwrap(),
                             name: format!("event {index}"),
                             due: due.clone(),
-                            state: TemporalEventState::Scheduled,
+                            state: EventState::Scheduled,
                             record_version: crate::TimeVersion::new(1).unwrap(),
                         },
                         format!("fixture-{index}"),

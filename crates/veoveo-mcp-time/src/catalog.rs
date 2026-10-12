@@ -14,9 +14,9 @@ mod tests;
 
 /// Store-backed completion domains. SQL identifiers come only from this enum.
 /// ```compile_fail
-/// use veoveo_mcp_time::{catalog::TimeCompletion, MissionEpochId};
+/// use veoveo_mcp_time::{catalog::TimeCompletion, EpochId};
 /// TimeCompletion::CalendarVersion {
-///     calendar_key: Some(MissionEpochId::parse("epoch-example").unwrap()),
+///     calendar_key: Some(EpochId::parse("epoch-example").unwrap()),
 /// };
 /// ```
 /// ```compile_fail
@@ -26,13 +26,9 @@ mod tests;
 #[derive(Clone, Debug)]
 pub enum TimeCompletion {
     CalendarId,
-    CalendarVersion {
-        calendar_key: Option<CalendarId>,
-    },
+    CalendarVersion { calendar_key: Option<CalendarId> },
     EpochId,
-    EpochVersion {
-        epoch_key: Option<crate::MissionEpochId>,
-    },
+    EpochVersion { epoch_key: Option<crate::EpochId> },
     AuthorityReleaseId,
     EventId,
 }
@@ -40,17 +36,16 @@ pub enum TimeCompletion {
 use crate::persistence::{
     TimeAcquisitionDraft, TimeAcquisitionState as StoreAcquisitionState, TimeAcquisitionUpdate,
     TimeAuthorityReleaseDraft, TimeAuthorityReleaseState as StoreReleaseState, TimeCalendarState,
-    TimeCalendarVersionDraft, TimeDatasetKind, TimeMissionEpochDraft, TimePersistence,
-    TimeSourceDraft, TimeTemporalEventDraft, TimeTemporalEventState as StoreEventState,
+    TimeCalendarVersionDraft, TimeDatasetKind, TimeEpochDraft, TimeEventDraft,
+    TimeEventState as StoreEventState, TimePersistence, TimeSourceDraft,
 };
 use anyhow::{Context, Result, bail};
 use veoveo_platform_store::{PlatformIdentity, PlatformStore};
 
 use crate::contract::{
-    AuthorityRelease, AuthorityReleaseState, CalendarId, MissionEpoch, NewTimeSource,
-    OperationalCalendar, TemporalEvent, TemporalEventId, TemporalEventState, TimeAcquisition,
-    TimeAcquisitionId, TimeAcquisitionStatus, TimeAuthorityReference, TimeAuthorityReleaseUri,
-    TimeAuthoritySource, TimeSource, TimeSourceId,
+    AuthorityRelease, AuthorityReleaseState, CalendarId, Epoch, Event, EventId, EventState,
+    NewTimeSource, OperationalCalendar, TimeAcquisition, TimeAcquisitionId, TimeAcquisitionStatus,
+    TimeAuthorityReference, TimeAuthorityReleaseUri, TimeAuthoritySource, TimeSource, TimeSourceId,
 };
 
 #[derive(Clone, Debug)]
@@ -436,15 +431,11 @@ impl TimeCatalog {
             .transpose()
     }
 
-    pub async fn create_epoch(
-        &self,
-        scope: &TimeAccessContext,
-        epoch: MissionEpoch,
-    ) -> Result<MissionEpoch> {
+    pub async fn create_epoch(&self, scope: &TimeAccessContext, epoch: Epoch) -> Result<Epoch> {
         let canonical_json = serde_json::to_string(&epoch)?;
         let record = self
             .persistence
-            .create_time_mission_epoch(TimeMissionEpochDraft {
+            .create_time_epoch(TimeEpochDraft {
                 work_context: scope.work_context.clone(),
                 identity: scope.identity.clone(),
                 epoch_key: epoch.epoch_id.clone(),
@@ -461,10 +452,10 @@ impl TimeCatalog {
     pub async fn epoch(
         &self,
         scope: &TimeAccessContext,
-        id: &crate::contract::MissionEpochId,
-    ) -> Result<Option<MissionEpoch>> {
+        id: &crate::contract::EpochId,
+    ) -> Result<Option<Epoch>> {
         self.persistence
-            .latest_time_mission_epoch(scope.identity.tenant_id, id)
+            .latest_time_epoch(scope.identity.tenant_id, id)
             .await?
             .map(epoch_from_record)
             .transpose()
@@ -473,13 +464,13 @@ impl TimeCatalog {
     pub async fn create_event(
         &self,
         scope: &TimeAccessContext,
-        event: TemporalEvent,
+        event: Event,
         idempotency_key: String,
-    ) -> Result<TemporalEvent> {
+    ) -> Result<Event> {
         let canonical_json = serde_json::to_string(&event)?;
         let record = self
             .persistence
-            .create_time_temporal_event(TimeTemporalEventDraft {
+            .create_time_event(TimeEventDraft {
                 work_context: scope.work_context.clone(),
                 identity: scope.identity.clone(),
                 event_key: event.event_id.clone(),
@@ -494,13 +485,9 @@ impl TimeCatalog {
         event_from_record(record)
     }
 
-    pub async fn event(
-        &self,
-        scope: &TimeAccessContext,
-        id: &TemporalEventId,
-    ) -> Result<Option<TemporalEvent>> {
+    pub async fn event(&self, scope: &TimeAccessContext, id: &EventId) -> Result<Option<Event>> {
         self.persistence
-            .time_temporal_event(&scope.identity, id)
+            .time_event(&scope.identity, id)
             .await?
             .map(event_from_record)
             .transpose()
@@ -509,18 +496,15 @@ impl TimeCatalog {
     pub async fn cancel_event(
         &self,
         scope: &TimeAccessContext,
-        id: &TemporalEventId,
+        id: &EventId,
         expected: crate::TimeVersion,
-    ) -> Result<TemporalEvent> {
-        let mut event = self
-            .event(scope, id)
-            .await?
-            .context("unknown temporal event")?;
-        event.state = TemporalEventState::Cancelled;
+    ) -> Result<Event> {
+        let mut event = self.event(scope, id).await?.context("unknown event")?;
+        event.state = EventState::Cancelled;
         event.record_version = expected.checked_next()?;
         let record = self
             .persistence
-            .transition_time_temporal_event(
+            .transition_time_event(
                 &scope.identity,
                 id,
                 expected,
@@ -534,21 +518,18 @@ impl TimeCatalog {
     pub async fn mark_event_due(
         &self,
         scope: &TimeAccessContext,
-        id: &TemporalEventId,
+        id: &EventId,
         expected: crate::TimeVersion,
-    ) -> Result<TemporalEvent> {
-        let mut event = self
-            .event(scope, id)
-            .await?
-            .context("unknown temporal event")?;
-        if event.state != TemporalEventState::Scheduled {
+    ) -> Result<Event> {
+        let mut event = self.event(scope, id).await?.context("unknown event")?;
+        if event.state != EventState::Scheduled {
             return Ok(event);
         }
-        event.state = TemporalEventState::Due;
+        event.state = EventState::Due;
         event.record_version = expected.checked_next()?;
         let record = self
             .persistence
-            .transition_time_temporal_event(
+            .transition_time_event(
                 &scope.identity,
                 id,
                 expected,
@@ -602,17 +583,17 @@ fn acquisition_state_from_store(value: StoreAcquisitionState) -> TimeAcquisition
         StoreAcquisitionState::Cancelled => TimeAcquisitionStatus::Cancelled,
     }
 }
-fn event_state(value: TemporalEventState) -> StoreEventState {
+fn event_state(value: EventState) -> StoreEventState {
     match value {
-        TemporalEventState::Scheduled => StoreEventState::Scheduled,
-        TemporalEventState::Due => StoreEventState::Due,
-        TemporalEventState::Cancelled => StoreEventState::Cancelled,
+        EventState::Scheduled => StoreEventState::Scheduled,
+        EventState::Due => StoreEventState::Due,
+        EventState::Cancelled => StoreEventState::Cancelled,
     }
 }
-fn event_state_from_store(value: StoreEventState) -> TemporalEventState {
+fn event_state_from_store(value: StoreEventState) -> EventState {
     match value {
-        StoreEventState::Scheduled => TemporalEventState::Scheduled,
-        StoreEventState::Due => TemporalEventState::Due,
-        StoreEventState::Cancelled => TemporalEventState::Cancelled,
+        StoreEventState::Scheduled => EventState::Scheduled,
+        StoreEventState::Due => EventState::Due,
+        StoreEventState::Cancelled => EventState::Cancelled,
     }
 }

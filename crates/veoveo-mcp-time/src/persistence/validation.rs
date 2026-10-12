@@ -38,7 +38,7 @@ pub(super) fn validate_acquisition(draft: &TimeAcquisitionDraft) -> Result<(), P
     validate_json(&draft.canonical_json)
 }
 
-pub(super) fn validate_event(draft: &TimeTemporalEventDraft) -> Result<(), PersistenceError> {
+pub(super) fn validate_event(draft: &TimeEventDraft) -> Result<(), PersistenceError> {
     validate_key("event_key", &draft.event_key, "event-")?;
     validate_text("name", &draft.name, 256)?;
     validate_text("idempotency_key", &draft.idempotency_key, 256)?;

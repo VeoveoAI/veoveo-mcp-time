@@ -1,10 +1,10 @@
 use super::*;
 
 impl TimePersistence {
-    pub(crate) async fn create_time_temporal_event(
+    pub(crate) async fn create_time_event(
         &self,
-        draft: TimeTemporalEventDraft,
-    ) -> Result<TimeTemporalEventRecord, PersistenceError> {
+        draft: TimeEventDraft,
+    ) -> Result<TimeEventRecord, PersistenceError> {
         validate_event(&draft)?;
         if let Some(existing) = self
             .time_event_for_idempotency(
@@ -23,7 +23,7 @@ impl TimePersistence {
             return Err(conflict("event idempotency key", draft.idempotency_key));
         }
         let now = Utc::now();
-        let content = TimeTemporalEventContent {
+        let content = TimeEventContent {
             provenance: TimeProvenanceRecord::new(&draft.identity, &draft.work_context),
             tenant: draft.identity.tenant_id.record_id(),
             owner: draft.identity.principal_id.record_id(),
@@ -38,29 +38,24 @@ impl TimePersistence {
             created_at: now,
             updated_at: now,
         };
-        create_only(
-            self,
-            time_record("time_temporal_event", &draft.event_key),
-            content,
-        )
-        .await?;
-        self.time_temporal_event(&draft.identity, &draft.event_key)
+        create_only(self, time_record("time_event", &draft.event_key), content).await?;
+        self.time_event(&draft.identity, &draft.event_key)
             .await?
             .ok_or(PersistenceError::MissingRecord {
                 operation: "time event creation readback",
             })
     }
 
-    pub(crate) async fn time_temporal_event(
+    pub(crate) async fn time_event(
         &self,
         identity: &PlatformIdentity,
-        event_key: &TemporalEventId,
-    ) -> Result<Option<TimeTemporalEventRecord>, PersistenceError> {
+        event_key: &EventId,
+    ) -> Result<Option<TimeEventRecord>, PersistenceError> {
         validate_key("event_key", event_key, "event-")?;
         let mut response = self
             .client()
             .query(include_str!("queries/read_owned_event.surql"))
-            .bind(("record", time_record("time_temporal_event", event_key)))
+            .bind(("record", time_record("time_event", event_key)))
             .bind(("tenant", identity.tenant_id.record_id()))
             .bind(("owner", identity.principal_id.record_id()))
             .await?
@@ -68,20 +63,20 @@ impl TimePersistence {
         Ok(response.take(0)?)
     }
 
-    pub(crate) async fn transition_time_temporal_event(
+    pub(crate) async fn transition_time_event(
         &self,
         identity: &PlatformIdentity,
-        event_key: &TemporalEventId,
+        event_key: &EventId,
         expected: TimeVersion,
-        state: TimeTemporalEventState,
+        state: TimeEventState,
         canonical_json: String,
-    ) -> Result<TimeTemporalEventRecord, PersistenceError> {
+    ) -> Result<TimeEventRecord, PersistenceError> {
         validate_key("event_key", event_key, "event-")?;
         validate_json(&canonical_json)?;
         let mut response = self
             .client()
             .query(include_str!("queries/update_event.surql"))
-            .bind(("record", time_record("time_temporal_event", event_key)))
+            .bind(("record", time_record("time_event", event_key)))
             .bind(("tenant", identity.tenant_id.record_id()))
             .bind(("owner", identity.principal_id.record_id()))
             .bind(("state", state))
@@ -91,8 +86,8 @@ impl TimePersistence {
             .await?
             .check()?;
         response
-            .take::<Option<TimeTemporalEventRecord>>(0)?
-            .ok_or_else(|| conflict("temporal event", event_key.to_string()))
+            .take::<Option<TimeEventRecord>>(0)?
+            .ok_or_else(|| conflict("event", event_key.to_string()))
     }
 
     async fn time_event_for_idempotency(
@@ -100,7 +95,7 @@ impl TimePersistence {
         tenant_id: TenantId,
         owner: veoveo_platform_store::PrincipalId,
         key: &str,
-    ) -> Result<Option<TimeTemporalEventRecord>, PersistenceError> {
+    ) -> Result<Option<TimeEventRecord>, PersistenceError> {
         validate_text("idempotency_key", key, 256)?;
         let mut response = self
             .client()
@@ -110,7 +105,7 @@ impl TimePersistence {
             .bind(("key", key.to_owned()))
             .await?
             .check()?;
-        let records: Vec<TimeTemporalEventRecord> = response.take(0)?;
+        let records: Vec<TimeEventRecord> = response.take(0)?;
         Ok(records.into_iter().next())
     }
 }

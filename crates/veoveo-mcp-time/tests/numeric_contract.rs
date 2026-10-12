@@ -1,6 +1,6 @@
 use serde_json::json;
 use veoveo_mcp_time::{
-    CancelTemporalEventRequest, ClockPolicyError, ClockPolicyField, ClockQualityPolicy,
+    CancelEventRequest, ClockPolicyError, ClockPolicyField, ClockQualityPolicy,
     CreateSourceRequest, TimeVersion, TimeVersionError, TimeWriteGuard,
 };
 
@@ -159,7 +159,7 @@ fn source_creation_keeps_its_zero_sentinel_while_updates_require_a_version() {
         (i64::MAX as u64, true),
         (u64::MAX, false),
     ] {
-        let request = serde_json::from_value::<CancelTemporalEventRequest>(json!({
+        let request = serde_json::from_value::<CancelEventRequest>(json!({
             "eventId":"event-example", "expectedRecordVersion":value
         }));
         assert_eq!(request.is_ok(), valid);

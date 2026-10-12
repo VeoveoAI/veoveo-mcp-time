@@ -1,7 +1,7 @@
 use veoveo_mcp_time::contract::{
     AuthorityCursor, AuthorityReleaseId, BootstrapAuthorityCursor, CalendarCursor, CalendarId,
-    EpochCursor, EventCursor, MissionEpochId, SubsecondNanoseconds, TemporalEventId, TimeDocument,
-    TimeResource, TimeVersion, TimeZoneId,
+    EpochCursor, EpochId, EventCursor, EventId, SubsecondNanoseconds, TimeDocument, TimeResource,
+    TimeVersion, TimeZoneId,
 };
 use veoveo_types::{ResourceAddress, ResourceUri};
 
@@ -16,8 +16,8 @@ fn rfc6570_declarations_expand_to_the_typed_domain_builders() {
     use veoveo_types::ResourceTemplateUri;
 
     let calendar = CalendarId::parse("calendar-one").unwrap();
-    let epoch = MissionEpochId::parse("epoch-one").unwrap();
-    let event = TemporalEventId::parse("event-one").unwrap();
+    let epoch = EpochId::parse("epoch-one").unwrap();
+    let event = EventId::parse("event-one").unwrap();
     let release = AuthorityReleaseId::parse("time-release-iana").unwrap();
     let calendar_cursor = CalendarCursor::new(&calendar, version());
     let epoch_cursor = EpochCursor::new(&epoch, version());
@@ -188,12 +188,12 @@ fn all_resource_families_preserve_the_published_wire_shape() {
         ),
         (TimeResource::Epochs { cursor: None }, "time://epochs"),
         (
-            TimeResource::Epoch(MissionEpochId::parse("epoch-one").unwrap()),
+            TimeResource::Epoch(EpochId::parse("epoch-one").unwrap()),
             "time://epochs/epoch-one",
         ),
         (TimeResource::Events { cursor: None }, "time://events"),
         (
-            TimeResource::Event(TemporalEventId::parse("event-one").unwrap()),
+            TimeResource::Event(EventId::parse("event-one").unwrap()),
             "time://events/event-one",
         ),
     ];
@@ -234,13 +234,13 @@ fn pages_round_trip_with_their_own_cursor_types_and_existing_v1_tokens() {
         },
         TimeResource::Epochs {
             cursor: Some(EpochCursor::new(
-                &MissionEpochId::parse("epoch-one").unwrap(),
+                &EpochId::parse("epoch-one").unwrap(),
                 version(),
             )),
         },
         TimeResource::Events {
             cursor: Some(EventCursor::new(
-                &TemporalEventId::parse("event-one").unwrap(),
+                &EventId::parse("event-one").unwrap(),
                 -42,
                 SubsecondNanoseconds::MAX,
             )),
@@ -453,13 +453,13 @@ fn all_cursor_collections_keep_hex_envelopes_aliases_and_nominal_schemas() {
         "CalendarCursor",
     );
     qualify_cursor_wire(
-        EpochCursor::new(&MissionEpochId::parse("epoch-one").unwrap(), version()),
+        EpochCursor::new(&EpochId::parse("epoch-one").unwrap(), version()),
         r#"{"version":1,"collection":"time://epochs","position":{"key":"epoch-one","version":12}}"#,
         "EpochCursor",
     );
     qualify_cursor_wire(
         EventCursor::new(
-            &TemporalEventId::parse("event-one").unwrap(),
+            &EventId::parse("event-one").unwrap(),
             -42,
             SubsecondNanoseconds::MAX,
         ),
@@ -568,7 +568,7 @@ fn route_patterns_validate_encoded_builder_output_without_claiming_domain_admiss
 
 #[test]
 fn route_query_schema_and_admission_preserve_opaque_cursor_hex_aliases() {
-    let event = TemporalEventId::parse("event-one").unwrap();
+    let event = EventId::parse("event-one").unwrap();
     let canonical = EventCursor::new(&event, -42, SubsecondNanoseconds::MAX);
     let uppercase = canonical.as_str().to_ascii_uppercase();
     let cursor = EventCursor::parse(uppercase.clone()).unwrap();
@@ -589,7 +589,7 @@ fn route_query_schema_and_admission_preserve_opaque_cursor_hex_aliases() {
 #[test]
 fn event_cursor_revision_two_refuses_old_and_mixed_position_members() {
     let cursor = EventCursor::new(
-        &TemporalEventId::parse("event-current").unwrap(),
+        &EventId::parse("event-current").unwrap(),
         -42,
         SubsecondNanoseconds::ZERO,
     );

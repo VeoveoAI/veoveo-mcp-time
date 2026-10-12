@@ -3,7 +3,7 @@ use std::{borrow::Cow, error::Error, fmt};
 
 use veoveo_types::{ResourceFieldCodec, ResourceRouteError, ResourceTailCodec, ResourceUriError};
 
-use super::{AuthorityReleaseId, CalendarId, MissionEpochId, TemporalEventId, TimeVersion};
+use super::{AuthorityReleaseId, CalendarId, EpochId, EventId, TimeVersion};
 
 mod cursor;
 mod identifiers;
@@ -117,13 +117,11 @@ pub enum TimeResource {
         cursor: Option<EpochCursor>,
     },
     #[resource(template = "time://epochs/{epoch_id}")]
-    Epoch(
-        #[resource(variable = "epoch_id", error = |_| TimeResourceError::InvalidId)] MissionEpochId,
-    ),
+    Epoch(#[resource(variable = "epoch_id", error = |_| TimeResourceError::InvalidId)] EpochId),
     #[resource(template = "time://epochs/{epoch_id}/versions/{version}")]
     EpochVersion {
         #[resource(variable = "epoch_id", error = |_| TimeResourceError::InvalidId)]
-        id: MissionEpochId,
+        id: EpochId,
         #[resource(codec = TimeVersionCodec)]
         version: TimeVersion,
     },
@@ -133,10 +131,7 @@ pub enum TimeResource {
         cursor: Option<EventCursor>,
     },
     #[resource(template = "time://events/{event_id}")]
-    Event(
-        #[resource(variable = "event_id", error = |_| TimeResourceError::InvalidId)]
-        TemporalEventId,
-    ),
+    Event(#[resource(variable = "event_id", error = |_| TimeResourceError::InvalidId)] EventId),
 }
 
 impl TimeResource {

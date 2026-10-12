@@ -9,9 +9,9 @@ use veoveo_mcp_contract::GatewayInternalIdentity;
 use crate::{
     contract::{
         ActivateReleaseRequest, AdminPage, AuthorityRelease, CalendarId, ClockQualityPolicy,
-        CreateAcquisitionRequest, CreateCalendarRequest, CreateSourceRequest, MissionEpoch,
-        MissionEpochId, ReplaceClockQualityPolicyRequest, ReplaceSourceRequest, TimeAcquisition,
-        TimeAcquisitionId, TimeSource, TimeSourceId, UpsertMissionEpochRequest,
+        CreateAcquisitionRequest, CreateCalendarRequest, CreateSourceRequest, Epoch, EpochId,
+        ReplaceClockQualityPolicyRequest, ReplaceSourceRequest, TimeAcquisition, TimeAcquisitionId,
+        TimeSource, TimeSourceId, UpsertEpochRequest,
     },
     state::TimeApplication,
     uris,
@@ -259,7 +259,7 @@ pub(super) async fn list_epochs(
     State(state): State<Arc<TimeApplication>>,
     Extension(identity): Extension<GatewayInternalIdentity>,
     Query(query): Query<CursorQuery<crate::contract::EpochCursor>>,
-) -> ApiResult<crate::contract::CollectionPage<MissionEpoch, crate::contract::EpochCursor>> {
+) -> ApiResult<crate::contract::CollectionPage<Epoch, crate::contract::EpochCursor>> {
     let scope = state.scope(&identity).await.map_err(ApiError::internal)?;
     let after = query.cursor;
     Ok(Json(
@@ -270,20 +270,24 @@ pub(super) async fn list_epochs(
 pub(super) async fn get_epoch(
     State(state): State<Arc<TimeApplication>>,
     Extension(identity): Extension<GatewayInternalIdentity>,
-    Path(id): Path<MissionEpochId>,
-) -> ApiResult<MissionEpoch> {
+    Path(id): Path<EpochId>,
+) -> ApiResult<Epoch> {
     let scope = state.scope(&identity).await.map_err(ApiError::internal)?;
-    Ok(Json(state.catalog.epoch(&scope, &id).await?.ok_or_else(
-        || ApiError::not_found("unknown mission epoch"),
-    )?))
+    Ok(Json(
+        state
+            .catalog
+            .epoch(&scope, &id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("unknown epoch"))?,
+    ))
 }
 
 pub(super) async fn create_epoch(
     State(state): State<Arc<TimeApplication>>,
     Extension(identity): Extension<GatewayInternalIdentity>,
-    Json(request): Json<UpsertMissionEpochRequest>,
-) -> ApiResult<MissionEpoch> {
-    let request = crate::UpsertMissionEpochRequestValue::from(request);
+    Json(request): Json<UpsertEpochRequest>,
+) -> ApiResult<Epoch> {
+    let request = crate::UpsertEpochRequestValue::from(request);
     if request.idempotency_key.trim().is_empty() {
         return Err(ApiError::bad_request(
             "epoch idempotency key must not be empty",

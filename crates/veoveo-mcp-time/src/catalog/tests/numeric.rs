@@ -207,19 +207,18 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
         let event = catalog
             .create_event(
                 &owner,
-                TemporalEvent {
-                    event_id: TemporalEventId::parse("event-00000000-0000-7000-8000-000000000001")
-                        .unwrap(),
+                Event {
+                    event_id: EventId::parse("event-00000000-0000-7000-8000-000000000001").unwrap(),
                     name: "event".into(),
                     due: instant(),
-                    state: TemporalEventState::Scheduled,
+                    state: EventState::Scheduled,
                     record_version: crate::TimeVersion::new(1).unwrap(),
                 },
                 "numeric".into(),
             )
             .await
             .unwrap();
-        let record = RecordId::new("time_temporal_event", event.event_id.to_string());
+        let record = RecordId::new("time_event", event.event_id.to_string());
         set(&db.a, &record, "record_version", i64::MAX).await;
         let retained = catalog
             .event(&owner, &event.event_id)

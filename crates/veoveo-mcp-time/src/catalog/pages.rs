@@ -1,11 +1,11 @@
 use super::{
     TimeAccessContext, TimeCatalog, calendar_from_record, epoch_from_record, event_from_record,
 };
-use crate::contract::TemporalEventState;
+use crate::contract::EventState;
 use crate::{
     contract::{
-        CalendarCursor, CalendarId, CollectionPage, EpochCursor, EventCursor, MissionEpoch,
-        MissionEpochId, OperationalCalendar, TemporalEvent, TemporalEventId, TimeVersion,
+        CalendarCursor, CalendarId, CollectionPage, Epoch, EpochCursor, EpochId, Event,
+        EventCursor, EventId, OperationalCalendar, TimeVersion,
     },
     index,
 };
@@ -36,16 +36,16 @@ impl TimeCatalog {
         &self,
         scope: &TimeAccessContext,
         after: Option<&EpochCursor>,
-    ) -> Result<CollectionPage<MissionEpoch, EpochCursor>> {
+    ) -> Result<CollectionPage<Epoch, EpochCursor>> {
         let rows = self
             .persistence
-            .list_time_mission_epochs(scope.identity.tenant_id, after, 101)
+            .list_time_epochs(scope.identity.tenant_id, after, 101)
             .await?;
         index::page(
             rows,
             |row| {
                 Ok(EpochCursor::new(
-                    &MissionEpochId::parse(&row.epoch_key).map_err(anyhow::Error::msg)?,
+                    &EpochId::parse(&row.epoch_key).map_err(anyhow::Error::msg)?,
                     TimeVersion::new(row.epoch_version.try_into()?)?,
                 ))
             },
@@ -56,17 +56,17 @@ impl TimeCatalog {
         &self,
         scope: &TimeAccessContext,
         after: Option<&EventCursor>,
-        state: Option<TemporalEventState>,
-    ) -> Result<CollectionPage<TemporalEvent, EventCursor>> {
+        state: Option<EventState>,
+    ) -> Result<CollectionPage<Event, EventCursor>> {
         let rows = self
             .persistence
-            .list_time_temporal_events(&scope.identity, after, state.map(super::event_state), 101)
+            .list_time_events(&scope.identity, after, state.map(super::event_state), 101)
             .await?;
         index::page(
             rows,
             |row| {
                 Ok(EventCursor::new(
-                    &TemporalEventId::parse(&row.event_key).map_err(anyhow::Error::msg)?,
+                    &EventId::parse(&row.event_key).map_err(anyhow::Error::msg)?,
                     row.due_tai_seconds_since_1970,
                     crate::SubsecondNanoseconds::new(row.due_nanosecond.try_into()?)?,
                 ))
@@ -77,8 +77,8 @@ impl TimeCatalog {
     pub async fn epochs_for_keys(
         &self,
         scope: &TimeAccessContext,
-        keys: &[MissionEpochId],
-    ) -> Result<Vec<MissionEpoch>> {
+        keys: &[EpochId],
+    ) -> Result<Vec<Epoch>> {
         anyhow::ensure!(
             keys.len() <= 100_000,
             "at most 100000 epoch keys are supported"
@@ -87,7 +87,7 @@ impl TimeCatalog {
         for keys in keys.chunks(100) {
             let rows = self
                 .persistence
-                .latest_time_mission_epochs(scope.identity.tenant_id, keys)
+                .latest_time_epochs(scope.identity.tenant_id, keys)
                 .await?;
             for row in rows {
                 epochs.push(epoch_from_record(row)?);

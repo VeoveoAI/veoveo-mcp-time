@@ -2,9 +2,9 @@
 
 use crate::catalog::TimeCompletion;
 use crate::contract::{
-    AuthorityReleaseId, AuthoritySourceDigest, CalendarId, ClockQualityPolicy, MissionEpochId,
-    SubsecondNanoseconds, TemporalEventId, TimeAcquisitionId, TimeSourceId, TimeVersion,
-    TimeVersionError, TimeWriteGuard,
+    AuthorityReleaseId, AuthoritySourceDigest, CalendarId, ClockQualityPolicy, EpochId, EventId,
+    SubsecondNanoseconds, TimeAcquisitionId, TimeSourceId, TimeVersion, TimeVersionError,
+    TimeWriteGuard,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

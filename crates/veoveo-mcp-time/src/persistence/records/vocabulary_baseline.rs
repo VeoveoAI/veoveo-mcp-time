@@ -105,7 +105,7 @@ enum TimeCalendarState {
     surrealdb::types::SurrealValue,
 )]
 #[surreal(untagged)]
-enum TimeTemporalEventState {
+enum TimeEventState {
     #[serde(rename = "scheduled")]
     #[surreal(value = "scheduled")]
     Scheduled,
@@ -235,23 +235,16 @@ fn database_vocabulary_values_preserve_the_published_profile() {
         TimeCalendarState::Retired,
         "retired",
     );
-    assert_eq!(
-        super::TimeTemporalEventState::kind_of(),
-        TimeTemporalEventState::kind_of()
-    );
+    assert_eq!(super::TimeEventState::kind_of(), TimeEventState::kind_of());
     compare(
-        super::TimeTemporalEventState::Scheduled,
-        TimeTemporalEventState::Scheduled,
+        super::TimeEventState::Scheduled,
+        TimeEventState::Scheduled,
         "scheduled",
     );
+    compare(super::TimeEventState::Due, TimeEventState::Due, "due");
     compare(
-        super::TimeTemporalEventState::Due,
-        TimeTemporalEventState::Due,
-        "due",
-    );
-    compare(
-        super::TimeTemporalEventState::Cancelled,
-        TimeTemporalEventState::Cancelled,
+        super::TimeEventState::Cancelled,
+        TimeEventState::Cancelled,
         "cancelled",
     );
 }

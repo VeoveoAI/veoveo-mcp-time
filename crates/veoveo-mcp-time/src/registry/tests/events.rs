@@ -31,9 +31,8 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
                     .catalog
                     .create_event(
                         &owner,
-                        TemporalEvent {
-                            event_id: TemporalEventId::parse(format!("event-{}", Uuid::now_v7()))
-                                .unwrap(),
+                        Event {
+                            event_id: EventId::parse(format!("event-{}", Uuid::now_v7())).unwrap(),
                             name: format!("scheduler native {index}"),
                             due: TimeInstant::from_total_nanoseconds(
                                 now.total_nanoseconds() + offset,
@@ -41,7 +40,7 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
                                 now.authority.clone(),
                             )
                             .unwrap(),
-                            state: TemporalEventState::Scheduled,
+                            state: EventState::Scheduled,
                             record_version: TimeVersion::FIRST,
                         },
                         format!("native-{index}"),
@@ -51,7 +50,7 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
             );
         }
         let mut replay = events[0].clone();
-        replay.event_id = TemporalEventId::parse(format!("event-{}", Uuid::now_v7())).unwrap();
+        replay.event_id = EventId::parse(format!("event-{}", Uuid::now_v7())).unwrap();
         assert_eq!(
             state
                 .catalog
@@ -107,7 +106,7 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
                         .await
                         .unwrap()
                         .unwrap();
-                    if current.state == TemporalEventState::Due {
+                    if current.state == EventState::Due {
                         assert_eq!(current.name, event.name);
                         assert_eq!(current.due, event.due);
                         assert_eq!(
@@ -143,5 +142,5 @@ async fn future_cancelled_and_overdue_events_use_real_scheduler_and_owner_recove
         }
     })
     .await
-    .expect("native temporal event qualification exceeded thirty seconds");
+    .expect("native event qualification exceeded thirty seconds");
 }

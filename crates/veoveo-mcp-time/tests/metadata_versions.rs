@@ -55,7 +55,7 @@ fn lifecycle_metadata_admits_only_positive_storage_versions() {
         "message":"", "createdAt":"2026-01-01T00:00:00Z", "updatedAt":"2026-01-01T00:00:00Z", "recordVersion":1}),
         "recordVersion",
     );
-    check::<TemporalEvent>(
+    check::<Event>(
         json!({"eventId":"event-fixture", "name":"fixture", "due":instant(),
         "state":"scheduled", "recordVersion":1}),
         "recordVersion",
@@ -69,7 +69,7 @@ fn immutable_calendar_and_epoch_versions_share_the_checked_type() {
         "name":"fixture", "zoneId":"UTC", "windows":[], "excludedDates":[]}),
         "version",
     );
-    check::<MissionEpoch>(
+    check::<Epoch>(
         json!({"epochId":"epoch-fixture", "name":"fixture", "instant":instant(), "version":1}),
         "version",
     );

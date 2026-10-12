@@ -3,7 +3,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AuthorityReleaseId, CalendarId, ClockQualityPolicy, MissionEpoch, OperationalCalendar,
+    AuthorityReleaseId, CalendarId, ClockQualityPolicy, Epoch, OperationalCalendar,
     TimeAcquisitionId, TimeSourceId,
 };
 
@@ -187,11 +187,11 @@ pub struct CalendarVersionPath {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[schemars(rename = "UpsertMissionEpochRequest")]
+#[schemars(rename = "UpsertEpochRequest")]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub struct UpsertMissionEpochRequestValue {
-    pub epoch: MissionEpoch,
+pub struct UpsertEpochRequestValue {
+    pub epoch: Epoch,
     pub idempotency_key: String,
 }
 
@@ -638,42 +638,39 @@ impl veoveo_types::Check for CreateCalendarRequestValue {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    try_from = "UpsertMissionEpochRequestValue",
-    into = "UpsertMissionEpochRequestValue"
-)]
-pub struct UpsertMissionEpochRequest(veoveo_types::Checked<UpsertMissionEpochRequestValue>);
-impl std::ops::Deref for UpsertMissionEpochRequest {
-    type Target = UpsertMissionEpochRequestValue;
+#[serde(try_from = "UpsertEpochRequestValue", into = "UpsertEpochRequestValue")]
+pub struct UpsertEpochRequest(veoveo_types::Checked<UpsertEpochRequestValue>);
+impl std::ops::Deref for UpsertEpochRequest {
+    type Target = UpsertEpochRequestValue;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl JsonSchema for UpsertMissionEpochRequest {
+impl JsonSchema for UpsertEpochRequest {
     fn schema_name() -> std::borrow::Cow<'static, str> {
-        "UpsertMissionEpochRequest".into()
+        "UpsertEpochRequest".into()
     }
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        UpsertMissionEpochRequestValue::json_schema(generator)
+        UpsertEpochRequestValue::json_schema(generator)
     }
 }
-impl TryFrom<UpsertMissionEpochRequestValue> for UpsertMissionEpochRequest {
+impl TryFrom<UpsertEpochRequestValue> for UpsertEpochRequest {
     type Error = super::admission::TimeValueError;
-    fn try_from(value: UpsertMissionEpochRequestValue) -> Result<Self, Self::Error> {
+    fn try_from(value: UpsertEpochRequestValue) -> Result<Self, Self::Error> {
         veoveo_types::Checked::new(value).map(Self)
     }
 }
-impl From<UpsertMissionEpochRequest> for UpsertMissionEpochRequestValue {
-    fn from(value: UpsertMissionEpochRequest) -> Self {
+impl From<UpsertEpochRequest> for UpsertEpochRequestValue {
+    fn from(value: UpsertEpochRequest) -> Self {
         value.0.into_inner()
     }
 }
-impl UpsertMissionEpochRequestValue {
-    pub fn build(self) -> Result<UpsertMissionEpochRequest, super::admission::TimeValueError> {
+impl UpsertEpochRequestValue {
+    pub fn build(self) -> Result<UpsertEpochRequest, super::admission::TimeValueError> {
         self.try_into()
     }
 }
-impl veoveo_types::Check for UpsertMissionEpochRequestValue {
+impl veoveo_types::Check for UpsertEpochRequestValue {
     type Error = super::admission::TimeValueError;
     fn check(&self) -> Result<(), Self::Error> {
         super::admission::text(&self.idempotency_key, 256)?;

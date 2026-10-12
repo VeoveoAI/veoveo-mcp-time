@@ -26,10 +26,10 @@ use veoveo_mcp_contract::{
 use crate::{
     clock::assess_clock,
     contract::{
-        AssessClockRequest, CancelTemporalEventRequest, ClockAssessment, ClockQualityPolicy,
-        ConvertTimeOutput, ConvertTimeRequest, CreateTemporalEventRequest, EvaluateWindowsOutput,
-        EvaluateWindowsRequest, ExpandScheduleOutput, ExpandScheduleRequest, ResolveTimeOutput,
-        ResolveTimeRequest, TemporalEvent, TemporalEventId, TemporalEventState, TimeScope,
+        AssessClockRequest, CancelEventRequest, ClockAssessment, ClockQualityPolicy,
+        ConvertTimeOutput, ConvertTimeRequest, CreateEventRequest, EvaluateWindowsOutput,
+        EvaluateWindowsRequest, Event, EventId, EventState, ExpandScheduleOutput,
+        ExpandScheduleRequest, ResolveTimeOutput, ResolveTimeRequest, TimeScope,
         ValidateTimelineOutput, ValidateTimelineRequest,
     },
     prompts::TimePrompt,
@@ -206,14 +206,14 @@ impl TimeMcp {
     }
 
     #[tool(
-        title = "Create temporal event",
+        title = "Create event",
         description = "Create an event at a resolved time instant. Subscribers receive a resource update when it becomes due. Only its owner can change it.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<TemporalEvent>(),
+        output_schema = rmcp::handler::server::tool::schema_for_type::<Event>(),
         annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
     )]
-    async fn create_temporal_event(
+    async fn create_event(
         &self,
-        Parameters(request): Parameters<CreateTemporalEventRequest>,
+        Parameters(request): Parameters<CreateEventRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let identity = require_scope(&context, TimeScope::EventWrite)?;
@@ -234,12 +234,12 @@ impl TimeMcp {
                 "event name and idempotency key must be non-empty",
             ));
         }
-        let event = TemporalEvent {
-            event_id: TemporalEventId::parse(format!("event-{}", Uuid::now_v7()))
+        let event = Event {
+            event_id: EventId::parse(format!("event-{}", Uuid::now_v7()))
                 .map_err(invalid_params)?,
             name: request.name,
             due: request.due,
-            state: TemporalEventState::Scheduled,
+            state: EventState::Scheduled,
             record_version: crate::TimeVersion::new(1).unwrap(),
         };
         let event = self
@@ -263,14 +263,14 @@ impl TimeMcp {
     }
 
     #[tool(
-        title = "Cancel temporal event",
+        title = "Cancel event",
         description = "Cancel an event you own. Pass the revision you last read; the call fails if it has changed.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<TemporalEvent>(),
+        output_schema = rmcp::handler::server::tool::schema_for_type::<Event>(),
         annotations(read_only_hint = false, destructive_hint = true, idempotent_hint = false, open_world_hint = false)
     )]
-    async fn cancel_temporal_event(
+    async fn cancel_event(
         &self,
-        Parameters(request): Parameters<CancelTemporalEventRequest>,
+        Parameters(request): Parameters<CancelEventRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let identity = require_scope(&context, TimeScope::EventWrite)?;
@@ -389,7 +389,7 @@ impl DomainServer for TimeMcp {
                     .context
                     .as_ref()
                     .and_then(|context| context.get_argument("epoch_id"))
-                    .map(|key| crate::MissionEpochId::parse(key.clone()))
+                    .map(|key| crate::EpochId::parse(key.clone()))
                     .transpose()
                     .map_err(invalid_params)?,
             }),

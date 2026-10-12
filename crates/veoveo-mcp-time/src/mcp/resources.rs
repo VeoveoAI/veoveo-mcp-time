@@ -41,7 +41,7 @@ impl TimeMcp {
                             uri: uris::CALENDARS_URI,
                         },
                         veoveo_mcp_apps_extension::WorkbenchResource {
-                            label: "Mission epochs",
+                            label: "Epochs",
                             uri: uris::EPOCHS_URI,
                         },
                         veoveo_mcp_apps_extension::WorkbenchResource {
@@ -72,7 +72,7 @@ impl TimeMcp {
                         },
                         veoveo_mcp_apps_extension::WorkbenchTool {
                             label: "Create event",
-                            name: "create_temporal_event",
+                            name: "create_event",
                             arguments_json: "{}",
                         },
                     ],
@@ -267,7 +267,7 @@ impl TimeMcp {
                     .observed_epoch(&scope, id, *version)
                     .await
                     .map_err(internal)?
-                    .ok_or_else(|| not_found("mission epoch version"))?;
+                    .ok_or_else(|| not_found("epoch version"))?;
                 observed_resource(&resource, member, context)
             }
             TimeResource::Epoch(id) => json_read(
@@ -278,7 +278,7 @@ impl TimeMcp {
                     .epoch(&scope, id)
                     .await
                     .map_err(internal)?
-                    .ok_or_else(|| not_found("mission epoch"))?,
+                    .ok_or_else(|| not_found("epoch"))?,
             ),
             TimeResource::Event(id) => {
                 let member = self
@@ -287,7 +287,7 @@ impl TimeMcp {
                     .observed_event(&scope, id)
                     .await
                     .map_err(internal)?
-                    .ok_or_else(|| not_found("temporal event"))?;
+                    .ok_or_else(|| not_found("event"))?;
                 self.state
                     .schedule_event(scope, member.value().clone())
                     .await

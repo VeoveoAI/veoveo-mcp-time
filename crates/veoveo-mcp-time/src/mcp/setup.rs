@@ -98,8 +98,8 @@ fn resources() -> Result<Vec<McpResource<TimeResource>>, McpSetupError> {
             TimeResource::Calendars { cursor: None },
             "Operational calendars",
         ),
-        (TimeResource::Epochs { cursor: None }, "Mission epochs"),
-        (TimeResource::Events { cursor: None }, "Temporal events"),
+        (TimeResource::Epochs { cursor: None }, "Epochs"),
+        (TimeResource::Events { cursor: None }, "Events"),
     ] {
         resources.push(json_descriptor(
             address,
@@ -110,9 +110,7 @@ fn resources() -> Result<Vec<McpResource<TimeResource>>, McpSetupError> {
     resources.push(McpResource::new(TimeResource::TimelineApp, |uri| {
         veoveo_mcp_apps_extension::app_resource(uri, "timeline")
             .with_title("Timeline")
-            .with_description(
-                "Authoritative time, operational calendars, epochs, and temporal events.",
-            )
+            .with_description("Authoritative time, operational calendars, epochs, and events.")
     })?);
     Ok(resources)
 }
@@ -182,8 +180,8 @@ fn resource_templates() -> Result<Vec<McpResourceTemplate>, McpSetupError> {
         ),
         (
             uris::EPOCH_VERSION_TEMPLATE,
-            "Mission epoch version",
-            "One immutable mission epoch version.",
+            "Epoch version",
+            "One immutable epoch version.",
             "application/json",
         ),
         (
@@ -195,7 +193,7 @@ fn resource_templates() -> Result<Vec<McpResourceTemplate>, McpSetupError> {
         (
             uris::EPOCHS_TEMPLATE,
             "Epoch page",
-            "A page of 100 mission epoch versions.",
+            "A page of 100 epoch versions.",
             "application/json",
         ),
         (
@@ -230,14 +228,14 @@ fn resource_templates() -> Result<Vec<McpResourceTemplate>, McpSetupError> {
         ),
         (
             uris::EPOCH_TEMPLATE,
-            "Mission epoch",
-            "Versioned mission epoch.",
+            "Epoch",
+            "Versioned epoch.",
             "application/json",
         ),
         (
             uris::EVENT_TEMPLATE,
-            "Temporal event",
-            "Owner-scoped temporal event.",
+            "Event",
+            "Owner-scoped event.",
             "application/json",
         ),
     ]

@@ -7,9 +7,9 @@ pub struct TimeAcquisitionId(String);
 #[veoveo_types::id(prefixed(TimeIds, "calendar-"))]
 pub struct CalendarId(String);
 #[veoveo_types::id(prefixed(TimeIds, "epoch-"))]
-pub struct MissionEpochId(String);
+pub struct EpochId(String);
 #[veoveo_types::id(prefixed(TimeIds, "event-"))]
-pub struct TemporalEventId(String);
+pub struct EventId(String);
 
 use veoveo_types::{IdProfile, IdProfileSpec};
 
