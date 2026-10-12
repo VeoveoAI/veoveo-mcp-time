@@ -43,3 +43,28 @@ network_policies:
       - path: /usr/lib/git-core/*
       - path: /usr/local/cargo/bin/*
       - path: /usr/local/rustup/toolchains/*/bin/cargo
+  # Local installation. OpenShell pins each policy-listed executable path to the
+  # SHA-256 it first observes and denies the path after the file changes, so Time runs
+  # from a content-addressed copy under /sandbox/run, and acceptance tests run from a
+  # fresh nextest archive extraction under /sandbox/run. Time registers with the Gateway
+  # through its forward, where OpenShell substitutes the registration secret.
+  local_gateway:
+    endpoints:
+      - host: host.openshell.internal
+        port: 8080
+        protocol: rest
+        enforcement: enforce
+        access: full
+        credential_binding:
+          provider: vv-registration
+    binaries:
+      - path: /sandbox/run/veoveo-mcp-time-*
+      - path: /sandbox/run/acceptance-*/**
+  # The SurrealDB endpoint the registration response names.
+  local_database:
+    endpoints:
+      - host: host.openshell.internal
+        port: 8000
+        protocol: tcp
+    binaries:
+      - path: /sandbox/run/veoveo-mcp-time-*
