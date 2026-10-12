@@ -18,6 +18,8 @@ pub(super) fn validate_release(draft: &TimeAuthorityReleaseDraft) -> Result<(), 
     validate_text("version_label", &draft.version_label, 256)?;
     validate_https_url("source_url", &draft.source_url)?;
     validate_absolute_path("artifact_path", &draft.artifact_path)?;
+    validate_timestamp("retrieved_at", &draft.retrieved_at)?;
+    validate_timestamp("validated_at", &draft.validated_at)?;
     if draft.validated_at < draft.retrieved_at {
         return Err(invalid("validated_at", "must not precede retrieval"));
     }
@@ -42,7 +44,18 @@ pub(super) fn validate_event(draft: &TimeEventDraft) -> Result<(), PersistenceEr
     validate_key("event_key", &draft.event_key, "event-")?;
     validate_text("name", &draft.name, 256)?;
     validate_text("idempotency_key", &draft.idempotency_key, 256)?;
+    validate_timestamp("due", &draft.due)?;
     validate_body(&draft.body)
+}
+
+/// A bound timestamp already at the column's microsecond precision, so the column
+/// holds exactly the instant the body names.
+pub(super) fn validate_timestamp(
+    field: &'static str,
+    value: &DateTime<Utc>,
+) -> Result<(), PersistenceError> {
+    crate::contract::admission::stored_precision(value)
+        .map_err(|_| invalid(field, "must carry at most microsecond precision"))
 }
 
 /// A stored key: its prefix, then a lowercase hyphenated RFC 9562 version 7 UUID. The

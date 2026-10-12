@@ -23,7 +23,7 @@ use crate::{
     catalog::{TimeAccessContext, TimeCatalog},
     contract::{
         AuthorityDatasetKind, AuthorityReleaseId, AuthorityReleaseState, TimeAcquisition,
-        TimeAcquisitionId, TimeAcquisitionStatus, TimeSource,
+        TimeAcquisitionId, TimeAcquisitionStatus, TimeSource, admission::stored_timestamp,
     },
 };
 
@@ -88,7 +88,7 @@ impl AcquisitionService {
             }
             bail!("time acquisition idempotency key conflicts with a different request");
         }
-        let now = Utc::now();
+        let now = stored_timestamp(Utc::now());
         let proposed_id = TimeAcquisitionId::parse(format!("time-acquisition-{}", Uuid::now_v7()))
             .map_err(anyhow::Error::msg)?;
         let acquisition = TimeAcquisition {
@@ -254,7 +254,7 @@ impl AcquisitionService {
             AuthorityDatasetKind::LeapSeconds => release_dir.join("leap-seconds.list"),
         };
         tokio::fs::rename(&product, &final_path).await?;
-        let now = Utc::now();
+        let now = stored_timestamp(Utc::now());
         let source = crate::TimeSourceValue::from(source);
         let release = crate::AuthorityReleaseValue {
             release_id: release_id.clone(),

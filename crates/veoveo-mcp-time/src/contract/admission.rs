@@ -1,5 +1,5 @@
 //! Portable temporal syntax and metadata checks; loaded authority remains runtime-owned.
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, TimeDelta, Timelike};
 use url::Url;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -59,6 +59,38 @@ pub fn gps(value: f64) -> Result<(), TimeValueError> {
     if !value.is_finite() || !(0.0..604800.0).contains(&value) {
         return Err(TimeValueError(
             "GPS seconds must be finite and in [0,604800)",
+        ));
+    }
+    Ok(())
+}
+
+/// Time records timestamps at microsecond precision, the precision of a PostgreSQL
+/// `timestamptz`, so a record's JSON body and its timestamp columns name the same
+/// instant. Every writer passes a timestamp it records through this function, which
+/// drops the nanoseconds below the microsecond.
+pub fn stored_timestamp(value: DateTime<Utc>) -> DateTime<Utc> {
+    let nanosecond = value.nanosecond();
+    value
+        .with_nanosecond(nanosecond - nanosecond % 1_000)
+        .unwrap_or(value)
+}
+
+/// The earliest microsecond-precision instant that does not precede `value`, so a
+/// recorded deadline never fires early. `None` lies past the representable range.
+pub fn stored_deadline(value: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    let truncated = stored_timestamp(value);
+    if truncated == value {
+        Some(value)
+    } else {
+        truncated.checked_add_signed(TimeDelta::microseconds(1))
+    }
+}
+
+/// Admit only a timestamp that [`stored_timestamp`] leaves unchanged.
+pub fn stored_precision(value: &DateTime<Utc>) -> Result<(), TimeValueError> {
+    if !value.nanosecond().is_multiple_of(1_000) {
+        return Err(TimeValueError(
+            "recorded timestamps carry at most microsecond precision",
         ));
     }
     Ok(())
@@ -227,5 +259,28 @@ mod tests {
                 .build()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn recorded_timestamps_keep_microseconds_and_deadlines_round_up() {
+        let at = |seconds, nanosecond| Utc.timestamp_opt(seconds, nanosecond).unwrap();
+        let precise = at(1_800_000_000, 123_456_789);
+        assert_eq!(stored_timestamp(precise), at(1_800_000_000, 123_456_000));
+        assert_eq!(
+            stored_deadline(precise),
+            Some(at(1_800_000_000, 123_457_000))
+        );
+        assert!(stored_precision(&precise).is_err());
+        assert!(stored_precision(&stored_timestamp(precise)).is_ok());
+        let last = at(1_800_000_000, 999_999_001);
+        assert_eq!(stored_timestamp(last), at(1_800_000_000, 999_999_000));
+        assert_eq!(stored_deadline(last), Some(at(1_800_000_001, 0)));
+        let before_1970 = at(-1, 500_000_001);
+        assert_eq!(stored_timestamp(before_1970), at(-1, 500_000_000));
+        assert_eq!(stored_deadline(before_1970), Some(at(-1, 500_001_000)));
+        let exact = at(1_800_000_000, 123_456_000);
+        assert_eq!(stored_timestamp(exact), exact);
+        assert_eq!(stored_deadline(exact), Some(exact));
+        assert_eq!(stored_deadline(DateTime::<Utc>::MAX_UTC), None);
     }
 }

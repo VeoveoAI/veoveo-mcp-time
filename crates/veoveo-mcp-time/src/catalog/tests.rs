@@ -14,6 +14,7 @@ use veoveo_platform_store::{PlatformStore, PrincipalKind};
 mod knowledge;
 mod metadata;
 mod numeric;
+mod precision;
 
 async fn scope(store: &PlatformStore, tenant: &str, owner: &str) -> TimeAccessContext {
     TimeAccessContext {

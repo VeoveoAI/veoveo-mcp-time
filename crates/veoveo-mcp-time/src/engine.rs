@@ -130,14 +130,9 @@ impl TemporalEngine {
         } else {
             (Some(coordinate.unix_seconds), instant.nanosecond.get())
         };
-        let microsecond = nanosecond.div_ceil(1_000);
-        let (seconds, microsecond) = if microsecond == 1_000_000 {
-            (seconds.and_then(|seconds| seconds.checked_add(1)), 0)
-        } else {
-            (seconds, microsecond)
-        };
         seconds
-            .and_then(|seconds| Utc.timestamp_opt(seconds, microsecond * 1_000).single())
+            .and_then(|seconds| Utc.timestamp_opt(seconds, nanosecond).single())
+            .and_then(crate::contract::admission::stored_deadline)
             .context("instant is outside the UTC projection range")
     }
 

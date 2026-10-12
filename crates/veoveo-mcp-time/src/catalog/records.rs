@@ -188,6 +188,9 @@ pub(super) fn acquisition_from_record(record: TimeAcquisitionRecord) -> Result<T
         )?;
     }
     value.staged_release_id = record.staged_release_key;
+    // The database clock sets both lifecycle columns, so they stay ordered whatever the
+    // writer's clock read.
+    value.created_at = record.created_at;
     value.updated_at = record.updated_at;
     veoveo_types::Check::check(&value)?;
     Ok(value)

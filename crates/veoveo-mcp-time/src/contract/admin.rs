@@ -345,7 +345,11 @@ impl From<AuthorityRelease> for AuthorityReleaseValue {
     }
 }
 impl AuthorityReleaseValue {
-    pub fn build(self) -> Result<AuthorityRelease, super::admission::TimeValueError> {
+    /// Build the release with its timestamps at recorded precision. Decoding admits
+    /// only timestamps already at that precision.
+    pub fn build(mut self) -> Result<AuthorityRelease, super::admission::TimeValueError> {
+        self.retrieved_at = super::admission::stored_timestamp(self.retrieved_at);
+        self.validated_at = super::admission::stored_timestamp(self.validated_at);
         self.try_into()
     }
 }
@@ -355,6 +359,8 @@ impl veoveo_types::Check for AuthorityReleaseValue {
         super::admission::text(&self.version_label, 256)?;
         super::admission::https(&self.source_url)?;
         super::admission::absolute_path(&self.artifact_path)?;
+        super::admission::stored_precision(&self.retrieved_at)?;
+        super::admission::stored_precision(&self.validated_at)?;
         if self.validated_at < self.retrieved_at {
             return Err(super::admission::TimeValueError(
                 "validation precedes retrieval",
@@ -450,6 +456,8 @@ impl veoveo_types::Check for TimeAcquisition {
             }
             TimeAcquisitionStatus::Cancelled => self.phase == TimeAcquisitionPhase::Cancelled,
         };
+        super::admission::stored_precision(&self.created_at)?;
+        super::admission::stored_precision(&self.updated_at)?;
         if !phase_matches
             || self.staged_release_id.is_some() != (self.status == TimeAcquisitionStatus::Succeeded)
             || self.updated_at < self.created_at
@@ -676,7 +684,7 @@ mod acquisition_admission_tests {
     use veoveo_types::Check;
     #[test]
     fn actual_acquisition_progress_pairs_share_decode_and_persistence_admission() {
-        let now = chrono::Utc::now();
+        let now = super::super::admission::stored_timestamp(chrono::Utc::now());
         let base = TimeAcquisition {
             acquisition_id: TimeAcquisitionId::parse(
                 "time-acquisition-00000000-0000-7000-8000-000000000001",
@@ -734,7 +742,7 @@ mod acquisition_admission_tests {
             bad["phase"] = "unrecognized".into();
             assert!(serde_json::from_value::<TimeAcquisition>(bad).is_err());
         }
-        for kind in 0..3 {
+        for kind in 0..5 {
             let mut bad = base.clone();
             match kind {
                 0 => bad.phase = TimeAcquisitionPhase::Complete,
@@ -742,7 +750,9 @@ mod acquisition_admission_tests {
                     bad.staged_release_id =
                         Some(AuthorityReleaseId::parse("time-release-fixture").unwrap())
                 }
-                _ => bad.updated_at -= chrono::TimeDelta::seconds(1),
+                2 => bad.updated_at -= chrono::TimeDelta::seconds(1),
+                3 => bad.created_at -= chrono::TimeDelta::nanoseconds(1),
+                _ => bad.updated_at += chrono::TimeDelta::nanoseconds(1),
             }
             assert!(bad.check().is_err());
             assert!(

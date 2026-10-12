@@ -105,6 +105,49 @@ fn source_creation_keeps_zero_and_cannot_decode_persisted_metadata() {
     assert!(serde_json::from_value::<NewTimeSource>(wire).is_err());
 }
 
+#[test]
+fn recorded_timestamps_build_at_microsecond_precision_and_decode_only_at_it() {
+    let precise = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.123456789Z")
+        .unwrap()
+        .to_utc();
+    let release: AuthorityRelease =
+        serde_json::from_value(active_selection()["release"].clone()).unwrap();
+    let mut draft = AuthorityReleaseValue::from(release);
+    draft.retrieved_at = precise;
+    draft.validated_at = precise;
+    let built = draft.build().unwrap();
+    assert_eq!(
+        built.retrieved_at,
+        contract::admission::stored_timestamp(precise)
+    );
+    let wire = serde_json::to_value(&built).unwrap();
+    assert_eq!(wire["retrievedAt"], "2026-01-01T00:00:00.123456Z");
+    assert_eq!(wire["validatedAt"], "2026-01-01T00:00:00.123456Z");
+    assert_eq!(
+        serde_json::from_value::<AuthorityRelease>(wire.clone()).unwrap(),
+        built
+    );
+    for (field, value) in [
+        ("retrievedAt", "2026-01-01T00:00:00.123455999Z"),
+        ("validatedAt", "2026-01-01T00:00:00.123456789Z"),
+    ] {
+        let mut nanoseconds = wire.clone();
+        nanoseconds[field] = value.into();
+        assert!(serde_json::from_value::<AuthorityRelease>(nanoseconds).is_err());
+    }
+    let acquisition = json!({"acquisitionId":"time-acquisition-fixture",
+        "sourceId":"time-source-fixture", "expectedSourceDigest":null, "status":"queued",
+        "phase":"queued", "stagedReleaseId":null, "message":"",
+        "createdAt":"2026-01-01T00:00:00.123456Z", "updatedAt":"2026-01-01T00:00:00.123457Z",
+        "recordVersion":1});
+    assert!(serde_json::from_value::<TimeAcquisition>(acquisition.clone()).is_ok());
+    for field in ["createdAt", "updatedAt"] {
+        let mut nanoseconds = acquisition.clone();
+        nanoseconds[field] = "2026-01-01T00:00:00.1234565Z".into();
+        assert!(serde_json::from_value::<TimeAcquisition>(nanoseconds).is_err());
+    }
+}
+
 fn active_selection() -> Value {
     json!({"pointerVersion":1,"release":{
         "releaseId":"time-release-fixture", "sourceId":"time-source-fixture",

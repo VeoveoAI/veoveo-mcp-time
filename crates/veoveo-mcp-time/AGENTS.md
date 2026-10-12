@@ -46,6 +46,9 @@ leap second assumptions.
   change. Row triggers notify the `time` channel; subscribers hear only their own
   tenant through `TenantSubscriptions`. Do not notify subscribers from handlers.
   Tenant engine caches are derived and rebuilt from the active release pair.
+- Recorded timestamps carry microsecond precision. Pass a timestamp a writer records
+  through `admission::stored_timestamp`, or `stored_deadline` for a due instant,
+  before serializing or binding it; never relax the body-column comparisons instead.
 - Events become due only through the per-process due loop in `src/due.rs`, which runs
   one conditional `UPDATE`. Do not add in-process timers per event.
 - Authority activation is atomic: optimistic versions plus a full preflight

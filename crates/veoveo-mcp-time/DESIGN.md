@@ -840,6 +840,16 @@ owner and idempotency key, and one release per source and digest. Records that k
 their creator's provenance store the tenant key, owner key and Work Context beside
 their owner. Every table carries the `kernel.notify_change` row trigger.
 
+Time records every timestamp at microsecond precision, the precision of `timestamptz`,
+so a JSON body and its columns name the same instant on every platform clock.
+`admission::stored_timestamp` drops the nanoseconds below the microsecond.
+`AuthorityReleaseValue::build` applies it to retrieval and validation times, and the
+catalog applies it to acquisition times before serializing the body.
+`admission::stored_deadline` rounds an event's due instant up to the next microsecond,
+so the due loop never fires an event early. Release and acquisition decoding rejects a
+finer timestamp, and persistence validation rejects one bound to a column. The database
+clock sets `created_at`, `updated_at` and `activated_at`.
+
 ### Version Guards
 
 `TimeVersion` admits positive integers through `i64::MAX`. Source replacement,
@@ -877,7 +887,7 @@ rewrite retained data.
 |---|---|---|
 | Source | ID, name, dataset kind, URL, content type, enabled flag | record version |
 | Authority release | release and source IDs, dataset kind, version label, URL, digest, artifact path, retrieval and validation times | state, record version |
-| Acquisition | acquisition and source IDs, expected digest | status, phase, staged release ID, record version, update time |
+| Acquisition | acquisition and source IDs, expected digest | status, phase, staged release ID, record version, creation and update times |
 | Calendar | ID, version, name, zone | none |
 | Epoch | ID, version, name, TAI seconds and nanosecond | none |
 | Event | ID, name, due TAI seconds and nanosecond | state, record version |
@@ -1118,7 +1128,9 @@ and eviction on a tenant's authority notification and on reconciliation. Notific
 cases subscribe one tenant's hub and show that another tenant's event changes never
 reach it. Due cases show that an overdue event becomes due once a process starts,
 without a read or a subscription, and that two replicas running the statement and
-their loops change each event once.
+their loops change each event once. A precision case builds a release, an acquisition
+and an event from a nanosecond timestamp, reads each back through the database
+unchanged, and shows that a direct write of a sub-microsecond timestamp fails.
 Permission cases issue access tokens with chosen grants and call every permission
 family through the hosted router. The container build and the PostgreSQL fixture
 exercise the deployment boundary.

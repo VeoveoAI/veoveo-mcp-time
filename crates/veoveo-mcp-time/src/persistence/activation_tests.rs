@@ -44,8 +44,8 @@ async fn time_authority_activation_retires_the_previous_release_atomically() {
                 source_url: "https://example.com/leap-seconds.list".to_owned(),
                 source_digest: veoveo_types::Sha256Digest::from_hex(&digest).unwrap(),
                 artifact_path: "/var/lib/veoveo/time/releases/test/leap-seconds.list".to_owned(),
-                retrieved_at: Utc::now(),
-                validated_at: Utc::now(),
+                retrieved_at: crate::contract::admission::stored_timestamp(Utc::now()),
+                validated_at: crate::contract::admission::stored_timestamp(Utc::now()),
                 body: serde_json::json!({"state": "staged"}),
             };
         let active = || serde_json::json!({"state": "active"});

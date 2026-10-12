@@ -48,6 +48,7 @@ use crate::contract::{
     AuthorityRelease, AuthorityReleaseState, CalendarId, Epoch, Event, EventId, EventState,
     NewTimeSource, OperationalCalendar, TimeAcquisition, TimeAcquisitionId, TimeAcquisitionStatus,
     TimeAuthorityReference, TimeAuthorityReleaseUri, TimeAuthoritySource, TimeSource, TimeSourceId,
+    admission::{stored_deadline, stored_timestamp},
 };
 
 #[derive(Clone, Debug)]
@@ -287,9 +288,11 @@ impl TimeCatalog {
     pub async fn create_acquisition(
         &self,
         scope: &TimeAccessContext,
-        acquisition: TimeAcquisition,
+        mut acquisition: TimeAcquisition,
         idempotency_key: String,
     ) -> Result<TimeAcquisition> {
+        acquisition.created_at = stored_timestamp(acquisition.created_at);
+        acquisition.updated_at = stored_timestamp(acquisition.updated_at);
         veoveo_types::Check::check(&acquisition)?;
         let body = serde_json::to_value(&acquisition)?;
         let record = self
@@ -380,7 +383,7 @@ impl TimeCatalog {
             "an acquisition update cannot change its source, expected digest or creation time"
         );
         acquisition.record_version = next;
-        acquisition.updated_at = chrono::Utc::now();
+        acquisition.updated_at = stored_timestamp(chrono::Utc::now());
         let body = serde_json::to_value(&acquisition)?;
         let record = self
             .persistence
@@ -463,7 +466,8 @@ impl TimeCatalog {
     }
 
     /// Record an event that becomes due at `due`, the UTC instant of its TAI coordinate
-    /// under the active authority. The due loop compares it with the database clock.
+    /// under the active authority, rounded up to the recorded microsecond precision. The
+    /// due loop compares it with the database clock.
     pub async fn create_event(
         &self,
         scope: &TimeAccessContext,
@@ -471,6 +475,7 @@ impl TimeCatalog {
         due: DateTime<Utc>,
         idempotency_key: String,
     ) -> Result<Event> {
+        let due = stored_deadline(due).context("event due instant is outside the UTC range")?;
         let body = serde_json::to_value(&event)?;
         let record = self
             .persistence
