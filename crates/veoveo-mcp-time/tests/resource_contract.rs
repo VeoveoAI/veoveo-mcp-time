@@ -370,24 +370,15 @@ fn subscriptions_share_resource_validation_and_exclude_cursor_pages() {
 }
 
 #[test]
-fn version_schema_and_admin_paths_enforce_the_database_range() {
-    use veoveo_mcp_time::contract::CalendarVersionPath;
+fn version_schema_enforces_the_database_range() {
     let schema = serde_json::to_value(schemars::schema_for!(TimeVersion)).unwrap();
     assert_eq!(schema["minimum"], 1);
     assert_eq!(schema["maximum"], i64::MAX);
     for version in [0, -1, i64::MAX as i128 + 1] {
-        assert!(
-            serde_json::from_value::<CalendarVersionPath>(serde_json::json!({
-                "calendarId": "calendar-one", "version": version,
-            }))
-            .is_err()
-        );
+        assert!(serde_json::from_value::<TimeVersion>(serde_json::json!(version)).is_err());
     }
-    let path: CalendarVersionPath = serde_json::from_value(serde_json::json!({
-        "calendarId": "calendar-one", "version": 12,
-    }))
-    .unwrap();
-    assert_eq!(path.version, version());
+    let parsed: TimeVersion = serde_json::from_value(serde_json::json!(12)).unwrap();
+    assert_eq!(parsed, version());
 }
 
 #[test]

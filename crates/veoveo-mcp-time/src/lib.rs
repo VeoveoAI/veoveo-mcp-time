@@ -18,8 +18,6 @@ pub use contract::*;
 
 #[cfg(feature = "runtime")]
 pub mod acquisition;
-#[cfg(feature = "mcp")]
-mod admin;
 #[cfg(feature = "runtime")]
 mod index;
 #[cfg(feature = "mcp")]

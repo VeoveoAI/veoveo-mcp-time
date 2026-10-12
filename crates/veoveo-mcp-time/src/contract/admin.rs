@@ -3,8 +3,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AuthorityReleaseId, CalendarId, ClockQualityPolicy, Epoch, OperationalCalendar,
-    TimeAcquisitionId, TimeSourceId,
+    AuthorityReleaseId, ClockQualityPolicy, Epoch, OperationalCalendar, TimeAcquisitionId,
+    TimeSourceId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -152,10 +152,10 @@ pub struct ReplaceSourceRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[schemars(rename = "CreateAcquisitionRequest")]
+#[schemars(rename = "StartAcquisitionRequest")]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub struct CreateAcquisitionRequestValue {
+pub struct StartAcquisitionRequestValue {
     pub source_id: TimeSourceId,
     pub expected_source_digest: Option<veoveo_types::Sha256Digest>,
     pub idempotency_key: String,
@@ -165,6 +165,7 @@ pub struct CreateAcquisitionRequestValue {
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct ActivateReleaseRequest {
+    pub release_id: AuthorityReleaseId,
     pub expected_release_record_version: super::TimeVersion,
     pub expected_active_pointer_version: super::TimeWriteGuard,
 }
@@ -176,14 +177,6 @@ pub struct ActivateReleaseRequest {
 pub struct CreateCalendarRequestValue {
     pub calendar: OperationalCalendar,
     pub idempotency_key: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
-pub struct CalendarVersionPath {
-    pub calendar_id: CalendarId,
-    pub version: super::TimeVersion,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -203,61 +196,38 @@ pub struct ReplaceClockQualityPolicyRequest {
     pub expected_record_version: super::TimeWriteGuard,
 }
 
-/// An administrative error as RFC 9457 problem details, served as
-/// `application/problem+json`. `retryable` and `correlationId` are extension members.
+/// Selects one authority source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub struct AdminProblem {
-    #[serde(rename = "type")]
-    pub problem_type: AdminProblemType,
-    pub title: String,
-    pub status: u16,
-    pub detail: String,
-    pub retryable: bool,
-    pub correlation_id: TimeCorrelationId,
+pub struct GetSourceRequest {
+    pub source_id: TimeSourceId,
 }
 
-/// RFC 9457 problem types for Time's administrative surface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub enum AdminProblemType {
-    #[serde(rename = "https://veoveo.ai/problems/invalid-request")]
-    InvalidRequest,
-    #[serde(rename = "https://veoveo.ai/problems/forbidden")]
-    Forbidden,
-    #[serde(rename = "https://veoveo.ai/problems/not-found")]
-    NotFound,
-    #[serde(rename = "https://veoveo.ai/problems/version-conflict")]
-    VersionConflict,
-    #[serde(rename = "https://veoveo.ai/problems/internal-error")]
-    InternalError,
+/// Selects one acquisition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
+pub struct GetAcquisitionRequest {
+    pub acquisition_id: TimeAcquisitionId,
 }
 
-impl AdminProblemType {
-    /// The short summary RFC 9457 `title` carries for every occurrence of the type.
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::InvalidRequest => "Invalid request",
-            Self::Forbidden => "Forbidden",
-            Self::NotFound => "Not found",
-            Self::VersionConflict => "Version conflict",
-            Self::InternalError => "Internal error",
-        }
-    }
+/// Requests cancellation of one acquisition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
+pub struct CancelAcquisitionRequest {
+    pub acquisition_id: TimeAcquisitionId,
 }
 
-#[doc(hidden)]
-pub struct CorrelationIds;
-impl veoveo_types::IdProfile for CorrelationIds {
-    type Error = super::admission::TimeValueError;
-    const PROFILE: veoveo_types::IdProfileSpec<Self::Error> =
-        veoveo_types::IdProfileSpec::generated_uuid(
-            veoveo_types::UuidGrammar::canonical(&[7]),
-            |_, _, _| super::admission::TimeValueError("UUIDv7 correlation identity required"),
-        );
+/// The tenant's clock quality policy and the version a replacement must name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
+pub struct ClockQualityPolicyRecord {
+    pub policy: ClockQualityPolicy,
+    pub record_version: super::TimeVersion,
 }
-#[veoveo_types::id(uuid(CorrelationIds), fresh)]
-pub struct TimeCorrelationId(uuid::Uuid);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "TimeSourceValue", into = "TimeSourceValue")]
@@ -572,41 +542,41 @@ impl veoveo_types::Check for CreateSourceRequestValue {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
-    try_from = "CreateAcquisitionRequestValue",
-    into = "CreateAcquisitionRequestValue"
+    try_from = "StartAcquisitionRequestValue",
+    into = "StartAcquisitionRequestValue"
 )]
-pub struct CreateAcquisitionRequest(veoveo_types::Checked<CreateAcquisitionRequestValue>);
-impl std::ops::Deref for CreateAcquisitionRequest {
-    type Target = CreateAcquisitionRequestValue;
+pub struct StartAcquisitionRequest(veoveo_types::Checked<StartAcquisitionRequestValue>);
+impl std::ops::Deref for StartAcquisitionRequest {
+    type Target = StartAcquisitionRequestValue;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl JsonSchema for CreateAcquisitionRequest {
+impl JsonSchema for StartAcquisitionRequest {
     fn schema_name() -> std::borrow::Cow<'static, str> {
-        "CreateAcquisitionRequest".into()
+        "StartAcquisitionRequest".into()
     }
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        CreateAcquisitionRequestValue::json_schema(generator)
+        StartAcquisitionRequestValue::json_schema(generator)
     }
 }
-impl TryFrom<CreateAcquisitionRequestValue> for CreateAcquisitionRequest {
+impl TryFrom<StartAcquisitionRequestValue> for StartAcquisitionRequest {
     type Error = super::admission::TimeValueError;
-    fn try_from(value: CreateAcquisitionRequestValue) -> Result<Self, Self::Error> {
+    fn try_from(value: StartAcquisitionRequestValue) -> Result<Self, Self::Error> {
         veoveo_types::Checked::new(value).map(Self)
     }
 }
-impl From<CreateAcquisitionRequest> for CreateAcquisitionRequestValue {
-    fn from(value: CreateAcquisitionRequest) -> Self {
+impl From<StartAcquisitionRequest> for StartAcquisitionRequestValue {
+    fn from(value: StartAcquisitionRequest) -> Self {
         value.0.into_inner()
     }
 }
-impl CreateAcquisitionRequestValue {
-    pub fn build(self) -> Result<CreateAcquisitionRequest, super::admission::TimeValueError> {
+impl StartAcquisitionRequestValue {
+    pub fn build(self) -> Result<StartAcquisitionRequest, super::admission::TimeValueError> {
         self.try_into()
     }
 }
-impl veoveo_types::Check for CreateAcquisitionRequestValue {
+impl veoveo_types::Check for StartAcquisitionRequestValue {
     type Error = super::admission::TimeValueError;
     fn check(&self) -> Result<(), Self::Error> {
         super::admission::text(&self.idempotency_key, 256)?;

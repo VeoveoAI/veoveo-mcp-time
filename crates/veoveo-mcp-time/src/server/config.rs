@@ -8,7 +8,7 @@ use veoveo_mcp_contract::{PublicDeployment, parse_allowed_host_authority};
 /// database user and the access-token trust when Time registers, so neither is
 /// configured here.
 #[derive(Parser)]
-#[command(name = "veoveo-mcp-time", about = "Time MCP and administrative server")]
+#[command(name = "veoveo-mcp-time", about = "Time MCP server")]
 pub(super) struct Args {
     #[arg(long, env = "VEOVEO_PORT", default_value_t = 8800)]
     pub port: u16,

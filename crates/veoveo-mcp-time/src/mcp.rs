@@ -36,6 +36,7 @@ use crate::{
     uris,
 };
 
+mod administration;
 pub(crate) mod declarations;
 pub(crate) mod requirements;
 mod resources;
@@ -48,7 +49,7 @@ pub(crate) use subscriptions::TimeSubscriptions;
 
 /// The crate documents embedded at build time and served under the well-known
 /// surface: `time://docs`, `time://docs/{doc_id}`, `time://contract`, and the
-/// administrative `admin/docs` routes (contract C18-C21).
+/// host's `admin/docs` routes (contract C18-C21).
 pub(crate) static SERVER_DOCS: LazyLock<ServerDocs> =
     LazyLock::new(|| veoveo_mcp_contract::server_docs!("time"));
 
@@ -63,8 +64,13 @@ impl TimeMcp {
     pub fn new(state: Arc<TimeApplication>) -> Self {
         Self {
             state,
-            tool_router: Self::tool_router(),
+            tool_router: Self::tools(),
         }
+    }
+
+    /// Every tool Time serves: its domain tools and tenant administration.
+    pub(crate) fn tools() -> ToolRouter<Self> {
+        Self::tool_router() + Self::administration_router()
     }
 
     /// The capability inventory declared at `time://contract` (contract C19).
@@ -547,7 +553,7 @@ mod tests {
 
     #[test]
     fn tool_input_schemas_use_the_canonical_profile() {
-        assert!(!TimeMcp::tool_router().list_all().is_empty());
+        assert!(!TimeMcp::tools().list_all().is_empty());
     }
 }
 

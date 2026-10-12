@@ -73,7 +73,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
         )
         .unwrap();
         // Decoder corpus IDs exercise the public lexical profile. This native
-        // HTTP fixture must use the catalog's admitted UUIDv7 record identity.
+        // fixture must use the catalog's admitted UUIDv7 record identity.
         let mut calendar: crate::contract::OperationalCalendarValue = calendar.into();
         calendar.calendar_id =
             crate::contract::CalendarId::parse("calendar-0195dabe-7777-7abc-8def-000000000007")
@@ -81,65 +81,56 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
         let calendar = calendar.build().unwrap();
         let create = CreateCalendarRequestValue {
             calendar: calendar.clone(),
-            idempotency_key: "http-calendar-fixture".into(),
+            idempotency_key: "calendar-fixture".into(),
         }
         .build()
         .unwrap();
-        let request = gateway
-            .request("/admin/calendars")
-            .method("POST")
-            .header("authorization", format!("Bearer {owner_token}"))
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&create).unwrap()))
-            .unwrap();
-        let (status, body) = gateway.send(request).await;
-        assert_eq!(status, axum::http::StatusCode::OK, "{body}");
-        let created: OperationalCalendar = serde_json::from_str(&body).unwrap();
-        assert_eq!(created, calendar);
-        let path = format!(
-            "/admin/calendars/{}/versions/{}",
+        let (_, created) = gateway
+            .rpc_with(
+                "tools/call",
+                json!({"name": "create_calendar", "arguments": create}),
+                Some(&owner_token),
+            )
+            .await;
+        assert_eq!(created["result"]["isError"], false, "{created}");
+        let published: OperationalCalendar =
+            serde_json::from_value(created["result"]["structuredContent"].clone()).unwrap();
+        assert_eq!(published, calendar);
+        let uri = format!(
+            "time://calendars/{}/versions/{}",
             calendar.calendar_id,
             calendar.version.get()
         );
-        for (route, bearer, expected) in [
+        for (uri, bearer, readable) in [
+            (uri.clone(), owner_token.clone(), true),
             (
-                path.clone(),
+                "time://calendars/epoch-wrong/versions/1".into(),
                 owner_token.clone(),
-                axum::http::StatusCode::OK,
+                false,
             ),
             (
-                "/admin/calendars/epoch-wrong/versions/1".into(),
+                format!("time://calendars/{}/versions/0", calendar.calendar_id),
                 owner_token.clone(),
-                axum::http::StatusCode::BAD_REQUEST,
-            ),
-            (
-                format!("/admin/calendars/{}/versions/0", calendar.calendar_id),
-                owner_token.clone(),
-                axum::http::StatusCode::BAD_REQUEST,
+                false,
             ),
             (
                 format!(
-                    "/admin/calendars/{}/versions/9223372036854775808",
+                    "time://calendars/{}/versions/9223372036854775808",
                     calendar.calendar_id
                 ),
                 owner_token.clone(),
-                axum::http::StatusCode::BAD_REQUEST,
+                false,
             ),
-            (path, token("tenant-b"), axum::http::StatusCode::NOT_FOUND),
+            (uri, token("tenant-b"), false),
         ] {
-            let (status, body) = gateway
-                .send(
-                    gateway
-                        .request(&route)
-                        .header("authorization", format!("Bearer {bearer}"))
-                        .body(axum::body::Body::empty())
-                        .unwrap(),
-                )
+            let (_, read) = gateway
+                .rpc_with("resources/read", json!({"uri": uri}), Some(&bearer))
                 .await;
-            assert_eq!(status, expected, "{route}: {body}");
-            if expected == axum::http::StatusCode::OK {
+            assert_eq!(read.get("error").is_none(), readable, "{uri}: {read}");
+            if readable {
+                let text = read["result"]["contents"][0]["text"].as_str().unwrap();
                 assert_eq!(
-                    serde_json::from_str::<OperationalCalendar>(&body).unwrap(),
+                    serde_json::from_str::<OperationalCalendar>(text).unwrap(),
                     calendar
                 );
             }

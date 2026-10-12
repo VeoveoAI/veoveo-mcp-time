@@ -175,44 +175,112 @@ async fn task_tools_require_their_permission_before_a_task_exists() {
 }
 
 #[tokio::test]
-async fn administration_requires_the_administrative_permission_and_answers_problem_details() {
+async fn administration_tools_require_their_administrative_permission() {
     tokio::time::timeout(Duration::from_secs(90), async {
         let fixture = Fixture::new().await;
-        let request = |grants: &[TimePermission]| {
-            fixture
-                .gateway
-                .request("/admin/sources")
-                .header(
-                    "authorization",
-                    format!("Bearer {}", token_granting(TENANT, grants.iter().copied())),
-                )
-                .body(axum::body::Body::empty())
-                .unwrap()
+        let source = |record_version: u64| {
+            json!({
+                "sourceId": "time-source-0195dabe-7777-7abc-8def-000000000009",
+                "name": "IANA tzdb",
+                "datasetKind": "tzdb",
+                "url": "https://data.iana.org/time-zones/tzdata-latest.tar.gz",
+                "expectedContentType": "application/gzip",
+                "enabled": true,
+                "recordVersion": record_version
+            })
         };
-        let all_but_administration: Vec<_> = TimePermission::ALL
-            .iter()
-            .copied()
-            .filter(|permission| *permission != AuthoritiesAdminister)
-            .collect();
-        let (status, body) = fixture.gateway.send(request(&all_but_administration)).await;
-        assert_eq!(status, axum::http::StatusCode::FORBIDDEN, "{body}");
-        let problem: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(problem["type"], "https://veoveo.ai/problems/forbidden");
-        assert_eq!(problem["status"], 403);
-        assert_eq!(problem["title"], "Forbidden");
-        assert!(
-            problem["detail"]
-                .as_str()
-                .unwrap()
-                .contains("time.authorities.administer")
-        );
-        assert!(problem["correlationId"].is_string());
-
-        let (status, body) = fixture
-            .gateway
-            .send(request(&[AuthoritiesAdminister]))
-            .await;
-        assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+        let resolved = rpc(
+            &fixture,
+            &[AuthoritiesRead],
+            "tools/call",
+            json!({"name": "resolve_time", "arguments": {"expression": {"format": "rfc3339", "value": "2030-01-01T00:00:00Z"}}}),
+        )
+        .await;
+        let instant = resolved["result"]["structuredContent"]["instant"].clone();
+        assert!(instant.is_object(), "{resolved}");
+        let calendar = json!({"calendarId": "calendar-0195dabe-7777-7abc-8def-000000000008",
+            "version": 1, "name": "operations", "zoneId": "UTC", "windows": [], "excludedDates": []});
+        let cases = [
+            ("list_sources", json!({}), AuthoritiesInspect),
+            ("get_source", json!({"sourceId": "time-source-0195dabe-7777-7abc-8def-000000000009"}), AuthoritiesInspect),
+            (
+                "create_source",
+                json!({"source": source(0), "idempotencyKey": "administration"}),
+                AuthoritiesAdminister,
+            ),
+            (
+                "replace_source",
+                json!({"source": source(1), "expectedRecordVersion": 1}),
+                AuthoritiesAdminister,
+            ),
+            ("list_acquisitions", json!({}), AuthoritiesInspect),
+            (
+                "get_acquisition",
+                json!({"acquisitionId": "time-acquisition-00000000-0000-7000-8000-000000000001"}),
+                AuthoritiesInspect,
+            ),
+            (
+                "start_acquisition",
+                json!({"sourceId": "time-source-0195dabe-7777-7abc-8def-000000000009", "expectedSourceDigest": null, "idempotencyKey": "administration"}),
+                AuthoritiesAdminister,
+            ),
+            (
+                "cancel_acquisition",
+                json!({"acquisitionId": "time-acquisition-00000000-0000-7000-8000-000000000001"}),
+                AuthoritiesAdminister,
+            ),
+            ("list_active_authorities", json!({}), AuthoritiesInspect),
+            (
+                "activate_release",
+                json!({"releaseId": "time-release-fixture", "expectedReleaseRecordVersion": 1, "expectedActivePointerVersion": 0}),
+                AuthoritiesAdminister,
+            ),
+            (
+                "create_calendar",
+                json!({"calendar": calendar, "idempotencyKey": "administration"}),
+                CalendarsWrite,
+            ),
+            (
+                "create_epoch",
+                json!({"epoch": {"epochId": "epoch-launch", "name": "launch", "instant": instant, "version": 1}, "idempotencyKey": "administration"}),
+                EpochsWrite,
+            ),
+            (
+                "replace_clock_policy",
+                json!({"policy": {"maximumErrorNanoseconds": 100000000, "maximumStratum": 4, "minimumSourceDiversity": 2, "maximumHoldoverSeconds": 300}, "expectedRecordVersion": 0}),
+                ClockPoliciesWrite,
+            ),
+        ];
+        for (tool, arguments, required) in cases {
+            let params = json!({"name": tool, "arguments": arguments});
+            let others: Vec<_> = TimePermission::ALL
+                .iter()
+                .copied()
+                .filter(|permission| *permission != required)
+                .collect();
+            let refused = rpc(&fixture, &others, "tools/call", params.clone()).await;
+            assert!(denied(&refused, required), "{tool}: {refused}");
+            let admitted = rpc(&fixture, &[required], "tools/call", params).await;
+            assert!(!denied(&admitted, required), "{tool}: {admitted}");
+            assert!(admitted.get("result").is_some(), "{tool}: {admitted}");
+        }
+        // Granted, a registered source is readable by an inspecting operator.
+        let read = rpc(
+            &fixture,
+            &[AuthoritiesInspect],
+            "tools/call",
+            json!({"name": "get_source", "arguments": {"sourceId": "time-source-0195dabe-7777-7abc-8def-000000000009"}}),
+        )
+        .await;
+        assert_eq!(read["result"]["structuredContent"]["sourceId"], "time-source-0195dabe-7777-7abc-8def-000000000009", "{read}");
+        let missing = rpc(
+            &fixture,
+            &[AuthoritiesInspect],
+            "tools/call",
+            json!({"name": "get_source", "arguments": {"sourceId": "time-source-0195dabe-7777-7abc-8def-00000000000a"}}),
+        )
+        .await;
+        assert_eq!(missing["result"]["isError"], true, "{missing}");
     })
     .await
     .expect("administrative permission checks exceeded 90 seconds");

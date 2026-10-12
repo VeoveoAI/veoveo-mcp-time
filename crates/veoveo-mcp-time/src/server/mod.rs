@@ -18,7 +18,6 @@ use veoveo_task_runtime::{
 
 use crate::{
     acquisition::{AcquisitionService, AcquisitionServiceConfig},
-    admin,
     authority::{AuthorityContext, LeapSecondTable},
     catalog::TimeCatalog,
     clock::{ClockMonitor, ClockSource},
@@ -140,7 +139,6 @@ pub async fn run() -> Result<()> {
                 .await;
         }
     });
-    let admin = admin::router(state.clone());
     let clock_state = state.clone();
     let server = HostedServer::for_domain::<TimeMcp>()
         .deployment(&public_deployment, args.allow_loopback_hosts)?
@@ -152,7 +150,6 @@ pub async fn run() -> Result<()> {
                 TimeSubscriptions::new(state.clone()),
             ))
         })
-        .admin_routes(admin)
         // Time serves only while it observes a clock.
         .readiness(move || {
             let state = clock_state.clone();

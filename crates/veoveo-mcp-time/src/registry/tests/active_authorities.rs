@@ -1,6 +1,25 @@
-//! An authenticated operator uses the public active pointer guard for the next cut.
+//! An authenticated operator uses the active pointer guard for the next activation.
 use super::hosted::{Fixture, token};
 use super::*;
+
+/// Calls `tool` through the hosted router and returns its structured content.
+async fn call(
+    gateway: &veoveo_mcp_contract::hosting::testing::TestGateway,
+    token: &str,
+    tool: &str,
+    arguments: serde_json::Value,
+) -> serde_json::Value {
+    let (_, body) = gateway
+        .rpc_with(
+            "tools/call",
+            serde_json::json!({"name": tool, "arguments": arguments}),
+            Some(token),
+        )
+        .await;
+    assert_eq!(body["result"]["isError"], false, "{body}");
+    body["result"]["structuredContent"].clone()
+}
+
 #[tokio::test]
 async fn operator_reads_pointer_guard_for_next_activation() {
     tokio::time::timeout(Duration::from_secs(90), async {
@@ -12,17 +31,18 @@ async fn operator_reads_pointer_guard_for_next_activation() {
             &fixture.db,
         );
         let owner_token = token("tenant-a");
-        // The HTTP operator reads the actual pointer guard, rather than the
-        // release's independently advancing record version, for the next cut.
-        let request = gateway
-            .request("/admin/active-authorities")
-            .header("authorization", format!("Bearer {owner_token}"))
-            .body(axum::body::Body::empty())
-            .unwrap();
-        let (status, body) = gateway.send(request).await;
-        assert_eq!(status, axum::http::StatusCode::OK);
-        let empty: AdminPage<crate::ActiveAuthoritySelection> =
-            serde_json::from_str(&body).unwrap();
+        // The operator reads the actual pointer guard, rather than the release's
+        // independently advancing record version, for the next activation.
+        let empty: AdminPage<crate::ActiveAuthoritySelection> = serde_json::from_value(
+            call(
+                gateway,
+                &owner_token,
+                "list_active_authorities",
+                serde_json::json!({}),
+            )
+            .await,
+        )
+        .unwrap();
         assert!(empty.items.is_empty());
         let operator = scope(&db.a, "tenant-a").await;
         let mut guard = TimeWriteGuard::Absent;
@@ -35,32 +55,27 @@ async fn operator_reads_pointer_guard_for_next_activation() {
             )
             .await;
             let activation = ActivateReleaseRequest {
+                release_id: candidate.release_id.clone(),
                 expected_release_record_version: candidate.record_version,
                 expected_active_pointer_version: guard,
             };
-            let request = gateway
-                .request(&format!(
-                    "/admin/releases/{}/activate",
-                    candidate.release_id
-                ))
-                .method("POST")
-                .header("authorization", format!("Bearer {owner_token}"))
-                .header("content-type", "application/json")
-                .body(axum::body::Body::from(
-                    serde_json::to_vec(&activation).unwrap(),
-                ))
-                .unwrap();
-            let (status, body) = gateway.send(request).await;
-            assert_eq!(status, axum::http::StatusCode::OK, "{body}");
-            let request = gateway
-                .request("/admin/active-authorities")
-                .header("authorization", format!("Bearer {owner_token}"))
-                .body(axum::body::Body::empty())
-                .unwrap();
-            let (status, body) = gateway.send(request).await;
-            assert_eq!(status, axum::http::StatusCode::OK, "{body}");
-            let selected: AdminPage<crate::ActiveAuthoritySelection> =
-                serde_json::from_str(&body).unwrap();
+            call(
+                gateway,
+                &owner_token,
+                "activate_release",
+                serde_json::to_value(&activation).unwrap(),
+            )
+            .await;
+            let selected: AdminPage<crate::ActiveAuthoritySelection> = serde_json::from_value(
+                call(
+                    gateway,
+                    &owner_token,
+                    "list_active_authorities",
+                    serde_json::json!({}),
+                )
+                .await,
+            )
+            .unwrap();
             assert_eq!(selected.items.len(), 1);
             let selected = &selected.items[0];
             assert_eq!(selected.pointer_version.get(), version);
@@ -68,20 +83,18 @@ async fn operator_reads_pointer_guard_for_next_activation() {
             assert_eq!(selected.release.release_id, candidate.release_id);
             guard = selected.write_guard();
         }
-        let request = gateway
-            .request("/admin/active-authorities")
-            .header("authorization", format!("Bearer {}", token("tenant-b")))
-            .body(axum::body::Body::empty())
-            .unwrap();
-        let (status, body) = gateway.send(request).await;
-        assert_eq!(status, axum::http::StatusCode::OK);
-        assert!(
-            serde_json::from_str::<AdminPage<crate::ActiveAuthoritySelection>>(&body)
-                .unwrap()
-                .items
-                .is_empty()
-        );
+        let other: AdminPage<crate::ActiveAuthoritySelection> = serde_json::from_value(
+            call(
+                gateway,
+                &token("tenant-b"),
+                "list_active_authorities",
+                serde_json::json!({}),
+            )
+            .await,
+        )
+        .unwrap();
+        assert!(other.items.is_empty());
     })
     .await
-    .expect("Time active selection HTTP control exceeded90seconds");
+    .expect("Time active selection control exceeded 90 seconds");
 }

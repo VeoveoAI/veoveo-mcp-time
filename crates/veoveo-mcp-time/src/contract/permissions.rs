@@ -26,29 +26,60 @@ pub enum TimePermission {
     /// Register authority sources, acquire releases and activate them.
     #[vocabulary(rename = "time.authorities.administer")]
     AuthoritiesAdminister,
+    /// Read the tenant's authority sources and acquisitions.
+    #[vocabulary(rename = "time.authorities.inspect")]
+    AuthoritiesInspect,
+    /// Publish operational calendar versions for the tenant.
+    #[vocabulary(rename = "time.calendars.write")]
+    CalendarsWrite,
+    /// Publish mission epoch versions for the tenant.
+    #[vocabulary(rename = "time.epochs.write")]
+    EpochsWrite,
+    /// Replace the tenant's clock quality policy.
+    #[vocabulary(rename = "time.clock-policies.write")]
+    ClockPoliciesWrite,
 }
 
 impl PermissionDefinition for TimePermission {
     fn resource(self) -> &'static str {
         match self {
-            Self::AuthoritiesRead | Self::AuthoritiesAdminister => "time.authority",
+            Self::AuthoritiesRead | Self::AuthoritiesAdminister | Self::AuthoritiesInspect => {
+                "time.authority"
+            }
             Self::SchedulesExpand => "time.schedule",
             Self::TimelinesValidate => "time.timeline",
             Self::EventsWrite => "time.event",
+            Self::CalendarsWrite => "time.calendar",
+            Self::EpochsWrite => "time.epoch",
+            Self::ClockPoliciesWrite => "time.clock-policy",
         }
     }
 
     fn access(self) -> Access {
         match self {
-            Self::AuthoritiesRead | Self::SchedulesExpand | Self::TimelinesValidate => Access::Read,
-            Self::EventsWrite | Self::AuthoritiesAdminister => Access::Write,
+            Self::AuthoritiesRead
+            | Self::SchedulesExpand
+            | Self::TimelinesValidate
+            | Self::AuthoritiesInspect => Access::Read,
+            Self::EventsWrite
+            | Self::AuthoritiesAdminister
+            | Self::CalendarsWrite
+            | Self::EpochsWrite
+            | Self::ClockPoliciesWrite => Access::Write,
         }
     }
 
     fn risks(self) -> &'static [Risk] {
         match self {
-            Self::AuthoritiesAdminister => &[Risk::Administer],
-            _ => &[],
+            Self::AuthoritiesAdminister
+            | Self::AuthoritiesInspect
+            | Self::CalendarsWrite
+            | Self::EpochsWrite
+            | Self::ClockPoliciesWrite => &[Risk::Administer],
+            Self::AuthoritiesRead
+            | Self::SchedulesExpand
+            | Self::TimelinesValidate
+            | Self::EventsWrite => &[],
         }
     }
 }
@@ -75,17 +106,30 @@ mod tests {
     }
 
     #[test]
-    fn only_administration_carries_a_risk_and_reads_are_read_access() {
-        assert_eq!(TimePermission::AuthoritiesRead.access(), Access::Read);
-        assert_eq!(TimePermission::EventsWrite.access(), Access::Write);
-        assert_eq!(
-            TimePermission::AuthoritiesAdminister.risks(),
-            &[Risk::Administer]
-        );
+    fn tenant_administration_carries_the_administer_risk_and_reads_are_read_access() {
+        use TimePermission::*;
+        assert_eq!(AuthoritiesRead.access(), Access::Read);
+        assert_eq!(AuthoritiesInspect.access(), Access::Read);
+        assert_eq!(EventsWrite.access(), Access::Write);
         for permission in TimePermission::ALL {
-            if *permission != TimePermission::AuthoritiesAdminister {
-                assert!(permission.risks().is_empty());
-            }
+            let administers = matches!(
+                permission,
+                AuthoritiesAdminister
+                    | AuthoritiesInspect
+                    | CalendarsWrite
+                    | EpochsWrite
+                    | ClockPoliciesWrite
+            );
+            assert_eq!(
+                permission.risks(),
+                if administers {
+                    &[Risk::Administer][..]
+                } else {
+                    &[][..]
+                },
+                "{}",
+                permission.name()
+            );
         }
     }
 }

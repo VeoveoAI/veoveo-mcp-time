@@ -27,6 +27,19 @@ pub(crate) const TOOLS: &[(&str, TimePermission)] = &[
     ("validate_timeline", TimelinesValidate),
     ("create_event", EventsWrite),
     ("cancel_event", EventsWrite),
+    ("list_sources", AuthoritiesInspect),
+    ("get_source", AuthoritiesInspect),
+    ("create_source", AuthoritiesAdminister),
+    ("replace_source", AuthoritiesAdminister),
+    ("list_acquisitions", AuthoritiesInspect),
+    ("get_acquisition", AuthoritiesInspect),
+    ("start_acquisition", AuthoritiesAdminister),
+    ("cancel_acquisition", AuthoritiesAdminister),
+    ("list_active_authorities", AuthoritiesInspect),
+    ("activate_release", AuthoritiesAdminister),
+    ("create_calendar", CalendarsWrite),
+    ("create_epoch", EpochsWrite),
+    ("replace_clock_policy", ClockPoliciesWrite),
 ];
 
 /// Every fixed resource. Reads, subscriptions and the list of a collection's first
@@ -79,9 +92,6 @@ pub(crate) const PROMPTS: TimePermission = AuthoritiesRead;
 
 /// Listing resources and completing arguments read Time's catalogs.
 pub(crate) const SERVER: TimePermission = AuthoritiesRead;
-
-/// The administrative HTTP surface registers sources, acquires and activates releases.
-pub(crate) const ADMINISTRATION: TimePermission = AuthoritiesAdminister;
 
 /// Time's authorization declaration, checked against its namespace as the Gateway
 /// checks it.
@@ -205,11 +215,6 @@ fn granted(
     })
 }
 
-/// Whether the identity holds Time's administrative permission.
-pub(crate) fn administers(identity: &GatewayInternalIdentity) -> bool {
-    identity.grants(&ADMINISTRATION.name())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,7 +237,7 @@ mod tests {
 
     #[test]
     fn every_tool_the_server_lists_has_exactly_one_requirement() {
-        let listed: BTreeSet<String> = super::super::TimeMcp::tool_router()
+        let listed: BTreeSet<String> = super::super::TimeMcp::tools()
             .list_all()
             .into_iter()
             .map(|tool| tool.name.to_string())
@@ -292,7 +297,7 @@ mod tests {
 
     #[test]
     fn tool_annotations_agree_with_the_declaration() {
-        let tools = super::super::TimeMcp::tool_router().list_all();
+        let tools = super::super::TimeMcp::tools().list_all();
         veoveo_mcp_ext_registration::mcp::check_tool_annotations(&AUTHORIZATION, &tools).unwrap();
     }
 }

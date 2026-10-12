@@ -51,7 +51,6 @@ impl Fixture {
                         ),
                     )
                 })
-                .admin_routes(crate::admin::router(state.clone()))
                 .build(),
         )
         .granting(

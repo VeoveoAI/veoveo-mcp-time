@@ -36,6 +36,10 @@ fn permission_wire_values_follow_the_naming_convention() {
         "time.timelines.validate",
         "time.events.write",
         "time.authorities.administer",
+        "time.authorities.inspect",
+        "time.calendars.write",
+        "time.epochs.write",
+        "time.clock-policies.write",
     ];
     assert_eq!(TimePermission::ALL.len(), expected.len());
     for (permission, wire) in TimePermission::ALL.iter().zip(expected) {
