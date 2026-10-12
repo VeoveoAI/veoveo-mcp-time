@@ -18,7 +18,6 @@ slug         time
 URI scheme   time
 permissions  time.*
 MCP          /time/mcp
-admin REST   /time/admin
 liveness     /time/livez
 readiness    /time/readyz (ready while the clock is observed)
 port         8800
@@ -36,7 +35,6 @@ port         8800
 | [Veoveo knowledge source extension](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-knowledge/DESIGN.md) | `ai.veoveo/knowledge-source` declares documentation and Time-owned collections, typed source observations, conditional reads, and enumeration from each collection root. Events use Store-backed change notifications. |
 | [Veoveo server registration](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and renews and removes it through RFC 7592. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration`, `ai.veoveo/authorization` and `ai.veoveo/module` in MCP Discover. |
 | [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Gateway forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. |
-| [Problem Details RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) | Administrative errors use `application/problem+json` with `https://veoveo.ai/problems/<code>` types and the `retryable` and `correlationId` extension members. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
 | IANA Time Zone Database and [TZif RFC 8536](https://www.rfc-editor.org/rfc/rfc8536.html) | Versioned civil-time authority, compiled release products, zone completion, and fold/gap resolution. |
@@ -112,10 +110,9 @@ successful completion claims a staged release. Failure and cancellation preserve
 uncertain external outcomes according to the acquisition service. Current source
 ownership and selected release existence are checked at use time.
 
-Administrative errors are RFC 9457 problem details. `AdminProblemType` closes the
-problem types, and `correlationId` is a canonical UUIDv7 correlation value rather than
-a W3C trace identifier. The administration adapter owns HTTP status, retry and
-redaction behavior.
+Administration tools report a missing record, a version conflict or an invalid value
+as a tool execution error in the result, as MCP specifies, and anything else as an
+internal error.
 
 ## Architecture
 
@@ -224,7 +221,7 @@ names and literal plus signs in the public resource path.
 `CalendarCursor`, `EpochCursor`, and `EventCursor` retain their family's typed IDs and
 validate their current envelope revision, position, and collection name during deserialization. Page
 responses serialize these types as opaque strings. Catalog methods require the matching
-cursor type; admin query extraction and event recovery use those same types. The
+cursor type; resource reads and event recovery use those same types. The
 contract feature includes Serde JSON and hex for this wire format.
 
 Temporal IDs validate their domain prefix, length, and character set during JSON
@@ -246,7 +243,6 @@ veoveo-mcp-time
   |-- temporal engine
   |-- MCP resources, tools, prompts, completions, and subscriptions
   |-- durable task adapter
-  |-- administrative REST
   |-- IANA acquisition and zic compilation
   |-- ntpd-rs observation adapter
   |-- SurrealDB platform store
@@ -665,8 +661,7 @@ applies authorization and the cursor position before its 101-record lookahead.
 Calendars and epochs sort by key ascending and version descending. Events sort by
 TAI seconds, nanosecond, then event key ascending. These positions use immutable
 fields. Each page observes the records present at its read. Inserts before its position
-appear on a fresh walk. The administrative calendar and epoch lists use the same
-pages and optional cursor query parameter.
+appear on a fresh walk.
 
 Subscribe to the collection root to invalidate its pages. Cursor URIs do not accept
 separate subscriptions. A client that pages a collection rereads its current page
@@ -731,40 +726,34 @@ tenant and authenticated owner in SQL. Completion applies the same owner predica
 before its limit. The catalog decodes only the records selected by those queries;
 notification scheduling uses those owner-scoped reads.
 
-## Administrative HTTP Projection
+## Administration Tools
 
-The administrative HTTP surface serves installation authority workflows. It reuses
-the same typed temporal models, catalog, and task state as the MCP surface and is not
-a second authority. Time serves it at `/time/admin/{path}` behind the same forwarded
-access token check as MCP, and every route requires `time.authorities.administer`.
+Tenant administration uses MCP tools over the same typed temporal models, catalog and
+task state as the domain tools. Every tool requires a permission that carries the
+`administer` risk, so the Gateway grants it only to roles that allow that risk.
 
-| Method and path | Operation |
-|---|---|
-| `GET /sources` | list registered authority sources |
-| `POST /sources` | create a source |
-| `GET /sources/{source_id}` | read a source |
-| `PUT /sources/{source_id}` | replace a source under optimistic concurrency |
-| `GET /acquisitions` | list acquisition jobs |
-| `POST /acquisitions` | start an idempotent acquisition |
-| `GET /acquisitions/{acquisition_id}` | read acquisition progress |
-| `POST /acquisitions/{acquisition_id}/cancel` | request cancellation |
-| `GET /releases` | list authority releases |
-| `GET /releases/{release_id}` | read release provenance |
-| `POST /releases/{release_id}/activate` | preflight and activate a staged release |
-| `GET /active-authorities` | read active family pointers |
-| `GET /calendars` | list calendar versions |
-| `POST /calendars` | create an immutable calendar version |
-| `GET /calendars/{calendar_id}/versions/{version}` | read a calendar version |
-| `GET /epochs` | list epochs |
-| `POST /epochs` | create an epoch version |
-| `GET /epochs/{epoch_id}` | read the latest epoch version |
-| `GET /clock-policy` | read the tenant clock policy |
-| `PUT /clock-policy` | replace clock policy under optimistic concurrency |
+| Tool | Permission | Operation |
+|---|---|---|
+| `list_sources`, `get_source` | `time.authorities.inspect` | read registered authority sources |
+| `create_source` | `time.authorities.administer` | register a source, idempotent by key |
+| `replace_source` | `time.authorities.administer` | replace a source under optimistic concurrency |
+| `list_acquisitions`, `get_acquisition` | `time.authorities.inspect` | read acquisition progress |
+| `start_acquisition` | `time.authorities.administer` | start an idempotent acquisition |
+| `cancel_acquisition` | `time.authorities.administer` | request cancellation |
+| `list_active_authorities` | `time.authorities.inspect` | read active family pointers |
+| `activate_release` | `time.authorities.administer` | preflight and activate a staged release |
+| `create_calendar` | `time.calendars.write` | publish an immutable calendar version |
+| `create_epoch` | `time.epochs.write` | publish an epoch version |
+| `replace_clock_policy` | `time.clock-policies.write` | replace the clock policy under optimistic concurrency |
 
-`GET /active-authorities` returns `AdminPage<ActiveAuthoritySelection>`. Each
-closed entry contains `pointerVersion` and `release`, an admitted active
-`AuthorityRelease`. The positive pointer version advances independently of the
-release's `recordVersion`. An operator uses the selection's `write_guard()` as
+Releases, calendars, epochs and the clock policy are read through Time's resources.
+An acquisition is a durable job with its own idempotency, phases and cancellation:
+`start_acquisition` returns its record, and `get_acquisition` reports its progress.
+
+`list_active_authorities` returns `AdminPage<ActiveAuthoritySelection>`. Each closed
+entry contains `pointerVersion` and `release`, an admitted active `AuthorityRelease`.
+The positive pointer version advances independently of the release's `recordVersion`.
+An operator passes the selection's `write_guard()` as
 `ActivateReleaseRequest.expected_active_pointer_version`; the method constructs
 `TimeWriteGuard::Existing(pointerVersion)` rather than using the release version.
 
@@ -774,15 +763,6 @@ pointer fails the read. An omitted family has no persisted pointer and uses
 `TimeWriteGuard::Absent` for its first activation; an empty page means neither
 family has a persisted pointer. Bootstrap effective references belong to
 `time://authorities/current` and do not invent persisted pointer versions.
-
-Administrative clients decode the closed selection shape.
-
-Administrative errors are `application/problem+json` documents with `type`, `title`,
-`status`, `detail`, `retryable`, and `correlationId`. The type is one of
-`https://veoveo.ai/problems/invalid-request`, `forbidden`, `not-found`,
-`version-conflict` or `internal-error` under the same base. A request without the
-administrative permission receives `403` with the `forbidden` type, and its detail
-names the missing permission.
 
 ## Persistence
 
@@ -913,7 +893,7 @@ deployment mounts `/var/lib/veoveo/time` from a persistent volume.
 ## Authorization
 
 The Gateway grants permissions, and Time checks every request against them again.
-`TimePermission` names five permissions in Time's namespace:
+`TimePermission` names nine permissions in Time's namespace:
 
 | Permission | Resource | Access | Grants |
 |---|---|---|---|
@@ -921,7 +901,11 @@ The Gateway grants permissions, and Time checks every request against them again
 | `time.schedules.expand` | `time.schedule` | read | `evaluate_windows` and the `expand_schedule` Task |
 | `time.timelines.validate` | `time.timeline` | read | the `validate_timeline` Task |
 | `time.events.write` | `time.event` | write | `create_event` and `cancel_event` |
-| `time.authorities.administer` | `time.authority` | write, administer risk | every administrative HTTP route |
+| `time.authorities.inspect` | `time.authority` | read, administer risk | `list_sources`, `get_source`, `list_acquisitions`, `get_acquisition`, `list_active_authorities` |
+| `time.authorities.administer` | `time.authority` | write, administer risk | `create_source`, `replace_source`, `start_acquisition`, `cancel_acquisition`, `activate_release` |
+| `time.calendars.write` | `time.calendar` | write, administer risk | `create_calendar` |
+| `time.epochs.write` | `time.epoch` | write, administer risk | `create_epoch` |
+| `time.clock-policies.write` | `time.clock-policy` | write, administer risk | `replace_clock_policy` |
 
 `mcp/requirements.rs` holds one requirement table that maps each tool, fixed resource,
 resource template and prompt to its permission. The table builds the
@@ -1021,8 +1005,8 @@ Examples of agent requests include:
 | `src/registry.rs` | request-validated tenant contexts, isolated engine state and preflight-bound activation |
 | `src/catalog/activation.rs` | private observed activation drafts and their publication |
 | `src/acquisition/` | bounded download, validation, compilation, staging, cancellation |
-| `src/admin/` | typed administrative routes, the administrative permission check and problem details |
 | `src/mcp.rs` | MCP tools, resources, templates, completions, subscriptions |
+| `src/mcp/administration.rs` | tenant administration tools |
 | `src/mcp/requirements.rs` | the requirement table, the authorization declaration and handler checks |
 | `src/mcp/declarations.rs` | registration identity and the `time` module declaration |
 | `src/prompts.rs` | reusable temporal interaction prompts |
@@ -1036,9 +1020,9 @@ Examples of agent requests include:
 
 `tests/acceptance.rs` qualifies Time through a live local installation and the Gateway:
 discovery, tool calls, a schedule Task, future events with resource notifications and
-reconciliation after a reconnect. Time's administrative HTTP surface is not reachable
-through the Gateway, so the `time.authorities.administer` permission is qualified by
-the hosted handler tests.
+reconciliation after a reconnect, and administration refused to a member and admitted
+for an admin. The schedule Task keeps working long enough that its status notification
+arrives through the subscription before completion.
 Native Task controls use two worker identities on separate connections to the same
 isolated Store. They commit cancellation between completion snapshot selection and
 settlement, verify remote and local cancellation, preserve completion and calculation

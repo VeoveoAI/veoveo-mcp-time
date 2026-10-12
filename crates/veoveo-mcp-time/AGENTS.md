@@ -16,9 +16,9 @@ leap second assumptions.
 ## Invariants
 
 - The server is hosted through `veoveo_mcp_contract::hosting`: `TimeMcp` implements
-  `DomainServer`, `TimeSubscriptions` implements `ResourceSubscriptions`, and the
-  administration router joins the host's admin routes behind the
-  `time.authorities.administer` check. `/time/readyz` reports ready while the clock is
+  `DomainServer` and `TimeSubscriptions` implements `ResourceSubscriptions`. Tenant
+  administration is MCP tools in `src/mcp/administration.rs`, joined to the domain
+  tools by `TimeMcp::tools()`. `/time/readyz` reports ready while the clock is
   observed. Do not add a `ServerHandler`, host check or token verification here.
 - `src/mcp/requirements.rs` is the only source of permission requirements. A new tool,
   fixed resource, template or prompt gets its row there, and its handler checks
@@ -28,7 +28,7 @@ leap second assumptions.
   database user from the registration. Do not add static trust, JWKS or database
   credentials to configuration.
 - Owns the `time://` URI scheme. Identity: slug `time`, MCP `/time/mcp`,
-  admin REST `/time/admin`, port 8800.
+  port 8800.
 - The canonical instant is `TimeInstant`: integral TAI seconds plus nanosecond,
   uncertainty, and the TZDB and leap second release ids. Never emit an instant
   without its authority binding. Deterministic results also emit both exact
@@ -45,13 +45,12 @@ leap second assumptions.
   load of the prospective TZDB and leap second pair; one active release per
   family per tenant. Acquisition downloads run under fixed host, media,
   digest, size, and time policy with archive traversal rejected.
-- `GET /active-authorities` returns `AdminPage<ActiveAuthoritySelection>` with
+- `list_active_authorities` returns `AdminPage<ActiveAuthoritySelection>` with
   closed `{pointerVersion, release}` entries. Use `selection.write_guard()` for
   activation; the persisted pointer version differs from `release.recordVersion`.
   Preserve the joined tenant/parent/body admission and reject non-active releases.
   An absent family uses `TimeWriteGuard::Absent`; packaged effective references
-  never supply a persisted pointer version. Administrative clients and Time use
-  this response together in a coordinated reference upgrade, without old-shape aliases.
+  never supply a persisted pointer version.
 - Packaged bootstrap references bind the authority family and source-file SHA-256.
   Their immutable resource IDs must change with the bytes, never with a process
   restart or path. `server/bootstrap.rs` owns construction and qualification.
@@ -71,8 +70,10 @@ leap second assumptions.
 - `cargo check -p veoveo-mcp-time`
 - `tests/acceptance.rs` runs through a live local installation from this repository's
   environment (see the README's Acceptance section): discovery and tool calls as the
-  member and admin callers, refused unauthenticated and undeclared requests, a schedule
-  Task to completion with an acknowledged Task subscription, an event that reaches Due
+  member and admin callers, refused unauthenticated and undeclared requests,
+  administration refused to the member and admitted for the admin, a schedule Task whose
+  status notification arrives through its subscription before it completes, an event that
+  reaches Due
   with its resource notification, and current state after a reconnect. The tests are
   ignored by default; run them from a fresh nextest archive extraction.
 - `cargo test -p veoveo-mcp-time --lib server::tasks::tests` qualifies durable

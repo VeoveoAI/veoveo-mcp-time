@@ -9,7 +9,8 @@ pinned to one revision in the workspace manifest.
 
 ## Permissions
 
-Time registers five permissions with the Gateway and checks them again on every request.
+Time registers nine permissions with the Gateway and checks them again on every request.
+The administrative ones carry the `administer` risk, so only roles that allow it grant them.
 
 | Permission | Grants |
 |---|---|
@@ -17,7 +18,11 @@ Time registers five permissions with the Gateway and checks them again on every 
 | `time.schedules.expand` | `evaluate_windows` and the `expand_schedule` Task |
 | `time.timelines.validate` | the `validate_timeline` Task |
 | `time.events.write` | `create_event` and `cancel_event` |
-| `time.authorities.administer` | the administrative HTTP surface at `/time/admin` |
+| `time.authorities.inspect` | `list_sources`, `get_source`, `list_acquisitions`, `get_acquisition` and `list_active_authorities` |
+| `time.authorities.administer` | `create_source`, `replace_source`, `start_acquisition`, `cancel_acquisition` and `activate_release` |
+| `time.calendars.write` | `create_calendar` |
+| `time.epochs.write` | `create_epoch` |
+| `time.clock-policies.write` | `replace_clock_policy` |
 
 Knowledge collections also require the coarse OAuth scope `time`.
 
@@ -94,8 +99,10 @@ its registration when it receives SIGTERM or Ctrl-C.
 
 `tests/acceptance.rs` calls Time through the Gateway as the installation's
 `acceptance-member` and `acceptance-admin` callers: discovery and tool calls, a refused
-unauthenticated request and an undeclared tool, a schedule Task to completion, an event
-that reaches Due with its notification, and current state after a reconnect. The tests
+unauthenticated request and an undeclared tool, administration refused to the member
+and admitted for the admin, a schedule Task whose status notification arrives through
+its subscription before it completes, an event that reaches Due with its notification,
+and current state after a reconnect. The tests
 are ignored by default. With the installation running and the callers' keys copied to
 `/sandbox/acceptance`, run them from a fresh nextest archive extraction, so the test
 binaries also get fresh paths:
