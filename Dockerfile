@@ -50,11 +50,11 @@ RUN apt-get update \
     && test -f /usr/share/zoneinfo/tzdata.zi \
     && test -f /usr/share/zoneinfo/leap-seconds.list \
     && useradd --system --uid 10001 --create-home --home-dir /var/lib/veoveo component \
-    && mkdir -p /var/lib/veoveo/time/acquisitions /var/lib/veoveo/time/releases \
+    && mkdir -p /var/lib/veoveo/time/acquisitions /var/lib/veoveo/time/releases /var/lib/veoveo/time/keys \
     && chown -R component:component /var/lib/veoveo/time
-COPY --from=build /home/sandbox/component /usr/local/bin/component
+COPY --from=build /home/sandbox/component /usr/local/bin/${COMPONENT}
 USER component
 EXPOSE 8800
-ENTRYPOINT ["/usr/local/bin/component"]
+ENTRYPOINT ["/usr/local/bin/veoveo-mcp-time"]
 LABEL org.opencontainers.image.source="https://github.com/VeoveoAI/veoveo-mcp-time" \
       org.opencontainers.image.licenses="Apache-2.0"

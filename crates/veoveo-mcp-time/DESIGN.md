@@ -1,52 +1,42 @@
 # Time MCP Design
 
-This document is the canonical design and operational contract for the
-`time-mcp` crate.
+This document is the design and operational contract for the `veoveo-mcp-time`
+crate.
 
-`time-mcp` gives agents one temporal authority for civil time, military date-time
-groups, GNSS time, mission epochs, operational calendars, clock quality, and
-temporal events. Every resolved instant carries the authority releases and
+Time gives agents one temporal authority for civil time, military date-time groups,
+GNSS time, epochs, operational calendars, clock quality, and events. Every resolved instant carries the authority releases and
 uncertainty used to interpret it. Map and Optimization can therefore consume time
 without reconstructing timezone or leap-second assumptions.
 
-## Status
-
-Implemented in this workspace.
-
-The implementation includes typed temporal contracts, an authority-bound engine,
-SurrealDB records, controlled IANA data acquisition, atomic release activation,
-clock-quality observation, MCP discovery surfaces, durable Task API operations,
-an explicitly declared administrative HTTP projection, gateway policy, Helm,
-and offline image registration.
-
-The canonical service identity is:
+## Service Identity
 
 ```text
-crate       veoveo-mcp-time
-repository  veoveo-mcp-time
-slug        time
-URI scheme  time
-MCP         /time/mcp
-admin REST  /time/admin
-health      /time/healthz
-readiness   /time/readyz (ready while the clock is observed)
-port        8800
+crate        veoveo-mcp-time
+binary       veoveo-mcp-time
+repository   veoveo-mcp-time
+slug         time
+URI scheme   time
+permissions  time.*
+MCP          /time/mcp
+admin REST   /time/admin
+liveness     /time/livez
+readiness    /time/readyz (ready while the clock is observed)
+port         8800
 ```
-
-Gateway-mounted tools use names such as `time__resolve_time`. Resource identities
-retain the `time://` scheme.
 
 ## Standards And Protocols
 
 | Standard or protocol | Implemented profile |
 |---|---|
-| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under Veoveo hosted MCP contract revision 4. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
-| MCP Apps SEP-1865 / `io.modelcontextprotocol/ui` `2026-01-26` | The server-owned `ui://time/timeline.html` Timeline exposes clock authority, calendars, epochs, windows, and events. |
+| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/contract/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
 | [JSON Schema Draft 2020-12](https://json-schema.org/draft/2020-12/) | Temporal expressions, authority bindings, calendars, epochs, windows, clock evidence, tasks, and results. |
-| [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/2c9c7fe483211c7d761d59f3aafe5b7fa339108a/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
-| [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables, reserved expansion for slash-separated zone keys, and form-style cursor queries. The server parses concrete addresses through its typed resource contract. |
+| [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
+| [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
-| [Veoveo knowledge source extension](https://github.com/VeoveoAI/veoveo-core/blob/2c9c7fe483211c7d761d59f3aafe5b7fa339108a/mcp/knowledge-extension/DESIGN.md) | `ai.veoveo/knowledge-source` declares documentation and Time-owned collections, typed source observations, conditional reads, and URI enumeration. Events use Store-backed change notifications. |
+| [Veoveo knowledge source extension](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-knowledge/DESIGN.md) | `ai.veoveo/knowledge-source` declares documentation and Time-owned collections, typed source observations, conditional reads, and enumeration from each collection root. Events use Store-backed change notifications. |
+| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and renews and removes it through RFC 7592. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration`, `ai.veoveo/authorization` and `ai.veoveo/module` in MCP Discover. |
+| [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Gateway forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. |
+| [Problem Details RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) | Administrative errors use `application/problem+json` with `https://veoveo.ai/problems/<code>` types and the `retryable` and `correlationId` extension members. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
 | IANA Time Zone Database and [TZif RFC 8536](https://www.rfc-editor.org/rfc/rfc8536.html) | Versioned civil-time authority, compiled release products, zone completion, and fold/gap resolution. |
@@ -55,7 +45,6 @@ retain the `time://` scheme.
 | TAI, UTC, TT, TDB, GPS, and Galileo system time | Typed projections from one integral TAI instant. The server records authority and uncertainty rather than treating scales as interchangeable strings. |
 | [NTPv4 RFC 5905](https://www.rfc-editor.org/rfc/rfc5905.html) and [Network Time Security RFC 8915](https://www.rfc-editor.org/rfc/rfc8915.html) | Approved node clocks may use NTP/NTS. Time MCP consumes a bounded `ntpd-rs` observation; it does not act as an NTP network endpoint. |
 | HTTPS | Registered IANA authority sources are acquired under fixed host, media, digest, size, and elapsed-time policy. |
-| OAuth bearer and signed JWT identity | Read, schedule, event, task, and authority-administration scopes are fixed by gateway policy and verified again in the hosted server. |
 | SurrealDB 3.3.0 and SurrealQL | Private runtime persistence uses Store's qualified Rust SDK version and connection. Bound parameters carry domain values; SQL applies catalog visibility, ordering, paging and activation transactions. Time owns the temporal schema lane. |
 
 Time JSON uses camelCase members and snake_case vocabulary; decoding rejects
@@ -63,9 +52,9 @@ retired and mixed keys. Authority source is a closed tagged object: bootstrap
 has no payload members, while acquisition carries its typed source and acquisition IDs.
 The source variant order and admitted JSON spellings stay fixed. SQL, CLI/environment, prompt arguments, IDs and URI queries
 keep their profiles. `ntpd-rs` retains upstream snake_case fields and PascalCase
-leap values. Event cursors use version 2 with `taiSeconds`/`eventKey`; unchanged
-calendar, epoch and authority positions use version 1. Installation drains old
-Tasks and uses fresh bodies. Knowledge hashes current owner JSON and access.
+leap values. Event cursors use envelope version 2 with `taiSeconds`/`eventKey`;
+calendar, epoch and authority positions use envelope version 1. Knowledge hashes
+current owner JSON and access.
 Bootstrap identity and source digests hash raw TZDB/leap bytes, excluding JSON.
 
 ## Domain Contract
@@ -134,9 +123,9 @@ redaction behavior.
 
 The server library owns the public `contract` module. Consumers select
 `default-features = false, features = ["contract"]` to reuse temporal IDs, DTOs,
-authority references, and the `TimeScope` enum. This feature depends on
-`veoveo-types`, Serde, Schemars, and Chrono's date/time representation with clock
-support disabled. It includes no MCP transport, asynchronous runtime, database
+authority references, the `TimePermission` vocabulary and the `TimeScope` enum. This
+feature depends on `veoveo-types`, the registration declarations, Serde, Schemars, and
+Chrono's date/time representation with clock support disabled. It includes no MCP transport, asynchronous runtime, database
 client, acquisition engine, or provider dependency.
 
 `runtime` adds the temporal engine, catalog, acquisition service, clock observation,
@@ -189,11 +178,6 @@ checks release agreement. The contract library does not load authority files or 
 UTC, GPS and Julian representations. The temporal engine owns those calculations.
 `ConvertTimeOutput` embeds this checked resolution as its `canonical` field.
 
-Valid deterministic results preserve their wire representation and need no migration.
-Consumers reject historical results with inconsistent release metadata; retained protocol
-records are not rewritten. Installed resolution and conversion acceptance must qualify
-the stricter decoder during the coordinated Time upgrade.
-
 `TimeWindow` keeps the existing `start` and `end` wire fields. Its schema describes
 each instant; the Rust constructor enforces ordering and authority agreement across
 the fields. Runtime operations also check that this pair matches the active engine.
@@ -201,33 +185,25 @@ Interval uncertainty describes the selected nominal bounds and does not widen th
 The contract's intersection method clips two checked windows and returns no window
 for disjoint or touching inputs. Equal endpoint coordinates keep the larger uncertainty.
 
-Valid retained windows require no conversion. Before the coordinated Time upgrade,
-complete or cancel pending schedule Tasks through the running version and refresh client
-discovery before resuming traffic. Recovery rejects an invalid persisted horizon and
-stops startup. Preserve the prior image and database snapshot for the rollback procedure
-in Retained Catalog Metadata; resolve pending Tasks under that version before retrying.
-Completed Task results keep their stored representation. Native checks cover interval
-admission and clipped results; installed Task recovery and client refresh require qualification.
+Task recovery rejects an invalid persisted horizon and stops startup.
 
-`TimeScope` declares read, schedule, timeline, event-write, and administrative wire
-names once through `Vocabulary` with the `scope` hook. MCP handlers and Task admission use the enum when
-checking authenticated grants. Administrative configuration accepts a validated
-`ScopeName`, allowing installation-defined names, and defaults to `TimeScope::Admin`.
-Unrelated scope names in a caller's grant set remain valid.
+`TimePermission` declares Time's five permission names once through `Vocabulary` and
+implements `PermissionDefinition` with each permission's resource, access and risk.
+`TimeScope` declares the single coarse OAuth scope `time`, which knowledge collections
+require of their readers. [Authorization](#authorization) describes how handlers use them.
 
 `mcp/setup.rs` implements `McpServerContract` with `TimeScope` and `TimeResource`.
-The HTTP process validates its `McpServerSetup` before serving. MCP initialization,
-resource discovery, and domain scope membership consume that setup. Resource
-descriptors are built from typed addresses, including the Timeline App and embedded
-documents. The setup preserves App metadata and Time's reserved-expansion and query
-templates; the owning resource tests qualify their routes. Installation-defined
-administrative scopes continue through their configured `ScopeName` policy.
+The HTTP process validates its `McpServerSetup` before serving. MCP initialization
+and resource discovery consume that setup. Resource descriptors, including the
+embedded documents, are built from typed addresses. The setup preserves Time's reserved
+zone template; the owning resource tests qualify routes.
 
 Template descriptors use `McpResourceTemplate` and the foundational RFC 6570 type.
-Native contract tests expand every Time declaration through iri-string and compare
-the result with `TimeResource` construction. Reserved zone names preserve slashes
-and plus signs; collection templates cover both an absent cursor and each typed
-cursor envelope. Concrete resource reads continue through the same owning parser.
+Native contract tests expand every Time route declaration through iri-string and
+compare the result with `TimeResource` construction. Reserved zone names preserve
+slashes and plus signs. Collection routes bind an optional `cursor` query and cover
+each typed cursor envelope, while discovery lists the collection roots as resources.
+Concrete resource reads continue through the same owning parser.
 
 `TimeResource` owns every resource route and implements `ResourceAddress`. Its variants
 carry the corresponding ID, version, zone key, or collection cursor. Its derived
@@ -254,8 +230,6 @@ contract feature includes Serde JSON and hex for this wire format.
 Temporal IDs validate their domain prefix, length, and character set during JSON
 deserialization as well as construction. `TimeAccessContext` carries tenant and
 principal selection for database access; it is distinct from an authorization scope.
-Resource builder adoption is tracked in the
-[consolidated plan](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/docs/CONTRACT_CONSISTENCY_PLAN.md#modular-types-and-server-contracts).
 
 ### Hosted Process
 
@@ -264,11 +238,11 @@ agent
   |
   | MCP and Task API
   v
-mcp-gateway
+Gateway
   |
-  | signed internal identity
+  | RFC 9068 access token with granted Time permissions
   v
-time-mcp container
+veoveo-mcp-time
   |-- temporal engine
   |-- MCP resources, tools, prompts, completions, and subscriptions
   |-- durable task adapter
@@ -321,7 +295,7 @@ and each present acquisition digest even when the JSON body matches the indexed 
 
 ### Acquisition Flow
 
-The administrative acquisition job runs inside `time-mcp`:
+The administrative acquisition job runs inside the Time process:
 
 1. Resolve the enabled registered source under the authenticated tenant.
 2. Download over HTTPS with redirects disabled, a response deadline, a media-type
@@ -382,25 +356,23 @@ again before retrying; the server performs no automatic mutation retry.
 Store's transaction-error selector preserves the causal database error instead of
 reporting an earlier cancelled statement as the cause.
 
-The foundations cut requires a fresh database and drained writers. The schema contains
-no activation-fence table. Native qualification covers different-family contention
-starting with absent pointers, existing pairs, concurrent pointer and release repairs,
-stale preflight metadata, tenant mismatch and failed file loads. Qualification results
-and pending installed acceptance are recorded in the
-[consolidated plan](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/docs/CONTRACT_CONSISTENCY_PLAN.md#unified-audit-log).
+The schema contains no activation-fence table. Native qualification covers
+different-family contention starting with absent pointers, existing pairs, concurrent
+pointer and release repairs, stale preflight metadata, tenant mismatch and failed file
+loads.
 
 ### Tenant Authority Contexts
 
 Every engine request reads the active tenant pair through the joined catalog query
 and resolves each selected release's acquisition provenance. This requires one
 selection query and at most two provenance reads; authority-only requests do not
-load mission epochs. Event-page recovery shares one validated context across the
+load epochs. Event-page recovery shares one validated context across the
 page and skips events with existing watchers. A family without a stored pointer uses its packaged bootstrap
 reference. Invalid visible metadata and database errors fail the request.
 
 The registry caches loaded contexts under the Store's typed tenant identity. A hit
 requires the current effective references, provenance and artifact paths to match
-the cached inputs. An engine gets its own mission-epoch map while sharing the loaded
+the cached inputs. An engine gets its own epoch map while sharing the loaded
 authority data. LIVE and reconciliation signals evict process contexts before resource
 notifications; a generation token prevents an earlier loader from repopulating an
 evicted cache. Request-time catalog checks also cover delayed or disconnected
@@ -411,12 +383,6 @@ worker, and async leap-file reads preserve the runtime's responsiveness. A faile
 or explicit reload removes the tenant's cached context. Exact authority-release
 metadata reads use the packaged reference or the tenant-scoped release catalog and
 can support diagnosis when the current engine cannot load.
-
-The coordinated Time upgrade drains older replicas before admitting requests to the
-new image. This prevents replicas that only initialize bootstrap authority from serving
-alongside replicas that read the persisted pair. Retained-data preflight and snapshot
-rollback follow the procedure below. Installed restart and replica qualification remain
-pending in the [consolidated plan](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/docs/CONTRACT_CONSISTENCY_PLAN.md).
 
 ## Accepted Time Expressions
 
@@ -432,7 +398,7 @@ pending in the [consolidated plan](https://github.com/BiomaAI/veoveo/blob/0c33cf
 | `gps` | GPS week and seconds of week |
 | `julian_tai` | Julian day in the TAI scale |
 | `militaryDtg` | `DDHHMMZMONYY` or `DDHHMMSSZMONYY` with a NATO zone letter |
-| `epoch_relative` | mission epoch id and signed nanosecond offset |
+| `epoch_relative` | epoch id and signed nanosecond offset |
 
 Civil folds and gaps default to `reject`. Callers select `earlier` or `later` when
 the operation has an explicit policy. Military zone `J` requires an IANA zone and
@@ -469,16 +435,16 @@ The operation accepts at most 1,000,000 returned occurrences and uses a bounded
 calendar search horizon. Invalid local times remain explicit errors unless the
 calendar chooses a supported unambiguous time.
 
-## Mission Epochs And Timelines
+## Epochs And Timelines
 
-A mission epoch gives a named physical instant a version. Agents can then resolve
+An epoch gives a named physical instant a version. Agents can then resolve
 expressions such as an offset from launch, H-hour, or the start of a convoy window.
 Each calculation forks the tenant's authority engine and loads only the epoch ids
 named by its input expressions. SurrealDB selects the latest version of each key
 inside the caller's tenant, in batches of at most 100 keys. The request has a
 30-second epoch-read deadline and accepts at most 100,000 expressions. A calculation's
 epoch set belongs to that calculation, so concurrent requests cannot replace it.
-Engine maps retain `MissionEpochId` keys. Relative resolution requires the epoch's
+Engine maps keep `EpochId` keys. Relative resolution requires the epoch's
 authority pair to match the active engine and preserves its uncertainty while adding
 the requested offset. Additional resolution uncertainty uses checked addition; a sum
 outside the unsigned 64-bit nanosecond range fails. Activation may therefore require
@@ -511,7 +477,7 @@ operations compare nominal coordinates and do not expand ranges by uncertainty.
 
 Clock synchronization belongs to node infrastructure. An installation can run
 `ntpd-rs` with NTS, hardware timestamping, PTP-backed sources, GNSS, or another
-approved reference architecture. `time-mcp` consumes the resulting observation and
+approved reference architecture. Time consumes the resulting observation and
 turns it into agent-visible evidence.
 
 The implemented adapter reads one bounded JSON observation from an ntpd-rs Unix
@@ -534,8 +500,7 @@ seconds must lie in `1..=i64::MAX`; maximum stratum is `1..=15`, and minimum sou
 diversity is `1..=u32::MAX`. The published schema declares those bounds. Assessment
 requests and persisted policies share this contract.
 
-The health endpoint proves that the authority and configured clock adapter can be
-read. Mission acceptance remains a policy decision returned by `assess_clock` and
+The readiness probe reports ready while Time observes the configured clock. Mission acceptance remains a policy decision returned by `assess_clock` and
 `time://clock/quality`. The clock-derived `time://clock/current` resource includes
 the effective policy and measured quality, including holdover age.
 
@@ -543,19 +508,21 @@ the effective policy and measured quality, including holdover age.
 
 ### Tools
 
-| Tool | Scope | Execution | Result |
+| Tool | Permission | Execution | Result |
 |---|---|---|---|
-| `resolve_time` | `time:read` | direct | canonical instant and projections |
-| `convert_time` | `time:read` | direct | selected zone and scale projections |
-| `assess_clock` | `time:read` | direct | clock observation, policy, and violations |
-| `evaluate_windows` | `time:schedule` | direct | normalized interval set |
-| `expand_schedule` | `time:schedule` | Task API required | bounded calendar occurrences |
-| `validate_timeline` | `time:timeline` | Task API required | constraint verdict and violations |
-| `create_temporal_event` | `time:event:write` | direct | owner-scoped event |
-| `cancel_temporal_event` | `time:event:write` | direct | cancelled event version |
+| `resolve_time` | `time.authorities.read` | direct | canonical instant and projections |
+| `convert_time` | `time.authorities.read` | direct | selected zone and scale projections |
+| `assess_clock` | `time.authorities.read` | direct | clock observation, policy, and violations |
+| `evaluate_windows` | `time.schedules.expand` | direct | normalized interval set |
+| `expand_schedule` | `time.schedules.expand` | Task API required | bounded calendar occurrences |
+| `validate_timeline` | `time.timelines.validate` | Task API required | constraint verdict and violations |
+| `create_event` | `time.events.write` | direct | owner-scoped event |
+| `cancel_event` | `time.events.write` | direct | cancelled event version |
 
 Every successful tool result contains typed structured content. Tool annotations state
-read-only, destructive, idempotent, and open-world behavior.
+read-only, destructive, idempotent, and open-world behavior and agree with each tool's
+permission. Cancelling an event keeps the event and its history, so `cancel_event` is
+not destructive.
 
 ### Task API
 
@@ -632,8 +599,8 @@ No duration is guaranteed, and an early terminal observation fails qualification
 ### Zone Completion
 
 Time advertises `time://zones/{+zone_id}` to preserve slash and plus signs in zone
-keys. Completion requests use that exact advertised template after the `time:read`
-check. Clients obtain the reference through `resources/templates/list`; other template
+keys. Completion requests use that exact advertised template after the
+`time.authorities.read` check. Clients obtain the reference through `resources/templates/list`; other template
 spellings do not select the zone completion handler. Contract and discovery tests
 qualify the current template against the typed zone builder.
 
@@ -641,9 +608,9 @@ qualify the current template against the typed zone builder.
 
 Time declares calendar versions, epoch versions, events, acquired authority releases
 and packaged bootstrap authorities through `ai.veoveo/knowledge-source`. Every domain
-collection declares `time:read` as a required scope, matching its source read gate. Collection
-pages contain at most 100 `items`, each with a typed `uri` and `title`, and an optional
-`nextCursor`. Source SQL selects tenant and event owner before ordering and LIMIT.
+collection requires the coarse `time` scope and enumerates from its collection root,
+such as `time://events`. Collection pages contain at most 100 `items`, each with a
+typed `uri` and `title`, and an optional `nextCursor`. Source SQL selects tenant and event owner before ordering and LIMIT.
 Every epoch version has its own member URI; the unversioned epoch resource selects
 the current version for operational callers.
 
@@ -666,7 +633,7 @@ Events do not claim a last-modifying principal because scheduler transitions rec
 no actor. Immutable members attribute creation to their stored owner. Member JSON is
 limited to 64 KiB; calendar creation rejects a larger document before writing it.
 
-`tests/gateway_source_conformance.rs` supplies two future events to the shared MCP
+The monorepo's [`gateway_source_conformance.rs`](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/servers/time-mcp/tests/gateway_source_conformance.rs) supplies two future events to the shared MCP
 checker through the public gateway. It cancels one, restarts the Time Deployment,
 then cancels the second. The checker verifies both notification paths, the retained
 cancellation and the unchanged second event across restart. Cleanup reconciles both
@@ -681,16 +648,19 @@ Inputs and commands follow [the installed harness contract](https://github.com/B
 | `time://clock/quality` | measured clock-quality record |
 | `time://authorities/current` | effective compiler-ready authority references, including bootstrap authorities |
 | `time://calendars` | a page of tenant calendar versions |
-| `time://epochs` | a page of tenant mission epoch versions |
-| `time://events` | a page of owner-scoped temporal events |
+| `time://epochs` | a page of tenant epoch versions |
+| `time://events` | a page of owner-scoped events |
+| `time://authorities/releases` | a page of tenant-acquired authority releases |
+| `time://authorities/bootstrap` | a page of packaged authority releases |
 
-`resources/list` advertises the stable roots, documents, and Timeline App. Domain
-records are reached through the collection pages and exact URI templates. Changes
-to domain records invalidate resource contents; the discovery inventory is static
-and does not advertise resource-list change notifications.
+`resources/list` advertises the stable roots, collection roots and documents. Domain
+records are reached through the collection pages and exact URI templates. Changes to
+domain records invalidate resource contents; the discovery inventory is static and does
+not advertise resource-list change notifications.
 
-Calendar, epoch, and event pages contain `items`, `limit: 100`, and `nextCursor`.
-Pass the opaque cursor through the root's `?cursor=` query parameter. SurrealDB
+Calendar, epoch, event and authority pages contain `items`, `limit: 100`, and
+`nextCursor`. A client reads the next page by passing the opaque cursor as the root's
+`cursor` query parameter, as in `time://events?cursor=<nextCursor>`. SurrealDB
 applies authorization and the cursor position before its 101-record lookahead.
 Calendars and epochs sort by key ascending and version descending. Events sort by
 TAI seconds, nanosecond, then event key ascending. These positions use immutable
@@ -699,21 +669,16 @@ appear on a fresh walk. The administrative calendar and epoch lists use the same
 pages and optional cursor query parameter.
 
 Subscribe to the collection root to invalidate its pages. Cursor URIs do not accept
-separate subscriptions. Timeline uses the shared workbench's Previous and Next
-controls, reads one page at a time, and refreshes the current cursor after a root
-notification. Selecting a different resource starts at its first page.
+separate subscriptions. A client that pages a collection rereads its current page
+after a root notification.
 
 Resource templates expose:
 
 ```text
+time://docs/{doc_id}
 time://zones/{+zone_id}
 time://authorities/releases/{release_id}
-time://authorities/releases{?cursor}
 time://authorities/bootstrap/{release_id}
-time://authorities/bootstrap{?cursor}
-time://calendars{?cursor}
-time://epochs{?cursor}
-time://events{?cursor}
 time://calendars/{calendar_id}/versions/{version}
 time://epochs/{epoch_id}
 time://epochs/{epoch_id}/versions/{version}
@@ -742,9 +707,9 @@ watcher. Resource discovery does not start watchers.
 | `expand_operational_calendar` | prepare a bounded Task API expansion |
 | `validate_mission_timeline` | prepare named points and separation constraints |
 
-## Temporal Events
+## Events
 
-Temporal events are owner-scoped durable records. Creation validates an authority-
+Events are owner-scoped durable records. Creation validates an authority-
 bound due instant and uses a principal-scoped idempotency key. A watcher transitions
 the record from `scheduled` to `due` under optimistic concurrency, then emits updates
 for the collection and event URI. Cancellation updates the durable record and cancels
@@ -768,12 +733,10 @@ notification scheduling uses those owner-scoped reads.
 
 ## Administrative HTTP Projection
 
-Time retains this accepted projection for installation authority workflows
-that do not yet use an equivalent MCP administration surface. It reuses the
-same typed temporal models, authorization, catalog, and task state, and it is
-not an alternate authority. The gateway exposes it through
-`/admin/{profile}/servers/time/{*path}`. The upstream server receives it at
-`/time/admin/{path}` and requires `time:admin` in the signed internal identity.
+The administrative HTTP surface serves installation authority workflows. It reuses
+the same typed temporal models, catalog, and task state as the MCP surface and is not
+a second authority. Time serves it at `/time/admin/{path}` behind the same forwarded
+access token check as MCP, and every route requires `time.authorities.administer`.
 
 | Method and path | Operation |
 |---|---|
@@ -792,8 +755,8 @@ not an alternate authority. The gateway exposes it through
 | `GET /calendars` | list calendar versions |
 | `POST /calendars` | create an immutable calendar version |
 | `GET /calendars/{calendar_id}/versions/{version}` | read a calendar version |
-| `GET /epochs` | list mission epochs |
-| `POST /epochs` | create a mission epoch version |
+| `GET /epochs` | list epochs |
+| `POST /epochs` | create an epoch version |
 | `GET /epochs/{epoch_id}` | read the latest epoch version |
 | `GET /clock-policy` | read the tenant clock policy |
 | `PUT /clock-policy` | replace clock policy under optimistic concurrency |
@@ -817,7 +780,9 @@ Administrative clients decode the closed selection shape.
 Administrative errors are `application/problem+json` documents with `type`, `title`,
 `status`, `detail`, `retryable`, and `correlationId`. The type is one of
 `https://veoveo.ai/problems/invalid-request`, `forbidden`, `not-found`,
-`version-conflict` or `internal-error` under the same base.
+`version-conflict` or `internal-error` under the same base. A request without the
+administrative permission receives `403` with the `forbidden` type, and its detail
+names the missing permission.
 
 ## Persistence
 
@@ -849,7 +814,6 @@ references keep their public spelling and are not converted into database keys.
 The persistence admission check applies before stored reads and writes. It does not
 narrow public provenance deserialization or rewrite retained keys. Time's schema lane
 defines tables and record fields; the Time contract defines JSON bodies and cursor versions.
-Broader DTO field typing remains in the [consolidated plan](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/docs/CONTRACT_CONSISTENCY_PLAN.md).
 
 | Table | Responsibility |
 |---|---|
@@ -858,13 +822,13 @@ Broader DTO field typing remains in the [consolidated plan](https://github.com/B
 | `time_active_authority` | one optimistic pointer per tenant and data family |
 | `time_acquisition` | idempotent acquisition state and progress |
 | `time_calendar_version` | immutable operational calendars |
-| `time_mission_epoch` | versioned named physical instants |
-| `time_temporal_event` | owner-scoped scheduled events |
+| `time_epoch` | versioned named physical instants |
+| `time_event` | owner-scoped scheduled events |
 | `time_clock_policy` | tenant clock acceptance policy |
 
 All tables are schema-full and carry a 30-day changefeed. The Time module lane creates
-their fields and indexes during installation. The server connects with the
-database-scoped runtime identity and never applies migrations.
+their fields and indexes during installation. The server connects with the database
+user its Gateway registration returns and never applies migrations.
 
 ### Version Guards
 
@@ -904,8 +868,8 @@ from the results. Reads never repair or rewrite retained data.
 | Authority release | release and source IDs, dataset kind, version label, URL, digest, artifact path, retrieval and validation times | state, record version |
 | Acquisition | acquisition and source IDs, expected digest | status, phase, staged release ID, record version, update time |
 | Calendar | ID, version, name, zone | none |
-| Mission epoch | ID, version, name, TAI seconds and nanosecond | none |
-| Temporal event | ID, name, due TAI seconds and nanosecond | state, record version |
+| Epoch | ID, version, name, TAI seconds and nanosecond | none |
+| Event | ID, name, due TAI seconds and nanosecond | state, record version |
 
 Lifecycle columns can advance while a valid JSON body keeps its earlier state and
 version. Retirement uses this rule for release state and version. Public contract
@@ -926,18 +890,12 @@ Reference decoding checks repeated URI/ID agreement, source location, dataset ro
 and nonblank labels. The public instant and Unix/TAI schemas declare the same
 subsecond range. Zero-version update requests apply only to an absence guard.
 
-The foundations installation takes a coordinated reset. Drain Time requests,
-acquisition workers and event watchers before deploying the required provenance
-fields and distinct bootstrap resource addresses. Start from a fresh Store and
-reacquire tenant releases. The implementation supplies no historical-body adapter
-or mixed-version rollout. Current-format restart recovery uses the persisted records.
-
-Bootstrap identity changes require a coordinated Time and indexer drain. The reference
-installation recreates disposable epochs and events that reference a withdrawn packaged
-authority; it does not reinterpret their instants under a new release. Rollback restores
-the previous image and recreates those fixtures after the same drain. Acquired authority
-releases keep their stored identities and artifacts. Bootstrap IDs are derived by the
-server and have no configuration override or alias.
+Time decodes only the current body format and supplies no historical-body adapter.
+Changing a stored body format or a bootstrap identity starts from a fresh Store. Epochs
+and events that reference a withdrawn packaged authority are recreated rather than
+reinterpreted under a new release. Acquired authority releases keep their stored
+identities and artifacts. Bootstrap IDs are derived by the server and have no
+configuration override or alias.
 
 `persistence/active.rs` selects tenant pointers and resolves their releases within
 one SQL statement. The release subquery applies tenant, family, key and active-state
@@ -947,38 +905,70 @@ its physical tenant/family key, positive version, stored release-ID syntax and
 previous-release history. Catalog decoding then checks the selected release body.
 These checks leave stored records unchanged and apply after every restart.
 
-Broader public DTO construction and installed activation qualification have work in
-the foundations inventory.
-
 Compiled authority products live under `/var/lib/veoveo/time/releases`. Acquisition
 scratch data lives under `/var/lib/veoveo/time/acquisitions` and is removed at terminal
-completion. Kubernetes mounts `/var/lib/veoveo/time` from a persistent volume.
+completion. Time's registration key lives under `/var/lib/veoveo/time/keys`. A
+deployment mounts `/var/lib/veoveo/time` from a persistent volume.
 
 ## Authorization
 
-The gateway profile and server both enforce domain scopes.
+The Gateway grants permissions, and Time checks every request against them again.
+`TimePermission` names five permissions in Time's namespace:
 
-| Scope | Capability |
-|---|---|
-| `time:read` | authority, clock, conversion, resources, prompts, completions |
-| `time:schedule` | window algebra and calendar expansion |
-| `time:timeline` | mission timeline validation |
-| `time:event:write` | create and cancel owner events |
-| `time:admin` | sources, acquisitions, releases, calendars, epochs, clock policy |
+| Permission | Resource | Access | Grants |
+|---|---|---|---|
+| `time.authorities.read` | `time.authority` | read | `resolve_time`, `convert_time`, `assess_clock`, every resource and template, prompts, resource listing and completions |
+| `time.schedules.expand` | `time.schedule` | read | `evaluate_windows` and the `expand_schedule` Task |
+| `time.timelines.validate` | `time.timeline` | read | the `validate_timeline` Task |
+| `time.events.write` | `time.event` | write | `create_event` and `cancel_event` |
+| `time.authorities.administer` | `time.authority` | write, administer risk | every administrative HTTP route |
 
-Every request also carries the selected gateway profile, principal, tenant, roles,
-data labels, and policy evidence in the signed internal identity. Task and event
-ownership is derived from that identity.
+`mcp/requirements.rs` holds one requirement table that maps each tool, fixed resource,
+resource template and prompt to its permission. The table builds the
+`ai.veoveo/authorization` declaration through `AuthorizationBuilder`, which registration
+sends and MCP Discover advertises. Every handler resolves its own target through that
+declaration and checks the result against the permissions in the forwarded access
+token, so the Gateway and Time evaluate the same table. A target the declaration omits
+is denied. Task admission checks the tool's permission before it creates a Task.
+Declared templates use simple variables only; `time://zones/{zone_id}` matches zone IDs
+that contain slashes, and `?cursor={cursor}` templates admit later collection pages.
+
+Native tests check that every listed tool has exactly one requirement, that every
+advertised resource and concrete address resolves, that tool annotations agree with
+the declaration, and that each handler admits its permission and refuses the others
+through the hosted router.
+
+The forwarded token also carries the caller's principal, tenant, roles, data labels
+and invocation authority. Task and event ownership is derived from that identity.
+
+## Registration
+
+Time registers with the Gateway at startup, before it serves traffic:
+
+1. `KeyDirectory` loads Time's Ed25519 key from `VEOVEO_KEY_DIRECTORY`, generating it on
+   first start. The key keeps Time's registration identity across restarts.
+2. `RegistrationClient::discover` reads the registration endpoint from the RFC 8414
+   metadata of `VEOVEO_GATEWAY_ISSUER`.
+3. Time registers its slug, URI scheme, version, MCP endpoint
+   `{VEOVEO_PUBLIC_BASE_URL}/time/mcp`, authorization declaration and `time` module
+   manifest. The installation's registration secret, `VEOVEO_REGISTRATION_SECRET`, is
+   the initial access token.
+4. The response supplies the issuer and keys that verify forwarded access tokens and
+   the SurrealDB endpoint, namespace, database and user Time connects with.
+5. A background task renews the registration at the interval the lease names and
+   removes it when the server shuts down.
+
+A registration without a database grant stops startup.
 
 ## Deployment
 
-The image runs as UID 10001 with a read-only root filesystem under the Kubernetes
-security profile. Writable paths are the Time persistent volume and `/tmp`. The
-container includes CA roots, `tzdata`, `zic`, and the single Rust service binary.
+The image runs as UID 10001 and can use a read-only root filesystem. Writable paths
+are the Time persistent volume and `/tmp`. The container includes CA roots, `tzdata`,
+`zic`, and the `veoveo-mcp-time` binary.
 
-Helm installs one replica with a `ReadWriteOnce` PVC because release activation and
-local event watchers are process-owned. The gateway reaches the service only over the
-cluster network. SurrealDB retains the durable coordination state.
+An installation runs one replica with a `ReadWriteOnce` volume because release
+activation and local event watchers are process-owned. The Gateway reaches the service
+only over the installation network. SurrealDB holds the durable coordination state.
 
 Connected installations grant the pod HTTPS egress only to approved IANA mirrors or
 installation-controlled authority endpoints. Source endpoints remain tenant admin
@@ -986,7 +976,7 @@ records. Offline installations use the image bootstrap authority and can stage
 content through an approved internal HTTPS endpoint.
 
 The optional ntpd-rs observation socket is supplied with
-`--ntpd-observation-socket`. A node deployment mounts that Unix socket and grants the
+`--ntpd-observation-socket` or `VEOVEO_NTPD_OBSERVATION_SOCKET`. A node deployment mounts that Unix socket and grants the
 Time process read/connect access according to the installation's clock architecture.
 
 ## Cross-Domain Use
@@ -1016,6 +1006,7 @@ Examples of agent requests include:
 | `src/engine/windows.rs` | interval-set algebra with input endpoint metadata |
 | `src/clock.rs` | observation adapter and clock-policy assessment |
 | `src/contract/clock_policy.rs`, `src/contract/version.rs` | validated policy builder, numeric request schemas, positive versions and optional-row guards |
+| `src/contract/permissions.rs` | `TimePermission` names, resources, access and risks |
 | `src/catalog/clock.rs` | checked stored clock-policy scalars, identity and version |
 | `src/contract/instant.rs` | checked subsecond values, instant metadata and lossless total-coordinate conversion |
 | `src/contract/authority.rs` | checked release references, effective authority pairs, derived bindings and wire adapters |
@@ -1030,11 +1021,14 @@ Examples of agent requests include:
 | `src/registry.rs` | request-validated tenant contexts, isolated engine state and preflight-bound activation |
 | `src/catalog/activation.rs` | private observed activation drafts and their publication |
 | `src/acquisition/` | bounded download, validation, compilation, staging, cancellation |
-| `src/admin/` | typed administrative routes and errors |
+| `src/admin/` | typed administrative routes, the administrative permission check and problem details |
 | `src/mcp.rs` | MCP tools, resources, templates, completions, subscriptions |
+| `src/mcp/requirements.rs` | the requirement table, the authorization declaration and handler checks |
+| `src/mcp/declarations.rs` | registration identity and the `time` module declaration |
 | `src/prompts.rs` | reusable temporal interaction prompts |
 | `src/server/tasks.rs` | final Task API adapter, leases, recovery, subscriptions |
-| `src/server/` | configuration, internal auth, host checks, HTTP assembly |
+| `src/server/` | configuration, HTTP assembly and startup |
+| `src/server/registration.rs` | key loading, Gateway discovery and registration |
 | `src/schema/migrations/0000_current.surql` | Time-owned temporal schema and indexes |
 | `src/persistence/queries/`, `src/tests/queries/` | production statements and native fixture scripts |
 
@@ -1088,13 +1082,13 @@ files. They qualify persisted selection on a fresh replica, request-time refresh
 notifications, independent epoch maps, cache reuse, failed-load eviction and recovery,
 native LIVE/reconciliation eviction through separate database connections, and batched
 watcher admission that skips existing and terminal events.
-Gateway validation,
-Helm rendering and linting, the container build, and the shared SurrealDB integration
-harness exercise the deployment boundary.
+Permission cases issue access tokens with chosen grants and call every permission
+family through the hosted router. The container build and the shared SurrealDB fixture
+exercise the deployment boundary.
 
 ## Replica Resource Observation
 
-Each replica opens one shared group of projected Store LIVE queries for authority releases and activation, acquisitions, calendars, mission epochs, temporal events and clock policy.
+Each replica opens one shared group of projected Store LIVE queries for authority releases and activation, acquisitions, calendars, epochs, events and clock policy.
 Committed changes invalidate only each listener's accepted resource identities and
 requested catalog. Writes coalesce over 100 milliseconds. Source reconnection invalidates readers after a delivery gap; reads retain normal
 current authority. Idle sources emit no periodic resource-change notifications. This observes durable state and cannot dispatch work.
@@ -1123,8 +1117,8 @@ borrowed position accessors preserve the owner API.
 The independent `schema` feature exports `schema::module_setup(execution)` for the
 `time` optional module. It activates `veoveo-modules` with default features disabled and the foundational
 vocabulary, Serde and schema dependencies used by owner table declarations. MCP,
-Store and asynchronous runtime dependencies require their own features. Default
-runtime behavior is unchanged. The declaration claims `time_*`.
+Store and asynchronous runtime dependencies require their own features. The
+declaration claims `time_*`.
 It requires Identity and its Store requirement.
 
 The lane embeds `src/schema/migrations/0000_current.surql`, which defines the

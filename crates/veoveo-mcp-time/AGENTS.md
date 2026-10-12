@@ -1,12 +1,14 @@
 # Time MCP Server — Agent Manual
 
 Delta over the repository root `AGENTS.md`. The normative server contract is
-[`mcp/contract/DESIGN.md`](https://github.com/VeoveoAI/veoveo-core/blob/2c9c7fe483211c7d761d59f3aafe5b7fa339108a/mcp/contract/DESIGN.md), revision 4.
+[`mcp/contract/DESIGN.md`](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/contract/DESIGN.md),
+and registration follows
+[`mcp/ext-registration/DESIGN.md`](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-registration/DESIGN.md).
 
 ## Purpose
 
 One temporal authority for civil time, military date time groups, GNSS time,
-mission epochs, operational calendars, clock quality, and temporal events.
+epochs, operational calendars, clock quality, and events.
 Every resolved instant carries the authority releases and uncertainty used to
 interpret it, so other servers consume time without reconstructing timezone or
 leap second assumptions.
@@ -15,9 +17,16 @@ leap second assumptions.
 
 - The server is hosted through `veoveo_mcp_contract::hosting`: `TimeMcp` implements
   `DomainServer`, `TimeSubscriptions` implements `ResourceSubscriptions`, and the
-  administration router joins the host's admin routes behind the admin scope check.
-  `/time/readyz` reports ready while the clock is observed. Do not add a
-  `ServerHandler`, router, host check or authentication middleware here.
+  administration router joins the host's admin routes behind the
+  `time.authorities.administer` check. `/time/readyz` reports ready while the clock is
+  observed. Do not add a `ServerHandler`, host check or token verification here.
+- `src/mcp/requirements.rs` is the only source of permission requirements. A new tool,
+  fixed resource, template or prompt gets its row there, and its handler checks
+  through `require` or `authorize`. The table builds the registration and Discover
+  declaration, so the Gateway and Time evaluate the same requirements.
+- Time registers with the Gateway before serving and takes its access-token trust and
+  database user from the registration. Do not add static trust, JWKS or database
+  credentials to configuration.
 - Owns the `time://` URI scheme. Identity: slug `time`, MCP `/time/mcp`,
   admin REST `/time/admin`, port 8800.
 - The canonical instant is `TimeInstant`: integral TAI seconds plus nanosecond,
@@ -84,6 +93,10 @@ leap second assumptions.
   library control reads the real pointer guard for two successive activations;
   preserve the existing native active-pointer corruption checks.
 - `cargo test -p veoveo-mcp-time`
+- `cargo test -p veoveo-mcp-time --lib requirements` checks the requirement table
+  against the listed tools, advertised resources and tool annotations, and
+  `--lib registry::tests::permissions` checks each handler's allowed and denied
+  permissions through the hosted router.
 - `cargo test -p veoveo-mcp-time --no-default-features --features contract` checks
   public contract validation and compile-fail examples. Qualify dependency isolation
   with a separately resolved consumer workspace; a workspace-wide build may enable
