@@ -260,10 +260,12 @@ async fn the_gateway_refuses_unauthenticated_and_undeclared_requests() -> Result
 
 #[tokio::test]
 #[ignore = "requires a running local installation"]
-async fn a_schedule_task_completes_through_the_gateway() -> Result<()> {
+async fn a_schedule_task_reports_its_status_and_completes_through_the_gateway() -> Result<()> {
     let installation = Installation::from_env()?;
     let member = installation.connect(MEMBER).await?;
     let start = now(&member).await?;
+    // A daily window first recurring a thousand years ago keeps the Task working
+    // while Time scans every day up to the horizon.
     let request = json!({
         "calendar": {
             "calendarId": "calendar-acceptance",
@@ -271,8 +273,8 @@ async fn a_schedule_task_completes_through_the_gateway() -> Result<()> {
             "name": "Acceptance",
             "zoneId": "UTC",
             "windows": [{
-                "startLocal": "2026-01-01T09:00:00",
-                "endLocal": "2026-01-01T10:00:00",
+                "startLocal": "1026-01-01T09:00:00",
+                "endLocal": "1026-01-01T10:00:00",
                 "recurrence": {"frequency": "daily"}
             }]
         },
@@ -293,29 +295,43 @@ async fn a_schedule_task_completes_through_the_gateway() -> Result<()> {
         listener.acknowledged() == &filter,
         "the Gateway did not acknowledge the Task subscription"
     );
-    // A short Task can finish before the subscription opens, so status delivery is
-    // optional here; any delivered status must belong to this Task.
-    let mut notified = None;
-    let completed = tokio::time::timeout(Duration::from_secs(60), async {
+    let current = member.get_task(GetTaskParams::new(&task_id)).await?.task;
+    ensure!(
+        matches!(current.status(), TaskStatus::Working),
+        "the schedule Task finished before its subscription opened: {:?}",
+        current.status()
+    );
+    let notified = tokio::time::timeout(Duration::from_secs(120), async {
         loop {
-            let current = member.get_task(GetTaskParams::new(&task_id)).await?.task;
-            ensure!(current.task.task_id == task_id, "Task identity differs");
-            if !matches!(current.status(), TaskStatus::Working) {
-                return Ok::<_, anyhow::Error>(current);
-            }
-            if let Ok(Ok(Some(ServerNotification::TaskStatusNotification(notification)))) =
-                tokio::time::timeout(Duration::from_millis(500), listener.next()).await
+            match listener
+                .next()
+                .await?
+                .context("the Task subscription ended before a status")?
             {
-                ensure!(
-                    notification.params.task.task.task_id == task_id,
-                    "a status notification names another Task"
-                );
-                notified = Some(notification.params.task.status());
+                ServerNotification::TaskStatusNotification(notification) => {
+                    ensure!(
+                        notification.params.task.task.task_id == task_id,
+                        "a status notification names another Task"
+                    );
+                    return Ok::<_, anyhow::Error>(notification.params.task.status());
+                }
+                _ => continue,
             }
         }
     })
     .await
-    .context("the schedule Task did not finish within 60 seconds")??;
+    .context("no Task status notification within 120 seconds")??;
+    let completed = tokio::time::timeout(Duration::from_secs(120), async {
+        loop {
+            let current = member.get_task(GetTaskParams::new(&task_id)).await?.task;
+            if !matches!(current.status(), TaskStatus::Working) {
+                return Ok::<_, anyhow::Error>(current);
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    })
+    .await
+    .context("the schedule Task did not finish within 120 seconds")??;
     ensure!(
         matches!(completed.status(), TaskStatus::Completed),
         "the schedule Task ended {:?}",
@@ -331,9 +347,29 @@ async fn a_schedule_task_completes_through_the_gateway() -> Result<()> {
         .context("schedule occurrences")?;
     ensure!(!occurrences.is_empty(), "the schedule has no occurrences");
     eprintln!(
-        "Task {task_id}: {} occurrences, delivered status {notified:?}",
+        "Task {task_id}: notified {notified:?}, {} occurrences",
         occurrences.len()
     );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires a running local installation"]
+async fn administration_is_admitted_for_admins_and_refused_to_members() -> Result<()> {
+    let installation = Installation::from_env()?;
+    let member = installation.connect(MEMBER).await?;
+    let admin = installation.connect(ADMIN).await?;
+    for name in ["list_sources", "list_active_authorities"] {
+        match member.call_tool(tool(name, json!({}))?).await {
+            Err(_) => {}
+            Ok(result) => ensure!(
+                result.is_error.unwrap_or(false),
+                "a member was admitted to {name}"
+            ),
+        }
+        let page = call(&admin, name, json!({})).await?;
+        ensure!(page["items"].is_array(), "{name} returned no page");
+    }
     Ok(())
 }
 
