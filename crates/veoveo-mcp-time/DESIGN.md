@@ -123,9 +123,10 @@ successful completion claims a staged release. Failure and cancellation preserve
 uncertain external outcomes according to the acquisition service. Current source
 ownership and selected release existence are checked at use time.
 
-Administrative error codes use an owner vocabulary. Their `traceId` is a canonical
-UUIDv7 correlation value rather than a W3C trace identifier. Existing HTTP status,
-retry and redaction behavior stays with the administration adapter.
+Administrative errors are RFC 9457 problem details. `AdminProblemType` closes the
+problem types, and `correlationId` is a canonical UUIDv7 correlation value rather than
+a W3C trace identifier. The administration adapter owns HTTP status, retry and
+redaction behavior.
 
 ## Architecture
 
@@ -821,13 +822,12 @@ pointer fails the read. An omitted family has no persisted pointer and uses
 family has a persisted pointer. Bootstrap effective references belong to
 `time://authorities/current` and do not invent persisted pointer versions.
 
-Administrative clients decode the closed selection shape. Release-only entries
-have no compatibility alias or fallback. A coordinated reference upgrade updates
-these clients with the Time image that serves this response.
+Administrative clients decode the closed selection shape.
 
-Administrative errors use a typed body containing `code`, `message`, `retryable`, and
-`traceId`. The gateway applies `admin_read` or `admin_write` policy and records the
-proxied operation in the standard audit path.
+Administrative errors are `application/problem+json` documents with `type`, `title`,
+`status`, `detail`, `retryable`, and `correlationId`. The type is one of
+`https://veoveo.ai/problems/invalid-request`, `forbidden`, `not-found`,
+`version-conflict` or `internal-error` under the same base.
 
 ## Persistence
 

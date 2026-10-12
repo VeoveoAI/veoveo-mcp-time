@@ -1,22 +1,24 @@
 use axum::{
-    Json,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header::CONTENT_TYPE},
     response::{IntoResponse, Response},
 };
 
-use crate::contract::{AdminError, AdminErrorCode, TimeCorrelationId};
+use crate::contract::{AdminProblem, AdminProblemType, TimeCorrelationId};
+
+/// RFC 9457 media type for problem details.
+const PROBLEM_JSON: &str = "application/problem+json";
 
 #[derive(Debug)]
 pub(super) struct ApiError {
     status: StatusCode,
-    body: AdminError,
+    body: AdminProblem,
 }
 
 impl ApiError {
     pub fn bad_request(message: impl std::fmt::Display) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
-            AdminErrorCode::InvalidRequest,
+            AdminProblemType::InvalidRequest,
             message.to_string(),
             false,
         )
@@ -24,7 +26,7 @@ impl ApiError {
     pub fn not_found(message: impl std::fmt::Display) -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
-            AdminErrorCode::NotFound,
+            AdminProblemType::NotFound,
             message.to_string(),
             false,
         )
@@ -32,7 +34,7 @@ impl ApiError {
     pub fn conflict(message: impl std::fmt::Display) -> Self {
         Self::new(
             StatusCode::CONFLICT,
-            AdminErrorCode::VersionConflict,
+            AdminProblemType::VersionConflict,
             message.to_string(),
             false,
         )
@@ -41,24 +43,26 @@ impl ApiError {
         tracing::error!("Time administrative operation failed: {error}");
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            AdminErrorCode::InternalError,
+            AdminProblemType::InternalError,
             "Time administrative operation failed",
             true,
         )
     }
     fn new(
         status: StatusCode,
-        code: AdminErrorCode,
-        message: impl Into<String>,
+        problem_type: AdminProblemType,
+        detail: impl Into<String>,
         retryable: bool,
     ) -> Self {
         Self {
             status,
-            body: AdminError {
-                code,
-                message: message.into(),
+            body: AdminProblem {
+                problem_type,
+                title: problem_type.title().to_owned(),
+                status: status.as_u16(),
+                detail: detail.into(),
                 retryable,
-                trace_id: TimeCorrelationId::new(),
+                correlation_id: TimeCorrelationId::new(),
             },
         }
     }
@@ -66,7 +70,12 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(self.body)).into_response()
+        let body = serde_json::to_vec(&self.body).expect("problem details serialize");
+        let mut response = (self.status, body).into_response();
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static(PROBLEM_JSON));
+        response
     }
 }
 
@@ -86,5 +95,27 @@ impl From<anyhow::Error> for ApiError {
         } else {
             Self::internal(error)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn errors_are_problem_details() {
+        let response = ApiError::not_found("Missing source.").into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.headers()[CONTENT_TYPE], PROBLEM_JSON);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(problem["type"], "https://veoveo.ai/problems/not-found");
+        assert_eq!(problem["title"], "Not found");
+        assert_eq!(problem["status"], 404);
+        assert_eq!(problem["detail"], "Missing source.");
+        assert_eq!(problem["retryable"], false);
+        assert!(problem["correlationId"].is_string());
     }
 }

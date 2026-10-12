@@ -203,26 +203,47 @@ pub struct ReplaceClockQualityPolicyRequest {
     pub expected_record_version: super::TimeWriteGuard,
 }
 
+/// An administrative error as RFC 9457 problem details, served as
+/// `application/problem+json`. `retryable` and `correlationId` are extension members.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub struct AdminError {
-    pub code: AdminErrorCode,
-    pub message: String,
+pub struct AdminProblem {
+    #[serde(rename = "type")]
+    pub problem_type: AdminProblemType,
+    pub title: String,
+    pub status: u16,
+    pub detail: String,
     pub retryable: bool,
-    pub trace_id: TimeCorrelationId,
+    pub correlation_id: TimeCorrelationId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, veoveo_types::Vocabulary)]
-pub enum AdminErrorCode {
-    #[vocabulary(rename = "invalid_request")]
+/// RFC 9457 problem types for Time's administrative surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum AdminProblemType {
+    #[serde(rename = "https://veoveo.ai/problems/invalid-request")]
     InvalidRequest,
-    #[vocabulary(rename = "not_found")]
+    #[serde(rename = "https://veoveo.ai/problems/forbidden")]
+    Forbidden,
+    #[serde(rename = "https://veoveo.ai/problems/not-found")]
     NotFound,
-    #[vocabulary(rename = "version_conflict")]
+    #[serde(rename = "https://veoveo.ai/problems/version-conflict")]
     VersionConflict,
-    #[vocabulary(rename = "internal_error")]
+    #[serde(rename = "https://veoveo.ai/problems/internal-error")]
     InternalError,
+}
+
+impl AdminProblemType {
+    /// The short summary RFC 9457 `title` carries for every occurrence of the type.
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::InvalidRequest => "Invalid request",
+            Self::Forbidden => "Forbidden",
+            Self::NotFound => "Not found",
+            Self::VersionConflict => "Version conflict",
+            Self::InternalError => "Internal error",
+        }
+    }
 }
 
 #[doc(hidden)]
