@@ -25,7 +25,7 @@ leap second assumptions.
   through `require` or `authorize`. The table builds the registration and Discover
   declaration, so the Gateway and Time evaluate the same requirements.
 - Time registers with the Gateway before serving and takes its access-token trust and
-  database user from the registration. Do not add static trust, JWKS or database
+  database login from the registration. Do not add static trust, JWKS or database
   credentials to configuration.
 - Owns the `time://` URI scheme. Identity: slug `time`, MCP `/time/mcp`,
   port 8800.
@@ -37,10 +37,15 @@ leap second assumptions.
 - Deterministic resolution and conversion do not contain a live clock
   observation. `time://clock/current` carries the effective clock policy and
   measured quality, including holdover evidence.
-- Durable state lives in its SurrealDB owner tables (`time_*`) and the
-  authority release volume under `/var/lib/veoveo/time`. The server never
-  applies migrations. Tenant engine caches are derived and rebuilt from the
-  active release pair.
+- Durable state lives in the PostgreSQL schema `time` and the authority release
+  volume under `/var/lib/veoveo/time`. Time applies `migrations/` at startup as
+  `server_time`. Every statement is a `.sql` file under `src/persistence/queries/`
+  run through sqlx's checked macros; regenerate `.sqlx` after a query or migration
+  change. Row triggers notify the `time` channel; subscribers hear only their own
+  tenant through `TenantSubscriptions`. Do not notify subscribers from handlers.
+  Tenant engine caches are derived and rebuilt from the active release pair.
+- Events become due only through the per-process due loop in `src/due.rs`, which runs
+  one conditional `UPDATE`. Do not add in-process timers per event.
 - Authority activation is atomic: optimistic versions plus a full preflight
   load of the prospective TZDB and leap second pair; one active release per
   family per tenant. Acquisition downloads run under fixed host, media,
@@ -56,11 +61,14 @@ leap second assumptions.
   restart or path. `server/bootstrap.rs` owns construction and qualification.
 - `expand_schedule` and `validate_timeline` run only through the final Task
   API extension on `veoveo-task-runtime`; a direct call returns an instruction
-  to use the task form. Hosted calculations use Tokio's blocking pool. Retain the
-  original job outside the cancellable waiter and await it on normal worker exit,
-  including heartbeat failure. Preserve cooperative stop checks; sorting and
-  serialization between checks do not supply a hard abort or drain-time guarantee.
-  Public engine methods stay synchronous for library callers.
+  to use the task form. Creating a Task only queues it; `server::tasks::work`
+  consumes the runtime's claim stream and runs what this instance claims. Recovery
+  of a dead instance's Tasks is the kernel's; do not add leases, heartbeats or a
+  recovery observer. Hosted calculations use Tokio's blocking pool. Retain the
+  original job outside the cancellable waiter and await it before the worker exits.
+  Preserve cooperative stop checks; sorting and serialization between checks do not
+  supply a hard abort or drain-time guarantee. Public engine methods stay synchronous
+  for library callers.
 - Civil fold and gap resolution defaults to `reject`; military zone `J` is
   rejected by the DTG parser. A positive leap second keeps its `:60`
   representation.
@@ -77,13 +85,13 @@ leap second assumptions.
   with its resource notification, and current state after a reconnect. The tests are
   ignored by default; run them from a fresh nextest archive extraction.
 - `cargo test -p veoveo-mcp-time --lib server::tasks::tests` qualifies durable
-  cancellation at calculation checkpoints and final settlement using distinct
-  workers on the existing isolated Store fixture. Keep the cancellation/completion
-  CAS interleave deterministic; do not manufacture a slow installed schedule.
-  Preserve completion that committed first, genuine calculation failures and the
-  executing worker's current lease. Local shutdown without durable cancel intent
-  stops success publication before shared transition dispatch and leaves the request
-  for Resume recovery. Keep token checks at both selected-snapshot dispatch seams;
+  cancellation at calculation checkpoints and final settlement using two process
+  instances on separate pools. Keep the cancellation/completion interleave
+  deterministic; do not manufacture a slow installed schedule. Preserve completion
+  that committed first, genuine calculation failures and the owning instance's
+  exclusive settlement. Local shutdown without durable cancel intent stops success
+  publication before shared transition dispatch and leaves the request for Resume
+  recovery. Keep token checks at both selected-snapshot dispatch seams;
   a transition already entered may settle despite a later local stop. Installed cancellation and unfinished restart
   still require their own observable qualification.
 - `cargo test -p veoveo-mcp-time --lib server::tasks::calculation::tests`
@@ -107,23 +115,23 @@ leap second assumptions.
 - `cargo clippy -p veoveo-mcp-time --no-default-features --features runtime --all-targets -- -D warnings`
   checks runtime composition independently from the MCP feature.
 - Time owns its private `src/persistence/` queries, driver records and mutation
-  validation. Its `src/schema/` declaration owns the selected Time migration lane.
-  Activation uses exact-ID locked reads
-  of both pointers, including absence, and their preflight releases. Preserve full
-  snapshot comparison and qualify cross-family contention on RocksDB.
-  Runtime library tests use the shared
-  isolated SurrealDB fixture with the Time lane selected; schema changes require
-  fresh lane admission and persistence checks.
+  validation, and its schema in `migrations/`. Activation takes the tenant's
+  transaction advisory lock, which covers absent pointers, then locks the pointers and
+  preflight releases with `FOR UPDATE`. Preserve full snapshot comparison and the typed
+  `ActivationConflict` outcomes. Runtime library tests use `test_database::TimeDb`:
+  `veoveo-test-fixtures`' PostgreSQL cluster, Time's migrations applied as
+  `server_time` and two pools logged in as registration logins. Run them with the
+  PostgreSQL 18 programs on `PATH`.
 - `docker build --target check .` runs the gate, and the `runtime` stage builds the
   deployable image. No GPU requirement.
 - `src/catalog/tests.rs` qualifies SQL tenant and owner predicates, latest epoch
   selection, event transition isolation, page boundaries, requested epoch batches,
-  and bounded distinct completion against the
-  pinned disposable SurrealDB fixture.
-- `src/catalog/tests/metadata.rs` qualifies retained body/key agreement, indexed
-  ordering fields, redacted diagnostics and immutable acquisition metadata. Preserve
-  the lifecycle-column rules and upgrade requirements in the design's Retained Catalog
-  Metadata section; stale release-state bodies can represent valid retired records.
+  and bounded distinct completion.
+- `src/catalog/tests/metadata.rs` qualifies retained body/key agreement, the schema's
+  refusal of corrupt columns, redacted diagnostics and immutable acquisition metadata.
+  Corruption goes through `src/tests/queries/`. Preserve the lifecycle-column rules in
+  the design's Retained Catalog Metadata section; stale release-state bodies can
+  represent valid retired records.
 - `src/contract/clock_policy.rs` owns the checked policy builder and JSON bounds.
   Positive `TimeVersion` guards and optional-row `TimeWriteGuard` guards stay typed
   through writes; numeric zero means absence only for clock and active-pointer writes.
@@ -163,23 +171,26 @@ leap second assumptions.
   digits) in requests, persistence drafts and provenance. Keep them typed until the
   driver record. `tests/digest_contract.rs` and `src/registry/tests/digest.rs` qualify
   request admission, idempotency and malformed matching body/column values.
-- `src/catalog/tests/numeric.rs` qualifies clock scalar rejection, optimistic clock
-  writes and exhausted versions without row mutation. Authority qualification verifies
-  that retirement exhaustion rolls back both the candidate and pointer.
-- `src/persistence/active_tests.rs` qualifies joined pointer/release selection,
-  inconsistent retained records and relationship changes inside activation. Keep
-  relationship predicates in SQL and reject a visible dangling pointer. Bootstrap
-  selection during reload requires an absent pointer.
-- `src/registry/tests.rs` uses Linux `/usr/share/zoneinfo/UTC`, owned temporary files
-  and the shared isolated database fixture. Engine requests validate the active pair
-  and provenance before cache reuse. Each returned engine owns its epoch map. Cache
-  eviction follows every Store invalidation; delivery never substitutes for a read.
+- `src/catalog/tests/numeric.rs` qualifies the schema's clock scalar ranges, optimistic
+  clock writes and exhausted versions without row mutation. Authority qualification
+  verifies that retirement exhaustion rolls back both the candidate and pointer.
+- `src/persistence/active_tests.rs` qualifies pointer/release selection, the schema's
+  relationship constraints and relationship changes inside activation through fixture
+  triggers. Keep relationship predicates in SQL and reject a visible dangling pointer.
+  Bootstrap selection during reload requires an absent pointer.
+- `src/registry/tests.rs` uses `/usr/share/zoneinfo/UTC` and owned temporary files.
+  Engine requests validate the active pair and provenance before cache reuse. Each
+  returned engine owns its epoch map. A tenant's authority notification and every
+  reconciliation evict cached contexts; delivery never substitutes for a read.
   Authority loading and preflight each have a 30-second deadline.
-- `src/registry/tests/activation.rs` qualifies cross-family conflicts on disposable
-  RocksDB, absent and present pointers, concurrent release repairs and stale preflight
-  metadata. Production activation goes through the registry and consumes its observed
-  draft. Both exact pointer IDs and all preflight release IDs participate in commit
-  conflict checks. Keep the fresh-store and drain requirements in DESIGN.
+- `src/registry/tests/activation.rs` qualifies cross-family conflicts, absent and
+  present pointers, the locks that hold off concurrent activations and repairs, and
+  stale preflight metadata. Production activation goes through the registry and
+  consumes its observed draft.
+- `src/registry/tests/notifications.rs` qualifies tenant-scoped resource updates and
+  authority eviction from real triggers and `LISTEN`; `src/registry/tests/due.rs`
+  qualifies that overdue events become due at process start without a read and that
+  replicas change each event once.
 - The optional ntpd-rs observation socket is a deployment concern; unit tests
   use bounded fake observations.
 
@@ -215,7 +226,7 @@ Contract: https://veoveo.ai/contracts/hosted-mcp
 - C25: met
 - C26: met
 - C27: met
-- C28: met — static discovery advertises no list-change capability; Store observations invalidate resource contents
+- C28: met — static discovery advertises no list-change capability; database change notifications invalidate the resource contents of the changed tenant
 - C29: met
 - C30: met — the endpoint is stateless; durable and domain state never derives authority from a protocol connection
 - C31: pending — installed Discover and list readiness qualification is pending

@@ -42,9 +42,27 @@ Every flag has a matching `VEOVEO_` environment variable.
 | `VEOVEO_ALLOWED_HOSTS` | Extra comma-separated host authorities that pass host validation. |
 | `VEOVEO_NTPD_OBSERVATION_SOCKET` | Optional ntpd-rs observation socket. |
 
-The registration response supplies the access-token issuer and keys and the SurrealDB
-endpoint and user, so neither is configured here. Run `veoveo-mcp-time --help` for the
+The registration response supplies the access-token issuer and keys and the PostgreSQL
+login Time connects with, so neither is configured here. Time applies its own
+migrations in the schema `time` at startup. Run `veoveo-mcp-time --help` for the
 remaining limits.
+
+## Database
+
+Time stores its catalog in the schema `time` of the installation's PostgreSQL 18
+database. `migrations/` in the crate defines the schema, and every statement is a
+`.sql` file that sqlx checks at compile time. Builds without a database use the
+committed `.sqlx` metadata. After changing a query or a migration, regenerate it
+against a database with the kernel migrations of the pinned veoveo-core and Time's
+migrations applied:
+
+```sh
+cargo sqlx prepare --workspace -- --all-targets --all-features
+```
+
+The `check` stage of the `Dockerfile` builds that database and fails when the metadata
+is stale. Tests need the PostgreSQL 18 server programs on `PATH`; each test clones its
+own database from a migrated template.
 
 ## Gate
 
@@ -71,7 +89,8 @@ Time runs inside `vv-mcp-time` on port 8800 and registers with a Gateway that th
 environment reaches at `http://host.openshell.internal:8080`. The environment needs the
 installation's `vv-registration` provider attached, which supplies
 `VEOVEO_REGISTRATION_SECRET` as a placeholder, and the policy in `openshell/policy.yaml`,
-which binds that provider to the Gateway endpoint and allows SurrealDB.
+which binds that provider to the Gateway endpoint and allows PostgreSQL on
+`host.openshell.internal:5432`.
 
 OpenShell pins every policy-listed executable path to the SHA-256 it first observes and
 denies the path once the file changes. Time therefore runs from a content-addressed copy

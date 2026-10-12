@@ -115,7 +115,7 @@
     {
       "id": "C28",
       "status": "met",
-      "note": "static discovery advertises no list-change capability; Store observations invalidate resource contents"
+      "note": "static discovery advertises no list-change capability; database change notifications invalidate the resource contents of the changed tenant"
     },
     {
       "id": "C29",

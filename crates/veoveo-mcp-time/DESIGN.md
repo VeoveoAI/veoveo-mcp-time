@@ -32,8 +32,8 @@ port         8800
 | [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
-| [Veoveo knowledge source extension](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-knowledge/DESIGN.md) | `ai.veoveo/knowledge-source` declares documentation and Time-owned collections, typed source observations, conditional reads, and enumeration from each collection root. Events use Store-backed change notifications. |
-| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and renews and removes it through RFC 7592. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration`, `ai.veoveo/authorization` and `ai.veoveo/module` in MCP Discover. |
+| [Veoveo knowledge source extension](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-knowledge/DESIGN.md) | `ai.veoveo/knowledge-source` declares documentation and Time-owned collections, typed source observations, conditional reads, and enumeration from each collection root. Resource updates follow database change notifications. |
+| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
 | [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Gateway forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
@@ -43,7 +43,7 @@ port         8800
 | TAI, UTC, TT, TDB, GPS, and Galileo system time | Typed projections from one integral TAI instant. The server records authority and uncertainty rather than treating scales as interchangeable strings. |
 | [NTPv4 RFC 5905](https://www.rfc-editor.org/rfc/rfc5905.html) and [Network Time Security RFC 8915](https://www.rfc-editor.org/rfc/rfc8915.html) | Approved node clocks may use NTP/NTS. Time MCP consumes a bounded `ntpd-rs` observation; it does not act as an NTP network endpoint. |
 | HTTPS | Registered IANA authority sources are acquired under fixed host, media, digest, size, and elapsed-time policy. |
-| SurrealDB 3.3.0 and SurrealQL | Private runtime persistence uses Store's qualified Rust SDK version and connection. Bound parameters carry domain values; SQL applies catalog visibility, ordering, paging and activation transactions. Time owns the temporal schema lane. |
+| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/7632308/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. |
 
 Time JSON uses camelCase members and snake_case vocabulary; decoding rejects
 retired and mixed keys. Authority source is a closed tagged object: bootstrap
@@ -182,7 +182,7 @@ Interval uncertainty describes the selected nominal bounds and does not widen th
 The contract's intersection method clips two checked windows and returns no window
 for disjoint or touching inputs. Equal endpoint coordinates keep the larger uncertainty.
 
-Task recovery rejects an invalid persisted horizon and stops startup.
+A claimed Task whose persisted request no longer decodes settles as failed.
 
 `TimePermission` declares Time's five permission names once through `Vocabulary` and
 implements `PermissionDefinition` with each permission's resource, access and risk.
@@ -245,13 +245,14 @@ veoveo-mcp-time
   |-- durable task adapter
   |-- IANA acquisition and zic compilation
   |-- ntpd-rs observation adapter
-  |-- SurrealDB platform store
+  |-- PostgreSQL schema `time`, change listener and due loop
   `-- persistent authority release volume
 ```
 
-The Rust process owns the HTTP server, acquisition jobs, active authority cache,
-event watchers, and Task API workers. The same image contains `zic`, the bootstrap
-TZif database, and the bootstrap IANA leap-second file supplied by Debian `tzdata`.
+The Rust process owns the HTTP server, acquisition jobs, active authority cache, the
+change listener, the event due loop and Task API workers. The same image contains
+`zic`, the bootstrap TZif database, and the bootstrap IANA leap-second file supplied by
+Debian `tzdata`.
 
 ## Authority Data
 
@@ -319,14 +320,15 @@ Activation uses two checks before publication:
 - optimistic versions for the staged release and active family pointer;
 - a full load of the prospective TZDB and leap-second pair.
 
-The SurrealDB transaction requires the candidate's stored key, tenant, family,
-staged state and expected version. Pointer replacement rechecks its tenant, family,
-current release, previous-release history and version. Retirement requires the
-selected previous release's key, tenant, family, active state and observed version.
-A failed check rolls back the candidate, pointer and retirement together. The
-transaction marks the candidate active, advances the family pointer and retires
-the superseded release. The process then replaces the tenant engine and
-notifies subscribers of `time://authorities/current`.
+One PostgreSQL transaction marks the candidate active, advances the family pointer
+and retires the superseded release. The candidate update requires its tenant, key,
+family, staged state and expected version. Pointer replacement rechecks its tenant,
+family, current release, previous-release history and version. Retirement requires
+the previous release's tenant, family, key, active state and observed version below
+the storage maximum. A statement that matches no row rolls back the candidate, pointer
+and retirement together and reports a typed `ActivationConflict` naming the failed
+check. The process then replaces the tenant engine; the pointer's row trigger notifies
+subscribers of `time://authorities/current` on every replica.
 
 Authority release records retain source id, source URL, SHA-256 digest, retrieval
 time, validation time, version label, artifact path, lifecycle state, and optimistic
@@ -338,41 +340,42 @@ pair from that draft under its 30-second deadline, then consumes the draft to pu
 The public runtime activation method always performs file preflight.
 The commit compares both families and the candidate with their observed metadata;
 an absent pointer is part of that comparison. Changed metadata rejects publication
-even when an external repair did not advance the version. SQL compares optional
-pointer history by value because a missing stored field and a driver `NONE` have
-different object representations.
+even when an external repair did not advance the version.
 
-Every activation registers both exact `time_active_authority` IDs for commit-time conflict detection with
-`SELECT … FOR UPDATE`, including absent pointers. It registers the candidate and
-both preflight release records too, then compares the complete preflight snapshot before
-changing a release or pointer. IDs are read in stable order. The database takes no blocking row lock. A concurrent insert,
-update or deletion invalidates the transaction under the selected SurrealDB 3.3.0
-profile. A failed activation rolls back every write. Clients load the current pair
-again before retrying; the server performs no automatic mutation retry.
-Store's transaction-error selector preserves the causal database error instead of
-reporting an earlier cancelled statement as the cause.
+The transaction first takes a transaction advisory lock keyed by the tenant, so the
+activations of one tenant run one at a time. Row locks cannot cover a pointer that
+does not exist yet, and the advisory lock does. The transaction then locks the
+tenant's pointers and the candidate and preflight releases with `SELECT … FOR UPDATE`
+in key order, rereads the pointer/release snapshot and the candidate, and compares
+them with the preflight observation before changing a row. A writer that repairs a
+locked row waits until the activation ends. Clients load the current pair again
+before retrying; the server performs no automatic mutation retry.
 
-The schema contains no activation-fence table. Native qualification covers
-different-family contention starting with absent pointers, existing pairs, concurrent
-pointer and release repairs, stale preflight metadata, tenant mismatch and failed file
+The schema holds the relationships that need no transaction. A pointer references a
+release of its own tenant and family through a composite foreign key, as does its
+previous release. Its history agrees with its version: version one has no previous
+release, and a later version names one other than its current release. Releases and
+acquisitions reference their tenant's source, and an acquisition's staged release must
+exist. Native qualification covers different-family contention starting with absent
+pointers, existing pairs, the locks held against concurrent repairs, stale preflight
+metadata, relationship changes inside the transaction, tenant mismatch and failed file
 loads.
 
 ### Tenant Authority Contexts
 
-Every engine request reads the active tenant pair through the joined catalog query
-and resolves each selected release's acquisition provenance. This requires one
-selection query and at most two provenance reads; authority-only requests do not
-load epochs. Event-page recovery shares one validated context across the
-page and skips events with existing watchers. A family without a stored pointer uses its packaged bootstrap
-reference. Invalid visible metadata and database errors fail the request.
+Every engine request reads the active tenant pair and resolves each selected release's
+acquisition provenance. The pointers and their releases come from one repeatable-read
+snapshot, followed by at most two provenance reads; authority-only requests do not
+load epochs. A family without a stored pointer uses its packaged bootstrap reference.
+Invalid visible metadata and database errors fail the request.
 
 The registry caches loaded contexts under the Store's typed tenant identity. A hit
 requires the current effective references, provenance and artifact paths to match
 the cached inputs. An engine gets its own epoch map while sharing the loaded
-authority data. LIVE and reconciliation signals evict process contexts before resource
-notifications; a generation token prevents an earlier loader from repopulating an
-evicted cache. Request-time catalog checks also cover delayed or disconnected
-notification delivery.
+authority data. A change notification for a tenant's release, acquisition or pointer
+evicts that tenant's context, and a listener reconnect evicts every context; a
+generation token prevents an earlier loader from repopulating an evicted cache.
+Request-time catalog checks also cover delayed or disconnected notification delivery.
 
 Selection and file loading share a 30-second deadline. TZDB loading runs on a blocking
 worker, and async leap-file reads preserve the runtime's responsiveness. A failed load
@@ -436,8 +439,8 @@ calendar chooses a supported unambiguous time.
 An epoch gives a named physical instant a version. Agents can then resolve
 expressions such as an offset from launch, H-hour, or the start of a convoy window.
 Each calculation forks the tenant's authority engine and loads only the epoch ids
-named by its input expressions. SurrealDB selects the latest version of each key
-inside the caller's tenant, in batches of at most 100 keys. The request has a
+named by its input expressions. One `DISTINCT ON` query selects the latest version of
+each key inside the caller's tenant, in batches of at most 100 keys. The request has a
 30-second epoch-read deadline and accepts at most 100,000 expressions. A calculation's
 epoch set belongs to that calculation, so concurrent requests cannot replace it.
 Engine maps keep `EpochId` keys. Relative resolution requires the epoch's
@@ -446,8 +449,8 @@ the requested offset. Additional resolution uncertainty uses checked addition; a
 outside the unsigned 64-bit nanosecond range fails. Activation may therefore require
 publishing a new epoch version under the selected authority before relative calculations
 can resume. Exact reads keep the stored epoch's original binding.
-An exact epoch resource read selects its tenant and epoch key in SurrealDB, orders
-versions descending, and fetches one record. Clock observations, exact resource reads,
+An exact epoch resource read selects the latest version of its tenant and epoch key
+through the same query. Clock observations, exact resource reads,
 and zone completions use the authority cache without loading the epoch catalog.
 
 `validate_timeline` resolves named points and evaluates directed constraints. Each
@@ -526,26 +529,31 @@ Schedule expansion and timeline validation use the final Task API extension. A n
 tool call returns an instruction to invoke the task form. The Task adapter supports
 create, get, update, cancel, list discovery, and task subscriptions.
 
-Tasks persist through `veoveo-task-runtime` in SurrealDB. Ownership includes tenant,
-principal, profile, server, and data labels. Workers claim 120-second leases and renew
-them every 40 seconds. Both temporal task types use `Resume` recovery because their
-outputs are deterministic under the persisted authority-bound request. Terminal task
-records retain for seven days unless a retention pin extends their lifetime.
+Tasks persist through `veoveo-task-runtime` in the kernel `tasks` schema. Ownership
+includes tenant, principal, profile, server, and data labels. Creating a Task queues
+it. Each process consumes the runtime's claim stream: a claim records the process
+instance as the Task's owner, and the process decodes the persisted request and runs
+it. A request that does not decode as a Time calculation settles as failed. Both
+temporal task types use `Resume` recovery because their outputs are deterministic under
+the persisted authority-bound request. When a process dies, the kernel reaps its
+instance and returns its Tasks to the queue, where any replica claims and resumes
+them; no lease or heartbeat is involved. A lost instance lock ends the claim stream,
+and Time then stops serving. Terminal task records retain for seven days unless a
+retention pin extends their lifetime.
 
 Workers read durable cancellation before scope resolution, after scope resolution,
 and after authority and epoch loading. These checkpoints observe requests committed
 through another server replica without relying on a shared local cancellation token.
 Hosted schedule expansion and timeline validation run finite calculations on Tokio's
 blocking pool. The registered async worker retains the original job outside its
-cancellable waiter and awaits that job before normal exit, including after a failed
-lease heartbeat. Cooperative stop checks occur at calendar windows, recurrence
-days, timeline points and constraints, and output indexing. Public engine methods
-stay synchronous for library callers. Sorting and serialization finish between
-checkpoints; this profile promises neither hard abort nor a fixed drain latency.
-Hard process termination follows the existing Resume lease profile.
+cancellable waiter and awaits that job before it exits. Cooperative stop checks occur
+at calendar windows, recurrence days, timeline points and constraints, and output
+indexing. Public engine methods stay synchronous for library callers. Sorting and
+serialization finish between checkpoints; this profile promises neither hard abort
+nor a fixed drain latency. Hard process termination follows instance recovery.
 A local shutdown stop without durable cancellation prevents result publication and
-leaves the current lease and request for `Resume` recovery; it does not fabricate a
-terminal cancellation. Success publication carries that token through snapshot
+leaves the request for `Resume` recovery once the instance is reaped; it does not
+fabricate a terminal cancellation. Success publication carries that token through snapshot
 selection and checks it immediately before entering each shared transition. A stop
 observed after selection reads current state once to settle durable cancellation or
 leave the unfinished request for recovery. Entering the shared transition starts
@@ -559,18 +567,11 @@ Resume settlement with the PreserveFailure policy. If cancellation wins that tra
 worker rereads current state once and settles `CancelRequested` as `Cancelled`
 without publishing the calculated result. An already committed terminal outcome
 wins. A genuine calculation failure keeps its failure code and message, including
-when cancellation precedes its settlement. The worker checks its current, unexpired
-lease before attempting a write; the runtime also enforces its transactional lease
-and snapshot guards. Unrelated progress conflicts and storage errors stop execution
-without being reported as successful settlement. This path performs no polling.
-
-Startup recovery observes the finite set of retained Tasks.
-The shared observer applies the initial report before HTTP starts and revisits live
-leases through SQL change notifications and lease deadlines. Each resumable request
-passes the existing type and claim guards. A failed claim skips local scheduling
-only when current SQL proves physical absence, terminal settlement, or a matching
-Task held by another worker's unexpired lease. An unproven conflict or recovery
-observation error stops HTTP serving.
+when cancellation precedes its settlement. The worker checks that its instance owns
+the Task before attempting a write; every worker write also compares the owner
+instance and revision in SQL, so a process whose instance was reaped settles nothing.
+Unrelated progress conflicts and storage errors stop execution without being reported
+as successful settlement. This path performs no polling.
 
 The installed schedule profile, kept in the monorepo's
 [installed harness](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/servers/time-mcp/tests/gateway_consumers/schedule.rs), selects
@@ -582,9 +583,9 @@ still Working before accepting delivered Completed and its independently expecte
 result. A completed Task surviving replacement does not qualify unfinished recovery.
 
 The fixture sets one operation deadline before connecting: 120 seconds for completion
-or cancellation and 300 seconds for recovery. Recovery needs room for the worker's
-120-second lease, renewed every 40 seconds, to expire before another worker resumes
-computation. Every nested wait ends by that operation deadline. The scenario grants
+or cancellation and 300 seconds for recovery. Recovery needs room for the kernel to
+reap the dead instance before another worker resumes computation. Every nested wait
+ends by that operation deadline. The scenario grants
 360 seconds of execution and a separate 30-second owner cleanup interval. Actual
 listener, caller and crash-watch handles keep their original consuming close futures
 and deadlines. The fixture never signals a process itself; Ops must wait for its
@@ -624,9 +625,9 @@ tenant-acquired references use `time://authorities/releases/{release_id}`. The t
 reference builder rejects disagreement between source kind and resource address.
 Both kinds retain their original compiler digests. Calendar and epoch versions and
 compiler references are immutable. Event observations include the current stored
-modification time, and event changes use the existing Store-backed subscriptions.
-Events do not claim a last-modifying principal because scheduler transitions record
-no actor. Immutable members attribute creation to their stored owner. Member JSON is
+modification time, and event changes reach subscribers through the `time` channel.
+Events do not claim a last-modifying principal because due transitions record no
+actor. Immutable members attribute creation to their stored owner. Member JSON is
 limited to 64 KiB; calendar creation rejects a larger document before writing it.
 
 The monorepo's [`gateway_source_conformance.rs`](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/servers/time-mcp/tests/gateway_source_conformance.rs) supplies two future events to the shared MCP
@@ -656,8 +657,9 @@ not advertise resource-list change notifications.
 
 Calendar, epoch, event and authority pages contain `items`, `limit: 100`, and
 `nextCursor`. A client reads the next page by passing the opaque cursor as the root's
-`cursor` query parameter, as in `time://events?cursor=<nextCursor>`. SurrealDB
-applies authorization and the cursor position before its 101-record lookahead.
+`cursor` query parameter, as in `time://events?cursor=<nextCursor>`. SQL applies
+the tenant and owner predicates and the cursor position as a keyset condition before
+its 101-record lookahead, and indexes cover each order.
 Calendars and epochs sort by key ascending and version descending. Events sort by
 TAI seconds, nanosecond, then event key ascending. These positions use immutable
 fields. Each page observes the records present at its read. Inserts before its position
@@ -681,18 +683,31 @@ time://events/{event_id}
 ```
 
 Completions enumerate the packaged IANA zones and visible calendar, version,
-epoch, and event ids. Store-backed completion queries apply tenant and event-owner
-predicates, text matching, distinct selection, and ordering in SurrealDB before
-fetching at most 101 candidates. MCP returns 100 values and sets `hasMore` when a
+epoch, and event ids. Completion queries apply tenant and event-owner predicates,
+text matching, distinct selection, and ordering in SQL before fetching at most 101
+candidates. MCP returns 100 values and sets `hasMore` when a
 further candidate exists. It reports a total only when the complete match set fits.
 Calendar-version completion narrows its SQL query to the selected `calendar_id`
 when the client supplies that argument in completion context.
-Calendars, epochs, authorities, clock quality, and events emit resource updates.
-Reading an event or an event page restores its scheduled watchers. An event-root
-subscription restores all of its owner's scheduled events through SQL-filtered
-pages, with a 60-second deadline. A timeout rejects listener establishment instead
-of claiming complete recovery. Exact event subscriptions restore that event's
-watcher. Resource discovery does not start watchers.
+Calendars, epochs, authorities, the clock policy and events emit resource updates.
+Every row change of a Time table notifies the `time` channel with the table, the
+operation, the row key and the tenant. Each replica's change watcher maps the table
+to the subscribable resources it can alter and tells only that tenant's listeners:
+
+| Table | Resources updated |
+|---|---|
+| `time.event` | `time://events` and `time://events/{event_id}` |
+| `time.epoch` | `time://epochs` and `time://epochs/{epoch_id}` |
+| `time.calendar_version` | `time://calendars` |
+| `time.active_authority` | `time://authorities/current` and `time://clock/current` |
+| `time.clock_policy` | `time://clock/current` |
+
+A `subscriptions/listen` request listens to the hub of its caller's tenant, which the
+watcher keeps while a listener holds it. Notifications are wake signals: a subscriber
+rereads the resource under its own authorization. When the listener connection
+returns after a loss, the watcher asks every listener to reread each resource it
+watches, because PostgreSQL does not replay notifications sent while it was
+disconnected.
 
 ### Prompts
 
@@ -704,27 +719,34 @@ watcher. Resource discovery does not start watchers.
 
 ## Events
 
-Events are owner-scoped durable records. Creation validates an authority-
-bound due instant and uses a principal-scoped idempotency key. A watcher transitions
-the record from `scheduled` to `due` under optimistic concurrency, then emits updates
-for the collection and event URI. Cancellation updates the durable record and cancels
-the local watcher.
+Events are owner-scoped durable records. Creation validates an authority-bound due
+instant and uses a principal-scoped idempotency key. The row stores the instant's TAI
+coordinates and `due`, the earliest UTC microsecond that does not precede it under the
+active authority; an instant inside a positive leap second becomes due at the start of
+the next second. Cancellation updates the record under optimistic concurrency.
+
+Each process runs one due loop. It reads the earliest `due` of a scheduled event
+together with the database clock, sleeps for the difference or until an event change
+or a listener reconnect wakes it, and then runs one statement that moves every
+scheduled event whose `due` has passed to `due`, advancing its version and body.
+Replicas run the same statement, and row locks with the `scheduled` predicate change
+each event once. An event that became due while no process ran changes at the next
+start. The row trigger then notifies subscribers on every replica. An event whose
+version is exhausted stays scheduled rather than failing the statement for others.
 
 The installed future-event consumer arms the stable event-root subscription before
 creation and reads the current authority-bound clock to construct checked TAI
 coordinates. Delivered invalidations require matching uncached event reads;
-Scheduled and Due are separate assertions. One fenced process restart retains the
-future event, and reconnect restores its watcher. A deliberately disconnected
-interval qualifies current-state reconciliation rather than notification replay.
+Scheduled and Due are separate assertions. A deliberately disconnected interval
+qualifies current-state reconciliation rather than notification replay.
 The profile owns one 300-second operation and 30-second cleanup interval, retains
 ambiguous creation intents, and cancels only acknowledged owned Scheduled events.
 Due and cancelled event records remain for operator retirement. Agent wake scheduling uses
 these public resources through the agent's own owner identity and policy.
 
-Event reads, collections, due queries, and optimistic transitions bind both the
-tenant and authenticated owner in SQL. Completion applies the same owner predicate
-before its limit. The catalog decodes only the records selected by those queries;
-notification scheduling uses those owner-scoped reads.
+Event reads, collections and optimistic transitions bind both the tenant and
+authenticated owner in SQL. Completion applies the same owner predicate before its
+limit. The catalog decodes only the records selected by those queries.
 
 ## Administration Tools
 
@@ -757,8 +779,8 @@ An operator passes the selection's `write_guard()` as
 `ActivateReleaseRequest.expected_active_pointer_version`; the method constructs
 `TimeWriteGuard::Existing(pointerVersion)` rather than using the release version.
 
-The catalog reads pointers and releases in one joined statement and admits their
-tenant, key, family, active state and stored body relationships. A visible invalid
+The catalog reads pointers and releases from one snapshot and admits their tenant,
+key, family, active state and stored body relationships. A visible invalid
 pointer fails the read. An omitted family has no persisted pointer and uses
 `TimeWriteGuard::Absent` for its first activation; an empty page means neither
 family has a persisted pointer. Bootstrap effective references belong to
@@ -766,49 +788,57 @@ family has a persisted pointer. Bootstrap effective references belong to
 
 ## Persistence
 
-SurrealDB is the canonical temporal catalog and task store.
+Time keeps its catalog in the PostgreSQL schema `time` of the installation database.
+The Gateway creates the schema, owned by the group role `server_time`, when Time
+registers. At startup Time takes that role on a dedicated connection and applies the
+migrations in `migrations/`, so the group role owns every object and the history lives
+in `time._sqlx_migrations`. Concurrent replicas wait on the migrator's advisory lock,
+and a changed checksum of an applied migration stops startup.
 
-The runtime's private `persistence/` modules own temporal queries, driver records,
-mutation drafts and validation. `PlatformStore` supplies the connection and platform
-identity. Time owns `schema/migrations/` and its module lane. Time uses the same pinned SurrealDB 3.3.0
-SDK as Store, behind its `runtime` feature. Contract-only consumers do not resolve it.
+The runtime's private `persistence/` modules own the queries, driver records,
+mutation drafts and validation. `PlatformStore` supplies the pool and platform
+identity; the connection logs in as the registration's own login. Every statement is a
+file in `src/persistence/queries/`, run through `query_file_as!`, `query_file!` or
+`query_file_scalar!`, which check it against the migrated schema at compile time.
+Builds without a database use the workspace's committed `.sqlx` metadata, which
+`cargo sqlx prepare --workspace` regenerates against a database with the kernel
+migrations and Time's migrations applied. Native fixture statements live in `src/tests/queries/`.
 
 Catalog calls retain source, release, acquisition, calendar, epoch and event ID types
-through the persistence interface. Calendar, epoch and existing-record guards use `TimeVersion`.
-Collection queries accept `CalendarCursor`, `EpochCursor` or `EventCursor` directly;
-requested epoch batches and completion parents also retain their domain IDs. The
-driver binds their text and numeric values alongside typed database identity records.
-Production statements live in `src/persistence/queries/`; native fixture statements
-live in `src/tests/queries/`. Each call embeds a named file and binds its inputs.
-Completion selects one of six fixed queries through `TimeCompletion`. Authority
-activation embeds one complete transaction, including exact-ID locks, the joined
-pointer/release snapshot and optimistic updates. The standalone active read and
-transaction snapshot use the same predicates and ordering.
-Tenant and event-owner predicates, sorting, grouping and limits execute in SurrealDB.
+through the persistence interface and into the driver: the IDs, the persistence
+vocabularies and `TimeAcquisitionPhase` bind as `text` through their `postgres` hooks,
+which the `runtime` feature enables, and tenants and principals bind as `uuid`.
+Contract-only consumers resolve no database dependency. Calendar, epoch and
+existing-record guards use `TimeVersion`. Collection queries accept `CalendarCursor`,
+`EpochCursor` or `EventCursor` directly. Completion selects one of six fixed queries
+through `TimeCompletion`. Tenant and event-owner predicates, keyset positions, sorting,
+distinct selection and limits execute in SQL.
 
 Public Time IDs accept bounded prefixed names because bootstrap authority provenance
-can name image-provided releases. Stored catalog keys require the corresponding
-prefix followed by a UUID whose version is 7, preserving the existing persistence
-profile. Public syntax does not establish that a stored record exists. Bootstrap
-references keep their public spelling and are not converted into database keys.
-The persistence admission check applies before stored reads and writes. It does not
-narrow public provenance deserialization or rewrite retained keys. Time's schema lane
-defines tables and record fields; the Time contract defines JSON bodies and cursor versions.
+can name image-provided releases. Stored keys are the prefix followed by a lowercase
+hyphenated UUIDv7; `validate_key` and the schema's `time.is_key` check admit the same
+form. Public syntax does not establish that a stored record exists. Bootstrap
+references keep their public spelling and are not converted into database keys. The
+Time contract defines JSON bodies and cursor versions.
 
-| Table | Responsibility |
-|---|---|
-| `time_source` | registered IANA source endpoints and media policy |
-| `time_authority_release` | immutable release provenance and lifecycle |
-| `time_active_authority` | one optimistic pointer per tenant and data family |
-| `time_acquisition` | idempotent acquisition state and progress |
-| `time_calendar_version` | immutable operational calendars |
-| `time_epoch` | versioned named physical instants |
-| `time_event` | owner-scoped scheduled events |
-| `time_clock_policy` | tenant clock acceptance policy |
+| Table | Key | Responsibility |
+|---|---|---|
+| `time.source` | tenant, source key | registered IANA source endpoints and media policy |
+| `time.authority_release` | tenant, release key | immutable release provenance and lifecycle |
+| `time.active_authority` | tenant, dataset kind | one optimistic pointer per tenant and family |
+| `time.acquisition` | tenant, acquisition key | idempotent acquisition state and progress |
+| `time.calendar_version` | tenant, calendar key, version | immutable operational calendars |
+| `time.epoch` | tenant, epoch key, version | versioned named physical instants |
+| `time.event` | tenant, event key | owner-scoped scheduled events |
+| `time.clock_policy` | tenant | tenant clock acceptance policy |
 
-All tables are schema-full and carry a 30-day changefeed. The Time module lane creates
-their fields and indexes during installation. The server connects with the database
-user its Gateway registration returns and never applies migrations.
+Tenants and owners are `uuid` columns without foreign keys into the identity schema.
+Vocabularies are `text` with a `CHECK` listing their spellings, and counters are
+`bigint` with a `CHECK` for their range. Each row's `body` is a `jsonb` object holding
+the public document. Unique constraints admit one acquisition and one event per tenant,
+owner and idempotency key, and one release per source and digest. Records that keep
+their creator's provenance store the tenant key, owner key and Work Context beside
+their owner. Every table carries the `kernel.notify_change` row trigger.
 
 ### Version Guards
 
@@ -822,8 +852,9 @@ schemas reject values outside their storage range before dispatch.
 Every lifecycle increment checks the storage maximum. Exhaustion fails the write
 without wrapping, resetting or changing the stored value. Release activation checks
 both proposed versions before dispatch. Retirement increments the previous release
-inside that transaction with a positive, below-maximum version predicate; failure
-rolls back the candidate release and pointer together.
+inside that transaction with a below-maximum version predicate; failure rolls back the
+candidate release and pointer together. The schema keeps every stored version
+positive.
 
 ### Acquisition Phases
 
@@ -836,11 +867,11 @@ separate transition responsibilities.
 ### Retained Catalog Metadata
 
 `catalog/records.rs` converts SQL-selected rows into public values. It checks each
-stored UUID key against the typed ID in the JSON body and the physical record ID.
-Calendar and epoch keys include their positive version. Event and epoch nanoseconds
-must be below one billion. SQL applies tenant and event-owner visibility before this
-conversion; a visible inconsistent record fails its read or page without being dropped
-from the results. Reads never repair or rewrite retained data.
+stored key against the typed ID in the JSON body. The schema keeps calendar and epoch
+versions positive and event and epoch nanoseconds below one billion. SQL applies
+tenant and event-owner visibility before this conversion; a visible inconsistent record
+fails its read or page without being dropped from the results. Reads never repair or
+rewrite retained data.
 
 | Entity | Body fields that must agree with the row | Values taken from lifecycle columns |
 |---|---|---|
@@ -859,10 +890,10 @@ columns. Acquisition updates preserve creation time, source and expected digest,
 and SQL version predicates fence competing updates. Diagnostics identify the entity
 and field without quoting stored content.
 
-`catalog/clock.rs` checks the physical clock-policy ID and tenant, converts stored
-signed scalars without narrowing, and admits the policy and version through their
-contract types. Invalid scalar diagnostics name the field without quoting stored
-values. Reads leave rejected rows unchanged.
+`catalog/clock.rs` checks the clock policy's tenant, converts stored signed scalars
+without narrowing, and admits the policy and version through their contract types.
+The schema's checks hold the same ranges as the policy builder. Invalid scalar
+diagnostics name the field without quoting stored values.
 
 Every stored instant fraction must be within `0..=999999999`. Each instant binding
 and packaged bootstrap pair must use distinct release IDs for TZDB and leap seconds.
@@ -871,19 +902,19 @@ and nonblank labels. The public instant and Unix/TAI schemas declare the same
 subsecond range. Zero-version update requests apply only to an absence guard.
 
 Time decodes only the current body format and supplies no historical-body adapter.
-Changing a stored body format or a bootstrap identity starts from a fresh Store. Epochs
+Changing a stored body format or a bootstrap identity starts from a fresh schema. Epochs
 and events that reference a withdrawn packaged authority are recreated rather than
 reinterpreted under a new release. Acquired authority releases keep their stored
 identities and artifacts. Bootstrap IDs are derived by the server and have no
 configuration override or alias.
 
-`persistence/active.rs` selects tenant pointers and resolves their releases within
-one SQL statement. The release subquery applies tenant, family, key and active-state
-predicates. A visible pointer without a matching release fails the read; only an
-absent pointer permits bootstrap selection during reload. Pointer admission checks
-its physical tenant/family key, positive version, stored release-ID syntax and
-previous-release history. Catalog decoding then checks the selected release body.
-These checks leave stored records unchanged and apply after every restart.
+`persistence/active.rs` reads tenant pointers and the releases they select in one
+repeatable-read transaction. The release query applies tenant, family, key and
+active-state predicates. A visible pointer without a matching release fails the read;
+only an absent pointer permits bootstrap selection during reload. Pointer admission
+checks its tenant, positive version, stored release-ID syntax and previous-release
+history. Catalog decoding then checks the selected release body. These checks leave
+stored records unchanged and apply after every restart.
 
 Compiled authority products live under `/var/lib/veoveo/time/releases`. Acquisition
 scratch data lives under `/var/lib/veoveo/time/acquisitions` and is removed at terminal
@@ -934,13 +965,16 @@ Time registers with the Gateway at startup, before it serves traffic:
 2. `RegistrationClient::discover` reads the registration endpoint from the RFC 8414
    metadata of `VEOVEO_GATEWAY_ISSUER`.
 3. Time registers its slug, URI scheme, version, MCP endpoint
-   `{VEOVEO_PUBLIC_BASE_URL}/time/mcp`, authorization declaration and `time` module
-   manifest. The installation's registration secret, `VEOVEO_REGISTRATION_SECRET`, is
-   the initial access token.
+   `{VEOVEO_PUBLIC_BASE_URL}/time/mcp` and authorization declaration. The
+   installation's registration secret, `VEOVEO_REGISTRATION_SECRET`, is the initial
+   access token.
 4. The response supplies the issuer and keys that verify forwarded access tokens and
-   the SurrealDB endpoint, namespace, database and user Time connects with.
-5. A background task renews the registration at the interval the lease names and
-   removes it when the server shuts down.
+   the `veoveo_database` grant: the database URL and the login and password the
+   Gateway created for this registration, a member of `server_time`.
+5. Time connects as that login, applies its migrations, starts its process instance,
+   its change listener and its due loop, and serves.
+6. On SIGTERM or Ctrl-C Time stops serving, stops its instance and removes the
+   registration through RFC 7592. Deregistration drops the login.
 
 A registration without a database grant stops startup.
 
@@ -950,9 +984,12 @@ The image runs as UID 10001 and can use a read-only root filesystem. Writable pa
 are the Time persistent volume and `/tmp`. The container includes CA roots, `tzdata`,
 `zic`, and the `veoveo-mcp-time` binary.
 
-An installation runs one replica with a `ReadWriteOnce` volume because release
-activation and local event watchers are process-owned. The Gateway reaches the service
-only over the installation network. SurrealDB holds the durable coordination state.
+An installation runs one replica with a `ReadWriteOnce` volume because acquisition
+artifacts live on that volume. Activation, due transitions and change notifications
+coordinate through PostgreSQL, which holds the durable state. Time connects to
+PostgreSQL directly, without a pooler that multiplexes sessions, because its instance
+lock and change listener hold session state. The Gateway reaches the service only over
+the installation network.
 
 Connected installations grant the pod HTTPS egress only to approved IANA mirrors or
 installation-controlled authority endpoints. Source endpoints remain tenant admin
@@ -999,8 +1036,11 @@ Examples of agent requests include:
 | `src/catalog.rs`, `src/catalog/pages.rs` | typed catalog operations, domain body decoding, collection envelopes and completion |
 | `src/catalog/records.rs` | current body/key and indexed-field checks, lifecycle-column decoding and redacted metadata errors |
 | `src/catalog/knowledge.rs` and `src/persistence/provenance.rs` | source-owned knowledge reads, stored creation context and checked observation attribution |
-| `src/persistence/` | private typed query/mutation interfaces, SurrealDB driver records, admission and SQL visibility |
-| `src/persistence/active.rs`, `src/persistence/activation.rs` | joined pointer/release admission and transactional activation relationship checks |
+| `src/persistence/` | private typed query/mutation interfaces, driver records, admission and SQL visibility |
+| `src/persistence/active.rs`, `src/persistence/activation.rs` | pointer/release snapshot admission and the locked activation transaction |
+| `src/persistence/due.rs`, `src/due.rs` | the due statement and the per-process due loop |
+| `src/changes.rs` | Time's schema and channel, the change watcher and tenant subscription hubs |
+| `src/mcp/subscriptions.rs` | tenant-scoped `subscriptions/listen` admission |
 | `src/index.rs` | collection-bound opaque cursors and page envelopes |
 | `src/registry.rs` | request-validated tenant contexts, isolated engine state and preflight-bound activation |
 | `src/catalog/activation.rs` | private observed activation drafts and their publication |
@@ -1008,13 +1048,13 @@ Examples of agent requests include:
 | `src/mcp.rs` | MCP tools, resources, templates, completions, subscriptions |
 | `src/mcp/administration.rs` | tenant administration tools |
 | `src/mcp/requirements.rs` | the requirement table, the authorization declaration and handler checks |
-| `src/mcp/declarations.rs` | registration identity and the `time` module declaration |
+| `src/mcp/declarations.rs` | registration identity |
 | `src/prompts.rs` | reusable temporal interaction prompts |
-| `src/server/tasks.rs` | final Task API adapter, leases, recovery, subscriptions |
+| `src/server/tasks.rs` | final Task API adapter, the claim-stream consumer and settlement |
 | `src/server/` | configuration, HTTP assembly and startup |
 | `src/server/registration.rs` | key loading, Gateway discovery and registration |
-| `src/schema/migrations/0000_current.surql` | Time-owned temporal schema and indexes |
-| `src/persistence/queries/`, `src/tests/queries/` | production statements and native fixture scripts |
+| `migrations/`, `sqlx.toml` | Time's schema: tables, checks, keys, indexes and notification triggers |
+| `src/persistence/queries/`, `src/tests/queries/` | production and native fixture statements; the workspace's `.sqlx/` holds their checked metadata |
 
 ## Verification
 
@@ -1023,14 +1063,15 @@ discovery, tool calls, a schedule Task, future events with resource notification
 reconciliation after a reconnect, and administration refused to a member and admitted
 for an admin. The schedule Task keeps working long enough that its status notification
 arrives through the subscription before completion.
-Native Task controls use two worker identities on separate connections to the same
-isolated Store. They commit cancellation between completion snapshot selection and
+Native Task controls run two process instances on separate pools of the same test
+database. They commit cancellation between completion snapshot selection and
 settlement, verify remote and local cancellation, preserve completion and calculation
-failure outcomes, and reject unrelated conflicts or another worker's live lease.
-A local-token control checks that shutdown without durable cancel intent leaves the
-original Task unfinished without a result. Selected-snapshot controls stop success
-publication after owner reads and exercise the reconciliation dispatch seam against
-actual retained Task state.
+failure outcomes, and reject unrelated conflicts and settlement by an instance that
+does not own the Task. A local-token control checks that shutdown without durable
+cancel intent leaves the original Task unfinished without a result. Selected-snapshot
+controls stop success publication after owner reads and exercise the reconciliation
+dispatch seam against actual retained Task state. A claim control shows that a replica
+other than the creator claims a queued Task from the stream.
 These controls do not qualify installed cancellation or unfinished process restart.
 
 Local controls qualify fixture and receipt handling, clock classification, touching
@@ -1042,10 +1083,13 @@ Unit tests cover leap authority validation, positive-leap projection, RFC/GPS/DT
 equivalence, DST ambiguity, DST-aware schedule expansion, half-open interval algebra,
 timeline violations, clock policy, canonical URIs, acquisition configuration, and
 archive traversal rejection.
-Time runtime tests cover stored URL/ID admission, SQL isolation and pagination, requested
-epoch batches and completion. Retained-metadata cases corrupt rows through a separate
-fixture connection, verify read/collection rejection, preserve lifecycle columns, and
-reject acquisition identity changes before writing. Isolated authority tests use separate connections to
+Runtime tests run against `veoveo-test-fixtures`' PostgreSQL 18 cluster: each test
+clones a database with the kernel migrations, applies Time's migrations as
+`server_time` and connects two pools as two registration logins. They cover stored
+URL/ID admission, SQL isolation and pagination, requested epoch batches and
+completion. Retained-metadata cases corrupt bodies through fixture statements, verify
+read/collection rejection, check that the schema refuses corrupt columns, preserve
+lifecycle columns, and reject acquisition identity changes before writing. Isolated authority tests use separate connections to
 qualify retirement, competing pointer updates and exhaustion rollback followed by retry.
 Numeric contract cases compare schema bounds with JSON admission, and compile-fail
 examples reject unchecked construction. Native scalar cases reject negative, zero,
@@ -1057,25 +1101,23 @@ clipping, recurrence limits and foreign authority rejection.
 Resolution contract cases check flat wire fields, schema admission and release agreement
 inside both output models. Native epoch cases cover offset fractions, authority rejection
 and uncertainty preservation, including overflow without epoch mutation.
-Active-pointer cases corrupt family, identity, version, history and
-release links; raw query checks prove SQL excludes denied release payloads. Fixture
-events change pointer and previous-release fields after the candidate update, proving
-that the production transaction rechecks them and rolls back all changes. Time fixtures
-select the Time module lane explicitly alongside the required kernel lanes. Registry cases use copied Linux UTC tzdata and temporary leap
-files. They qualify persisted selection on a fresh replica, request-time refresh without
+Active-pointer cases show that the schema refuses pointers with a foreign or missing
+release, a wrong family, a wrong version or an inconsistent history, and that SQL
+excludes a release that is no longer active before its body decodes. Fixture triggers
+change pointer and previous-release fields after the candidate update, proving that the
+production transaction rechecks them and rolls back all changes. Lock cases hold an
+activation open and show that another activation of the tenant and repairs of its
+locked rows wait. Registry cases use copied UTC tzdata and temporary leap files. They
+qualify persisted selection on a fresh replica, request-time refresh without
 notifications, independent epoch maps, cache reuse, failed-load eviction and recovery,
-native LIVE/reconciliation eviction through separate database connections, and batched
-watcher admission that skips existing and terminal events.
+and eviction on a tenant's authority notification and on reconciliation. Notification
+cases subscribe one tenant's hub and show that another tenant's event changes never
+reach it. Due cases show that an overdue event becomes due once a process starts,
+without a read or a subscription, and that two replicas running the statement and
+their loops change each event once.
 Permission cases issue access tokens with chosen grants and call every permission
-family through the hosted router. The container build and the shared SurrealDB fixture
+family through the hosted router. The container build and the PostgreSQL fixture
 exercise the deployment boundary.
-
-## Replica Resource Observation
-
-Each replica opens one shared group of projected Store LIVE queries for authority releases and activation, acquisitions, calendars, epochs, events and clock policy.
-Committed changes invalidate only each listener's accepted resource identities and
-requested catalog. Writes coalesce over 100 milliseconds. Source reconnection invalidates readers after a delivery gap; reads retain normal
-current authority. Idle sources emit no periodic resource-change notifications. This observes durable state and cannot dispatch work.
 
 ## Identity Declaration Mechanics
 
@@ -1095,33 +1137,6 @@ hexadecimal-case and JSON spelling aliases. Transparent Serde delegates admissio
 the stateless codec. Each public wrapper keeps its own string schema identity.
 Constructors keep their infallible signatures and parser size policy; copied and
 borrowed position accessors preserve the owner API.
-
-## Persistence Module Declaration
-
-The independent `schema` feature exports `schema::module_setup(execution)` for the
-`time` optional module. It activates `veoveo-modules` with default features disabled and the foundational
-vocabulary, Serde and schema dependencies used by owner table declarations. MCP,
-Store and asynchronous runtime dependencies require their own features. The
-declaration claims `time_*`.
-It requires Identity and its Store requirement.
-
-The lane embeds `src/schema/migrations/0000_current.surql`, which defines the
-Time tables and their indexes. The composition root supplies the checked execution
-image and command. Installation execution and its Jobs require separate qualification;
-the runtime server never applies the lane. Owner migrations and queries live in this
-crate, with one declaration per schema object.
-
-Artifact path text and client-facing temporal relationships do not invent optional schema requirements.
-
-## Persistence Observation
-
-`TimeObservationTable` declares the owner's closed observation table names under the
-`schema` feature. Runtime consumers convert these declarations into checked
-`ObservationTable` descriptors and compose them with kernel tables. The descriptor
-admits an identifier; it does not certify installed schema or grant read authority.
-These owner tables declare 30-day changefeed retention matching the installed SQL.
-LIVE invalidation and changefeed recovery keep their existing reconciliation and
-checkpoint behavior. Public DTO contract features do not activate observation sources.
 
 ## Task Completion Products
 
