@@ -178,12 +178,14 @@ async fn task_tools_require_their_permission_before_a_task_exists() {
 async fn administration_tools_require_their_administrative_permission() {
     tokio::time::timeout(Duration::from_secs(90), async {
         let fixture = Fixture::new().await;
+        // The admitted acquisition downloads in the background. A closed privileged
+        // loopback port refuses it at once, so the test never leaves the host.
         let source = |record_version: u64| {
             json!({
                 "sourceId": "time-source-0195dabe-7777-7abc-8def-000000000009",
                 "name": "IANA tzdb",
                 "datasetKind": "tzdb",
-                "url": "https://data.iana.org/time-zones/tzdata-latest.tar.gz",
+                "url": "https://127.0.0.1:9/tzdata-latest.tar.gz",
                 "expectedContentType": "application/gzip",
                 "enabled": true,
                 "recordVersion": record_version
