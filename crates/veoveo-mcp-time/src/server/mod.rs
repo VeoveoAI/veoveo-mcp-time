@@ -1,19 +1,20 @@
-pub(super) mod auth;
 mod bootstrap;
 mod config;
+mod registration;
 pub(crate) mod tasks;
 
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
-use anyhow::Result;
-use axum::middleware;
+use anyhow::{Context, Result};
 use clap::Parser;
 use veoveo_mcp_contract::{
-    GatewayInternalTrustBundle, SubscriptionHub, TelemetryGuard,
+    SubscriptionHub, TelemetryGuard,
     hosting::{Hosted, HostedServer},
     init_server_telemetry,
 };
-use veoveo_task_runtime::{DurableTasks, TaskRecoveryObserver, TaskRuntime, TaskRuntimeConfig};
+use veoveo_task_runtime::{
+    DurableTasks, StoreAuthLevel, TaskRecoveryObserver, TaskRuntime, TaskRuntimeConfig,
+};
 
 use crate::{
     acquisition::{AcquisitionService, AcquisitionServiceConfig},
@@ -22,12 +23,11 @@ use crate::{
     catalog::TimeCatalog,
     clock::{ClockMonitor, ClockSource},
     contract::{AuthorityDatasetKind, EffectiveTimeAuthority},
-    mcp::{TimeMcp, TimeSubscriptions},
+    mcp::{TimeMcp, TimeSubscriptions, declarations},
     registry::AuthorityRegistry,
     state::TimeApplication,
 };
 
-use auth::{AdminAuthState, authorize_admin};
 use config::Args;
 use tasks::{TimeTaskExtension, recover_tasks};
 
@@ -37,18 +37,26 @@ pub async fn run() -> Result<()> {
     install_rustls_provider();
     let _ = dotenvy::dotenv();
     let _telemetry: TelemetryGuard =
-        init_server_telemetry("veoveo-time-mcp", "info,veoveo_mcp_time=debug")?;
+        init_server_telemetry("veoveo-mcp-time", "info,veoveo_mcp_time=debug")?;
     let args = Args::parse();
-    std::sync::LazyLock::force(&crate::mcp::SERVER_SETUP);
     let public_deployment = args.public_deployment()?;
+    let declaration = declarations::registration(&public_deployment)?;
+    declarations::REGISTRATION
+        .set(declaration.clone())
+        .map_err(|_| anyhow::anyhow!("Time's registration was declared twice"))?;
+    std::sync::LazyLock::force(&crate::mcp::SERVER_SETUP);
+    let (registration_client, registration) = registration::register(&args, declaration).await?;
+    let database = registration
+        .database()
+        .context("the Gateway issued no database user for Time's module")?;
     let tasks = TaskRuntime::connect(
         TaskRuntimeConfig::new(
-            args.surreal_endpoint.clone(),
-            args.surreal_namespace.clone(),
-            args.surreal_database.clone(),
-            args.surreal_auth_level,
-            args.surreal_username.clone(),
-            args.surreal_password.clone(),
+            database.endpoint.as_str().trim_end_matches('/'),
+            database.namespace.as_str(),
+            database.database.as_str(),
+            StoreAuthLevel::Database,
+            database.username.as_str(),
+            database.password.clone(),
         ),
         SERVER_SLUG,
         format!("{SERVER_SLUG}-{}", uuid::Uuid::now_v7()),
@@ -67,12 +75,12 @@ pub async fn run() -> Result<()> {
             )
             .await?,
         )?,
-        &args.bootstrap_tzdb_dir,
+        &args.bootstrap_tzdb_directory,
         leap_seconds,
     )?;
     let authorities = AuthorityRegistry::new(
         bootstrap,
-        args.bootstrap_tzdb_dir.clone(),
+        args.bootstrap_tzdb_directory.clone(),
         args.bootstrap_leap_seconds_file.clone(),
     );
     let clock = ClockMonitor::new(
@@ -85,8 +93,8 @@ pub async fn run() -> Result<()> {
     );
     let acquisitions = Arc::new(AcquisitionService::new(
         AcquisitionServiceConfig {
-            scratch_root: args.acquisition_scratch_root.clone(),
-            release_root: args.release_root.clone(),
+            scratch_root: args.acquisition_scratch_directory.clone(),
+            release_root: args.release_directory.clone(),
             zic_executable: args.zic_executable.clone(),
             maximum_source_bytes: args.maximum_source_bytes,
             maximum_expanded_bytes: args.maximum_expanded_bytes,
@@ -132,19 +140,12 @@ pub async fn run() -> Result<()> {
                 .await;
         }
     });
-    let admin = admin::router(state.clone()).layer(middleware::from_fn_with_state(
-        AdminAuthState {
-            required_scope: args.admin_scope.clone(),
-        },
-        authorize_admin,
-    ));
+    let admin = admin::router(state.clone());
     let clock_state = state.clone();
     let server = HostedServer::for_domain::<TimeMcp>()
         .deployment(&public_deployment, args.allow_loopback_hosts)?
         .allowed_hosts(args.allowed_hosts.iter().cloned())
-        .internal_trust(GatewayInternalTrustBundle::from_json(
-            &args.internal_trust_jwks,
-        )?)?
+        .internal_trust(registration.access_tokens())?
         .handler(move || {
             Hosted::new(TimeMcp::new(state.clone())).with_tasks(DurableTasks::with_resources(
                 TimeTaskExtension::new(state.clone()),
@@ -158,9 +159,24 @@ pub async fn run() -> Result<()> {
             async move { state.clock.quality().await.is_ok() }
         })
         .build();
-    recovery_observer
+    let (stop_registration, stopped) = tokio::sync::oneshot::channel::<()>();
+    let maintenance = tokio::spawn(async move {
+        registration_client
+            .maintain(registration, async {
+                let _ = stopped.await;
+            })
+            .await
+    });
+    let served = recovery_observer
         .serve(server.serve(SocketAddr::from(([0, 0, 0, 0], args.port))))
-        .await
+        .await;
+    let _ = stop_registration.send(());
+    match maintenance.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!(%error, "Time's registration ended with an error"),
+        Err(error) => tracing::warn!(%error, "Time's registration task failed"),
+    }
+    served
 }
 
 fn install_rustls_provider() {

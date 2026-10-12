@@ -159,7 +159,6 @@ fn all_resource_families_preserve_the_published_wire_shape() {
             "time://docs/design",
         ),
         (TimeResource::Contract, "time://contract"),
-        (TimeResource::TimelineApp, "ui://time/timeline.html"),
         (TimeResource::ClockCurrent, "time://clock/current"),
         (TimeResource::ClockQuality, "time://clock/quality"),
         (
@@ -365,7 +364,6 @@ fn subscriptions_share_resource_validation_and_exclude_cursor_pages() {
         "time://docs/agents",
         "time://zones/UTC",
         "time://authorities/releases/time-release-one",
-        "ui://time/timeline.html",
     ] {
         assert!(!TimeResource::parse(wire).unwrap().is_subscribable());
     }
@@ -492,7 +490,6 @@ fn shared_routes_agree_with_discovery_and_preserve_matched_error_profiles() {
             uris::DOCS_URI,
             uris::DOC_TEMPLATE,
             uris::CONTRACT_URI,
-            uris::TIMELINE_APP_URI,
             uris::CLOCK_CURRENT_URI,
             uris::CLOCK_QUALITY_URI,
             uris::AUTHORITIES_CURRENT_URI,
@@ -541,7 +538,7 @@ fn shared_routes_agree_with_discovery_and_preserve_matched_error_profiles() {
 
 #[test]
 fn route_patterns_validate_encoded_builder_output_without_claiming_domain_admission() {
-    let zone_route = &TimeResource::RESOURCE_ROUTES[11];
+    let zone_route = &TimeResource::RESOURCE_ROUTES[10];
     let schema =
         serde_json::json!({"type": "string", "pattern": zone_route.wire_pattern().unwrap()});
     let validator = jsonschema::validator_for(&schema).unwrap();
@@ -578,7 +575,7 @@ fn route_query_schema_and_admission_preserve_opaque_cursor_hex_aliases() {
     let wire = address.to_uri().unwrap();
     assert!(wire.as_str().ends_with(&uppercase));
     assert_eq!(TimeResource::parse(wire.as_str()).unwrap(), address);
-    let schema = serde_json::json!({"type": "string", "pattern": TimeResource::RESOURCE_ROUTES[17].wire_pattern().unwrap()});
+    let schema = serde_json::json!({"type": "string", "pattern": TimeResource::RESOURCE_ROUTES[16].wire_pattern().unwrap()});
     assert!(
         jsonschema::validator_for(&schema)
             .unwrap()

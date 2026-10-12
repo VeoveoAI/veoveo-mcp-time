@@ -21,7 +21,7 @@ impl TimePrompt {
     pub fn by_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|value| value.name() == name)
     }
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::ResolveOperationalTime => "resolve_operational_time",
             Self::ExpandOperationalCalendar => "expand_operational_calendar",

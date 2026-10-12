@@ -1,10 +1,10 @@
-use super::{TimeMcp, default_clock_policy, internal, invalid_params, not_found, require_scope};
+use super::{
+    TimeMcp, default_clock_policy, internal, invalid_params, not_found,
+    requirements::{Target, require},
+};
+use crate::contract::{ConvertTimeRequest, ResolveTimeRequest, TimeResource};
 use crate::contract::{
     TimeKnowledgeCollection as Collection, TimeResourceEntry as Entry, TimeResourcePage as Page,
-};
-use crate::{
-    contract::{ConvertTimeRequest, ResolveTimeRequest, TimeResource, TimeScope},
-    uris,
 };
 use rmcp::{ErrorData as McpError, RoleServer, model::ReadResourceResult, service::RequestContext};
 use serde_json::json;
@@ -19,70 +19,7 @@ impl TimeMcp {
         uri: &str,
         context: &RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, McpError> {
-        let identity = require_scope(context, TimeScope::Read)?;
-        if resource == TimeResource::TimelineApp {
-            let html = veoveo_mcp_apps_extension::workbench_app_html(
-                &veoveo_mcp_apps_extension::WorkbenchApp {
-                    app_id: "time-timeline",
-                    title: "Timeline",
-                    subtitle: "Resolve times and manage scheduled events",
-                    empty_message: "No temporal resources are visible to this identity.",
-                    resources: &[
-                        veoveo_mcp_apps_extension::WorkbenchResource {
-                            label: "Current time",
-                            uri: uris::CLOCK_CURRENT_URI,
-                        },
-                        veoveo_mcp_apps_extension::WorkbenchResource {
-                            label: "Clock quality",
-                            uri: uris::CLOCK_QUALITY_URI,
-                        },
-                        veoveo_mcp_apps_extension::WorkbenchResource {
-                            label: "Calendars",
-                            uri: uris::CALENDARS_URI,
-                        },
-                        veoveo_mcp_apps_extension::WorkbenchResource {
-                            label: "Epochs",
-                            uri: uris::EPOCHS_URI,
-                        },
-                        veoveo_mcp_apps_extension::WorkbenchResource {
-                            label: "Events",
-                            uri: uris::EVENTS_URI,
-                        },
-                    ],
-                    tools: &[
-                        veoveo_mcp_apps_extension::WorkbenchTool {
-                            label: "Resolve time",
-                            name: "resolve_time",
-                            arguments_json: "{}",
-                        },
-                        veoveo_mcp_apps_extension::WorkbenchTool {
-                            label: "Convert time",
-                            name: "convert_time",
-                            arguments_json: "{}",
-                        },
-                        veoveo_mcp_apps_extension::WorkbenchTool {
-                            label: "Evaluate windows",
-                            name: "evaluate_windows",
-                            arguments_json: "{}",
-                        },
-                        veoveo_mcp_apps_extension::WorkbenchTool {
-                            label: "Assess clock",
-                            name: "assess_clock",
-                            arguments_json: "{}",
-                        },
-                        veoveo_mcp_apps_extension::WorkbenchTool {
-                            label: "Create event",
-                            name: "create_event",
-                            arguments_json: "{}",
-                        },
-                    ],
-                    stream_result: None,
-                },
-            );
-            return Ok(ReadResourceResult::new(vec![
-                veoveo_mcp_apps_extension::app_html_contents(uri, &html),
-            ]));
-        }
+        let identity = require(context, Target::Resource(uri))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         match &resource {
             TimeResource::Calendars { cursor: after } => {
@@ -211,12 +148,12 @@ impl TimeMcp {
                     .ok_or_else(|| not_found("bootstrap authority"))?;
                 let descriptor = Collection::BootstrapAuthorities.descriptor();
                 let text = serde_json::to_string(&reference).map_err(internal)?;
-                let observation = veoveo_mcp_knowledge_extension::docs::observation(
+                let observation = veoveo_mcp_ext_knowledge::docs::observation(
                     &descriptor,
-                    veoveo_mcp_knowledge_extension::content_digest(&text),
+                    veoveo_mcp_ext_knowledge::content_digest(&text),
                     chrono::Utc::now(),
                 );
-                veoveo_mcp_knowledge_extension::server::member_result(
+                veoveo_mcp_ext_knowledge::server::member_result(
                     &resource.to_uri().map_err(invalid_params)?,
                     "application/json",
                     text,
@@ -334,7 +271,6 @@ impl TimeMcp {
             TimeResource::Docs | TimeResource::Document(_) | TimeResource::Contract => {
                 Err(served_by_host())
             }
-            TimeResource::TimelineApp => Err(not_found("Time resource")),
         }
     }
 }
@@ -346,7 +282,7 @@ fn observed_resource<T: serde::Serialize>(
 ) -> Result<ReadResourceResult, McpError> {
     let collection = member.collection();
     let (text, observation) = member.document().map_err(internal)?;
-    veoveo_mcp_knowledge_extension::server::member_result(
+    veoveo_mcp_ext_knowledge::server::member_result(
         &resource.to_uri().map_err(invalid_params)?,
         "application/json",
         text,

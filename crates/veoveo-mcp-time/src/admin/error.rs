@@ -48,6 +48,14 @@ impl ApiError {
             true,
         )
     }
+    pub fn forbidden(message: impl std::fmt::Display) -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            AdminProblemType::Forbidden,
+            message.to_string(),
+            false,
+        )
+    }
     fn new(
         status: StatusCode,
         problem_type: AdminProblemType,

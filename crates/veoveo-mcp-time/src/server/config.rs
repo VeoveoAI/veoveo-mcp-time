@@ -3,60 +3,105 @@ use std::path::PathBuf;
 use clap::Parser;
 use secrecy::SecretString;
 use veoveo_mcp_contract::{PublicDeployment, parse_allowed_host_authority};
-use veoveo_task_runtime::StoreAuthLevel;
-use veoveo_types::{ScopeDefinition, ScopeName};
 
-use crate::contract::TimeScope;
-
+/// Every flag has the matching `VEOVEO_` environment variable. The Gateway issues the
+/// database user and the access-token trust when Time registers, so neither is
+/// configured here.
 #[derive(Parser)]
-#[command(name = "server", about = "Time MCP and administrative server")]
+#[command(name = "veoveo-mcp-time", about = "Time MCP and administrative server")]
 pub(super) struct Args {
-    #[arg(long, default_value_t = 8800)]
+    #[arg(long, env = "VEOVEO_PORT", default_value_t = 8800)]
     pub port: u16,
-    #[arg(long, env = "PUBLIC_BASE_URL")]
+    /// The origin where the Gateway reaches Time; Time serves MCP at
+    /// `{public_base_url}/time/mcp` and registers that URL.
+    #[arg(long, env = "VEOVEO_PUBLIC_BASE_URL")]
     pub public_base_url: String,
-    #[arg(long, default_value = "/usr/share/zoneinfo")]
-    pub bootstrap_tzdb_dir: PathBuf,
-    #[arg(long, default_value = "/usr/share/zoneinfo/tzdata.zi")]
+    /// The Gateway's RFC 8414 issuer; registration discovers its endpoint from there.
+    #[arg(long, env = "VEOVEO_GATEWAY_ISSUER")]
+    pub gateway_issuer: url::Url,
+    /// The installation's registration secret, or the placeholder OpenShell substitutes.
+    #[arg(
+        long,
+        env = "VEOVEO_REGISTRATION_SECRET",
+        hide_env_values = true,
+        value_parser = parse_secret
+    )]
+    pub registration_secret: SecretString,
+    /// Holds Time's registration key, which keeps its namespace across restarts.
+    #[arg(
+        long,
+        env = "VEOVEO_KEY_DIRECTORY",
+        default_value = "/var/lib/veoveo/time/keys"
+    )]
+    pub key_directory: PathBuf,
+    #[arg(
+        long,
+        env = "VEOVEO_BOOTSTRAP_TZDB_DIRECTORY",
+        default_value = "/usr/share/zoneinfo"
+    )]
+    pub bootstrap_tzdb_directory: PathBuf,
+    #[arg(
+        long,
+        env = "VEOVEO_BOOTSTRAP_TZDB_SOURCE_FILE",
+        default_value = "/usr/share/zoneinfo/tzdata.zi"
+    )]
     pub bootstrap_tzdb_source_file: PathBuf,
-    #[arg(long, default_value = "/usr/share/zoneinfo/leap-seconds.list")]
+    #[arg(
+        long,
+        env = "VEOVEO_BOOTSTRAP_LEAP_SECONDS_FILE",
+        default_value = "/usr/share/zoneinfo/leap-seconds.list"
+    )]
     pub bootstrap_leap_seconds_file: PathBuf,
-    #[arg(long, default_value = "/var/lib/veoveo/time/acquisitions")]
-    pub acquisition_scratch_root: PathBuf,
-    #[arg(long, default_value = "/var/lib/veoveo/time/releases")]
-    pub release_root: PathBuf,
-    #[arg(long, default_value = "/usr/sbin/zic")]
+    #[arg(
+        long,
+        env = "VEOVEO_ACQUISITION_SCRATCH_DIRECTORY",
+        default_value = "/var/lib/veoveo/time/acquisitions"
+    )]
+    pub acquisition_scratch_directory: PathBuf,
+    #[arg(
+        long,
+        env = "VEOVEO_RELEASE_DIRECTORY",
+        default_value = "/var/lib/veoveo/time/releases"
+    )]
+    pub release_directory: PathBuf,
+    #[arg(long, env = "VEOVEO_ZIC_EXECUTABLE", default_value = "/usr/sbin/zic")]
     pub zic_executable: PathBuf,
-    #[arg(long, default_value_t = 67_108_864)]
+    #[arg(
+        long,
+        env = "VEOVEO_MAXIMUM_SOURCE_BYTES",
+        default_value_t = 67_108_864
+    )]
     pub maximum_source_bytes: u64,
-    #[arg(long, default_value_t = 536_870_912)]
+    #[arg(
+        long,
+        env = "VEOVEO_MAXIMUM_EXPANDED_BYTES",
+        default_value_t = 536_870_912
+    )]
     pub maximum_expanded_bytes: u64,
-    #[arg(long, default_value_t = 300)]
+    #[arg(
+        long,
+        env = "VEOVEO_ACQUISITION_TIMEOUT_SECONDS",
+        default_value_t = 300
+    )]
     pub acquisition_timeout_seconds: u64,
-    #[arg(long)]
+    #[arg(long, env = "VEOVEO_NTPD_OBSERVATION_SOCKET")]
     pub ntpd_observation_socket: Option<PathBuf>,
-    #[arg(long, default_value_t = 2)]
+    #[arg(
+        long,
+        env = "VEOVEO_CLOCK_OBSERVATION_TIMEOUT_SECONDS",
+        default_value_t = 2
+    )]
     pub clock_observation_timeout_seconds: u64,
-    #[arg(long, default_value_t = false)]
+    #[arg(long, env = "VEOVEO_ALLOW_LOOPBACK_HOSTS", default_value_t = false)]
     pub allow_loopback_hosts: bool,
-    #[arg(long = "allowed-host", value_name = "HOST", value_parser = parse_allowed_host)]
+    #[arg(
+        long = "allowed-host",
+        env = "VEOVEO_ALLOWED_HOSTS",
+        value_name = "HOST",
+        value_delimiter = ',',
+        value_parser = parse_allowed_host
+    )]
     pub allowed_hosts: Vec<String>,
-    #[arg(long, default_value_t = TimeScope::Admin.name().clone())]
-    pub admin_scope: ScopeName,
-    #[arg(long = "surreal-endpoint", env = "VEOVEO_SURREAL_ENDPOINT")]
-    pub surreal_endpoint: String,
-    #[arg(long = "surreal-namespace", env = "VEOVEO_SURREAL_NAMESPACE")]
-    pub surreal_namespace: String,
-    #[arg(long = "surreal-database", env = "VEOVEO_SURREAL_DATABASE")]
-    pub surreal_database: String,
-    #[arg(long = "surreal-auth-level", env = "VEOVEO_SURREAL_AUTH_LEVEL", value_parser = parse_database_auth_level)]
-    pub surreal_auth_level: StoreAuthLevel,
-    #[arg(long = "surreal-username", env = "VEOVEO_SURREAL_USERNAME")]
-    pub surreal_username: String,
-    #[arg(long = "surreal-password", env = "VEOVEO_SURREAL_PASSWORD", hide_env_values = true, value_parser = parse_secret)]
-    pub surreal_password: SecretString,
-    #[arg(long, env = "VEOVEO_INTERNAL_TRUST_JWKS", hide_env_values = true)]
-    pub internal_trust_jwks: String,
 }
 
 impl Args {
@@ -65,13 +110,6 @@ impl Args {
     }
 }
 
-fn parse_database_auth_level(value: &str) -> Result<StoreAuthLevel, String> {
-    match value.parse::<StoreAuthLevel>() {
-        Ok(StoreAuthLevel::Database) => Ok(StoreAuthLevel::Database),
-        Ok(_) => Err("time requires database-scoped SurrealDB credentials".to_owned()),
-        Err(error) => Err(error.to_string()),
-    }
-}
 fn parse_secret(value: &str) -> Result<SecretString, String> {
     (!value.is_empty())
         .then(|| SecretString::from(value))
@@ -81,7 +119,7 @@ fn parse_allowed_host(value: &str) -> Result<String, String> {
     let value = value.trim();
     parse_allowed_host_authority(value)
         .map(|_| value.to_owned())
-        .ok_or_else(|| "expected a host authority such as time-mcp:8800".to_owned())
+        .ok_or_else(|| "expected a host authority such as host.openshell.internal:8800".to_owned())
 }
 
 #[cfg(test)]
@@ -90,39 +128,37 @@ mod tests {
 
     fn args(extra: &[&str]) -> Result<Args, clap::Error> {
         let mut argv = vec![
-            "time-mcp",
+            "veoveo-mcp-time",
             "--public-base-url",
             "https://time.example",
-            "--surreal-endpoint",
-            "ws://127.0.0.1:1",
-            "--surreal-namespace",
-            "fixture",
-            "--surreal-database",
-            "fixture",
-            "--surreal-auth-level",
-            "database",
-            "--surreal-username",
-            "fixture",
-            "--surreal-password",
+            "--gateway-issuer",
+            "https://gateway.example",
+            "--registration-secret",
             "fixture-only",
-            "--internal-trust-jwks",
-            "{}",
         ];
         argv.extend(extra);
         Args::try_parse_from(argv)
     }
 
     #[test]
-    fn administrative_scope_defaults_to_the_domain_and_accepts_valid_installation_names() {
-        assert_eq!(args(&[]).unwrap().admin_scope, *TimeScope::Admin.name());
+    fn registration_inputs_are_required_and_database_inputs_are_gone() {
+        let parsed = args(&[]).unwrap();
+        assert_eq!(parsed.gateway_issuer.as_str(), "https://gateway.example/");
         assert_eq!(
-            args(&["--admin-scope", "installation:time-admin"])
-                .unwrap()
-                .admin_scope
-                .as_str(),
-            "installation:time-admin"
+            parsed.key_directory,
+            PathBuf::from("/var/lib/veoveo/time/keys")
         );
-        assert!(args(&["--admin-scope", ""]).is_err());
-        assert!(args(&["--admin-scope", "two scopes"]).is_err());
+        assert!(args(&["--registration-secret", ""]).is_err());
+        assert!(
+            Args::try_parse_from(["veoveo-mcp-time", "--public-base-url", "https://t"]).is_err()
+        );
+        assert!(args(&["--surreal-endpoint", "ws://127.0.0.1:1"]).is_err());
+    }
+
+    #[test]
+    fn allowed_hosts_accept_host_authorities_only() {
+        let parsed = args(&["--allowed-host", "host.openshell.internal:8800"]).unwrap();
+        assert_eq!(parsed.allowed_hosts, ["host.openshell.internal:8800"]);
+        assert!(args(&["--allowed-host", "two hosts"]).is_err());
     }
 }

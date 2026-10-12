@@ -69,8 +69,6 @@ pub enum TimeResource {
     Document(#[resource(variable = "doc_id", codec = TimeDocumentCodec)] TimeDocument),
     #[resource(template = "time://contract")]
     Contract,
-    #[resource(template = "ui://time/timeline.html")]
-    TimelineApp,
     #[resource(template = "time://clock/current")]
     ClockCurrent,
     #[resource(template = "time://clock/quality")]

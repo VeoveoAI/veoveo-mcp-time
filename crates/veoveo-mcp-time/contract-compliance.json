@@ -1,4 +1,6 @@
 {
+  "format": "https://veoveo.ai/formats/hosted-mcp-compliance",
+  "contract": "https://veoveo.ai/contracts/hosted-mcp",
   "server": "time",
   "compliance": [
     {
@@ -139,7 +141,5 @@
       "status": "pending",
       "note": "Owner naming producers, consumers and installed qualification are pending."
     }
-  ],
-  "contractRevision": 4,
-  "catalogRevision": 2
+  ]
 }

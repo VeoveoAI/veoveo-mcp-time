@@ -7,18 +7,17 @@ use rmcp::{
     model::{
         CallToolResult, CompleteRequestParams, CompleteResult, CompletionInfo,
         GetPromptRequestParams, GetPromptResult, Prompt, ReadResourceRequestParams, Reference,
-        Resource, Tool,
+        Resource,
     },
     service::RequestContext,
     tool_router,
 };
 use uuid::Uuid;
 use veoveo_mcp_contract::{
-    GatewayInternalIdentity,
     docs::ServerDocs,
     hosting::{
-        DomainAddress, DomainRead, DomainServer, Listing, completion, gateway_identity,
-        rank_completions, structured_result, unknown_prompt,
+        DomainAddress, DomainRead, DomainServer, Listing, completion, rank_completions,
+        structured_result, unknown_prompt,
     },
     server_contract::McpServerSetup,
 };
@@ -29,17 +28,20 @@ use crate::{
         AssessClockRequest, CancelEventRequest, ClockAssessment, ClockQualityPolicy,
         ConvertTimeOutput, ConvertTimeRequest, CreateEventRequest, EvaluateWindowsOutput,
         EvaluateWindowsRequest, Event, EventId, EventState, ExpandScheduleOutput,
-        ExpandScheduleRequest, ResolveTimeOutput, ResolveTimeRequest, TimeScope,
-        ValidateTimelineOutput, ValidateTimelineRequest,
+        ExpandScheduleRequest, ResolveTimeOutput, ResolveTimeRequest, ValidateTimelineOutput,
+        ValidateTimelineRequest,
     },
     prompts::TimePrompt,
     state::TimeApplication,
     uris,
 };
 
+pub(crate) mod declarations;
+pub(crate) mod requirements;
 mod resources;
 mod setup;
 mod subscriptions;
+use requirements::{Target, require, require_permission};
 pub(crate) use setup::SERVER_SETUP;
 use setup::TimeContract;
 pub(crate) use subscriptions::TimeSubscriptions;
@@ -78,7 +80,7 @@ impl TimeMcp {
         Parameters(request): Parameters<ResolveTimeRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let identity = require_scope(&context, TimeScope::Read)?;
+        let identity = require(&context, Target::Tool("resolve_time"))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let output = self
             .state
@@ -104,7 +106,7 @@ impl TimeMcp {
         Parameters(request): Parameters<ConvertTimeRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let identity = require_scope(&context, TimeScope::Read)?;
+        let identity = require(&context, Target::Tool("convert_time"))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let output = self
             .state
@@ -127,7 +129,7 @@ impl TimeMcp {
         Parameters(request): Parameters<EvaluateWindowsRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let identity = require_scope(&context, TimeScope::Schedule)?;
+        let identity = require(&context, Target::Tool("evaluate_windows"))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let output = self
             .state
@@ -153,7 +155,7 @@ impl TimeMcp {
         Parameters(request): Parameters<AssessClockRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let identity = require_scope(&context, TimeScope::Read)?;
+        let identity = require(&context, Target::Tool("assess_clock"))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let policy = match request.policy {
             Some(policy) => policy,
@@ -216,7 +218,7 @@ impl TimeMcp {
         Parameters(request): Parameters<CreateEventRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let identity = require_scope(&context, TimeScope::EventWrite)?;
+        let identity = require(&context, Target::Tool("create_event"))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let engine = self.state.engine(&scope).await.map_err(internal)?;
         engine
@@ -266,14 +268,14 @@ impl TimeMcp {
         title = "Cancel event",
         description = "Cancel an event you own. Pass the revision you last read; the call fails if it has changed.",
         output_schema = rmcp::handler::server::tool::schema_for_type::<Event>(),
-        annotations(read_only_hint = false, destructive_hint = true, idempotent_hint = false, open_world_hint = false)
+        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
     )]
     async fn cancel_event(
         &self,
         Parameters(request): Parameters<CancelEventRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let identity = require_scope(&context, TimeScope::EventWrite)?;
+        let identity = require(&context, Target::Tool("cancel_event"))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let event = self
             .state
@@ -309,24 +311,13 @@ impl DomainServer for TimeMcp {
         &self.tool_router
     }
 
-    fn describe_tool(&self, tool: Tool) -> Tool {
-        veoveo_mcp_apps_extension::link_tool_to_app(
-            tool,
-            uris::TIMELINE_APP_URI,
-            &[
-                veoveo_mcp_apps_extension::UiVisibility::Model,
-                veoveo_mcp_apps_extension::UiVisibility::App,
-            ],
-        )
-    }
-
     async fn list_resources(
         &self,
         declared: Vec<Resource>,
         _cursor: Option<&str>,
         context: &RequestContext<RoleServer>,
     ) -> Result<Listing<Resource>, McpError> {
-        require_scope(context, TimeScope::Read)?;
+        require_permission(context, requirements::SERVER)?;
         Ok(Listing::all(declared))
     }
 
@@ -351,8 +342,9 @@ impl DomainServer for TimeMcp {
     async fn get_prompt(
         &self,
         request: GetPromptRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<GetPromptResult, McpError> {
+        require(&context, Target::Prompt(&request.name))?;
         TimePrompt::by_name(&request.name)
             .ok_or_else(|| unknown_prompt(&request.name))?
             .render(request.arguments)
@@ -368,7 +360,7 @@ impl DomainServer for TimeMcp {
         let Reference::Resource(reference) = &request.r#ref else {
             return Ok(CompleteResult::default());
         };
-        let identity = require_scope(&context, TimeScope::Read)?;
+        let identity = require_permission(&context, requirements::SERVER)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let domain = match (reference.uri.as_str(), request.argument.name.as_str()) {
             (uris::CALENDAR_TEMPLATE, "calendar_id") => Some(TimeCompletion::CalendarId),
@@ -445,14 +437,6 @@ impl DomainServer for TimeMcp {
     }
 }
 
-fn require_scope(
-    context: &RequestContext<RoleServer>,
-    required: TimeScope,
-) -> Result<GatewayInternalIdentity, McpError> {
-    let identity = gateway_identity(context)?;
-    crate::server::auth::require_scope(&identity.actor.scopes, required)?;
-    Ok(identity)
-}
 fn invalid_params(error: impl std::fmt::Display) -> McpError {
     McpError::invalid_params(error.to_string(), None)
 }
@@ -478,7 +462,7 @@ mod tests {
 
     #[test]
     fn knowledge_templates_declare_each_owned_collection() {
-        use veoveo_mcp_knowledge_extension::{CollectionDescriptor, EXTENSION_ID};
+        use veoveo_mcp_ext_knowledge::{CollectionDescriptor, EXTENSION_ID};
         let mut collections = std::collections::BTreeSet::new();
         for template in SERVER_SETUP.resource_templates() {
             if let Some(collection) =
@@ -497,7 +481,7 @@ mod tests {
     #[test]
     fn advertised_resources_and_simple_templates_agree_with_typed_addresses() {
         use crate::contract::TimeResource;
-        use veoveo_types::{ResourceAddress, ResourceUri};
+        use veoveo_types::ResourceAddress;
         for resource in SERVER_SETUP
             .resources()
             .iter()
@@ -532,9 +516,6 @@ mod tests {
         assert_eq!(uris::DOCS_URI, conventions.docs_root_uri());
         assert_eq!(uris::CONTRACT_URI, conventions.contract_uri().as_str());
         assert_eq!(uris::DOC_TEMPLATE, conventions.doc_template());
-        assert!(
-            TimeResource::parse(ResourceUri::new(uris::TIMELINE_APP_URI).unwrap().as_str()).is_ok()
-        );
     }
 
     #[test]
@@ -572,36 +553,11 @@ mod tests {
     fn tool_input_schemas_use_the_canonical_profile() {
         assert!(!TimeMcp::tool_router().list_all().is_empty());
     }
-
-    #[test]
-    fn checked_setup_preserves_timeline_app_discovery_metadata() {
-        let resource = SERVER_SETUP
-            .resources()
-            .iter()
-            .find(|resource| resource.address() == &crate::contract::TimeResource::TimelineApp)
-            .expect("Timeline App is advertised")
-            .descriptor();
-        assert_eq!(resource.uri, uris::TIMELINE_APP_URI);
-        assert_eq!(resource.name, "timeline");
-        assert_eq!(resource.title.as_deref(), Some("Timeline"));
-        assert_eq!(
-            resource.mime_type.as_deref(),
-            Some(veoveo_mcp_apps_extension::APP_MIME_TYPE)
-        );
-        assert!(
-            resource
-                .meta
-                .as_ref()
-                .is_some_and(|meta| meta.0.contains_key(veoveo_mcp_apps_extension::UI_META_KEY))
-        );
-    }
 }
 
 #[cfg(test)]
 mod well_known_tests {
-    use veoveo_mcp_contract::docs::{
-        CONTRACT_REVISION, ComplianceStatus, DOC_ID_AGENTS, DOC_ID_DESIGN,
-    };
+    use veoveo_mcp_contract::docs::{ComplianceStatus, ContractId, DOC_ID_AGENTS, DOC_ID_DESIGN};
 
     use super::SERVER_DOCS;
 
@@ -621,7 +577,7 @@ mod well_known_tests {
     fn contract_declaration_resolves_from_the_embedded_manual() {
         let declaration = veoveo_mcp_contract::docs::ContractDeclaration::from_docs(&SERVER_DOCS);
         assert_eq!(declaration.server().as_str(), "time");
-        assert_eq!(declaration.contract_revision(), CONTRACT_REVISION);
+        assert_eq!(declaration.contract(), ContractId::HostedMcp);
         for id in ["C18", "C19", "C20", "C21"] {
             let item = declaration
                 .compliance()

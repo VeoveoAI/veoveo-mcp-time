@@ -5,7 +5,6 @@ pub const DOCS_URI: &str = crate::contract::TimeResource::RESOURCE_TEMPLATE_DOCS
 pub const CONTRACT_URI: &str = crate::contract::TimeResource::RESOURCE_TEMPLATE_CONTRACT;
 
 pub const CLOCK_CURRENT_URI: &str = crate::contract::TimeResource::RESOURCE_TEMPLATE_CLOCK_CURRENT;
-pub const TIMELINE_APP_URI: &str = crate::contract::TimeResource::RESOURCE_TEMPLATE_TIMELINE_APP;
 pub const CLOCK_QUALITY_URI: &str = crate::contract::TimeResource::RESOURCE_TEMPLATE_CLOCK_QUALITY;
 pub const AUTHORITIES_CURRENT_URI: &str =
     crate::contract::TimeResource::RESOURCE_TEMPLATE_AUTHORITIES_CURRENT;

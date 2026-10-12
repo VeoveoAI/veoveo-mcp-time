@@ -18,8 +18,8 @@ use veoveo_task_runtime::{
 use veoveo_types::TaskId;
 
 use crate::{
-    contract::{ExpandScheduleRequest, TimeScope, ValidateTimelineRequest},
-    server::auth::require_scope,
+    contract::{ExpandScheduleRequest, ValidateTimelineRequest},
+    mcp::requirements::{Target, authorize},
     state::TimeApplication,
 };
 
@@ -76,27 +76,24 @@ impl veoveo_task_runtime::DurableTaskService for TimeTaskExtension {
         request: rmcp::model::CallToolRequestParams,
     ) -> Result<Option<rmcp::model::CreateTaskResult>, rmcp::ErrorData> {
         let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
-        let task = match TimeTaskKind::from_wire_name(request.name.as_ref()) {
-            Some(TimeTaskKind::ExpandSchedule) => {
-                require_scope(&caller.identity.actor.scopes, TimeScope::Schedule)
-                    .map_err(|error| rmcp::ErrorData::invalid_params(error.to_string(), None))?;
-                TimeTaskRequest::ExpandSchedule(Box::new(
-                    serde_json::from_value(arguments).map_err(|error| {
-                        rmcp::ErrorData::invalid_params(error.to_string(), None)
-                    })?,
-                ))
-            }
-            Some(TimeTaskKind::ValidateTimeline) => {
-                require_scope(&caller.identity.actor.scopes, TimeScope::Timeline)
-                    .map_err(|error| rmcp::ErrorData::invalid_params(error.to_string(), None))?;
-                TimeTaskRequest::ValidateTimeline(
-                    serde_json::from_value(arguments).map_err(|error| {
-                        rmcp::ErrorData::invalid_params(error.to_string(), None)
-                    })?,
-                )
-            }
-            None => return Ok(None),
-        };
+        let task =
+            match TimeTaskKind::from_wire_name(request.name.as_ref()) {
+                Some(TimeTaskKind::ExpandSchedule) => {
+                    authorize(&caller.identity, Target::Tool(request.name.as_ref()))?;
+                    TimeTaskRequest::ExpandSchedule(Box::new(
+                        serde_json::from_value(arguments).map_err(|error| {
+                            rmcp::ErrorData::invalid_params(error.to_string(), None)
+                        })?,
+                    ))
+                }
+                Some(TimeTaskKind::ValidateTimeline) => {
+                    authorize(&caller.identity, Target::Tool(request.name.as_ref()))?;
+                    TimeTaskRequest::ValidateTimeline(serde_json::from_value(arguments).map_err(
+                        |error| rmcp::ErrorData::invalid_params(error.to_string(), None),
+                    )?)
+                }
+                None => return Ok(None),
+            };
         let retention_pins = veoveo_task_runtime::retention_pins(request.meta.as_ref())?;
         let snapshot = start_time_task(
             self.state.clone(),

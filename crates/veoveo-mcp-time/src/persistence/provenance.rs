@@ -1,5 +1,5 @@
 use super::*;
-use veoveo_mcp_knowledge_extension::{AccessDescriptor, ReadPolicy};
+use veoveo_mcp_ext_knowledge::{AccessDescriptor, ReadPolicy};
 use veoveo_types::{AccessSubject, PrincipalId, WorkContextId};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealValue)]

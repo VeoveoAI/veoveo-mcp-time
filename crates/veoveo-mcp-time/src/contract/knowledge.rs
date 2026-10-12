@@ -3,7 +3,7 @@ use super::{CollectionPage, TimeResource};
 use crate::uris;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use veoveo_mcp_knowledge_extension::{
+use veoveo_mcp_ext_knowledge::{
     AccessModel, ChangeSignal, CollectionDescriptor, Freshness, IndexingMode,
 };
 use veoveo_types::{ResourceAddress, ResourceUri};
@@ -67,7 +67,7 @@ impl TimeKnowledgeCollection {
             IndexingMode::Content,
         )
         .expect("Time collection contract")
-        .with_required_scopes([super::TimeScope::Read.into()])
+        .with_required_scopes([super::TimeScope::Time.into()])
     }
 }
 

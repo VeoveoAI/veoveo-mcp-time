@@ -43,9 +43,21 @@ impl Fixture {
         let handler = state.clone();
         let gateway = TestGateway::new(
             testing::for_domain::<crate::mcp::TimeMcp>()
-                .handler(move || Hosted::new(crate::mcp::TimeMcp::new(handler.clone())))
+                .handler(move || {
+                    Hosted::new(crate::mcp::TimeMcp::new(handler.clone())).with_tasks(
+                        veoveo_task_runtime::DurableTasks::with_resources(
+                            crate::server::tasks::TimeTaskExtension::new(handler.clone()),
+                            crate::mcp::TimeSubscriptions::new(handler.clone()),
+                        ),
+                    )
+                })
                 .admin_routes(crate::admin::router(state.clone()))
                 .build(),
+        )
+        .granting(
+            crate::contract::TimePermission::ALL
+                .iter()
+                .map(|permission| permission.name()),
         );
         Self {
             gateway,
@@ -56,26 +68,39 @@ impl Fixture {
     }
 }
 pub(super) fn token(tenant: &str) -> String {
+    token_granting(tenant, crate::contract::TimePermission::ALL.iter().copied())
+}
+
+/// A forwarded access token for the test user in `tenant` that grants exactly
+/// `permissions`, as the Gateway's role evaluation would.
+pub(super) fn token_granting(
+    tenant: &str,
+    permissions: impl IntoIterator<Item = crate::contract::TimePermission>,
+) -> String {
     let mut principal = testing::principal();
     principal.tenant = Some(tenant.parse().unwrap());
-    for scope in TimeScope::ALL {
-        principal.scopes.insert((*scope).into());
-    }
     let mut authority = testing::authority();
     authority.tenant = tenant.parse().unwrap();
+    let trust = testing::access_token_trust();
     veoveo_mcp_contract::GatewayInternalTokenIssuer::new(
-        veoveo_mcp_contract::TokenIssuer::parse(veoveo_mcp_contract::GATEWAY_INTERNAL_TOKEN_ISSUER)
-            .unwrap(),
-        testing::signing_key("test-key"),
+        trust.issuer.clone(),
+        testing::signing_key(),
     )
-    .issue(
-        "operations".parse().unwrap(),
-        "time".parse().unwrap(),
-        principal,
+    .unwrap()
+    .issue(veoveo_mcp_contract::ForwardedRequest {
+        profile: "operations".parse().unwrap(),
+        server: "time".parse().unwrap(),
+        audience: trust.resource.clone(),
+        client: testing::TEST_CLIENT.parse().unwrap(),
+        actor: principal,
         authority,
-        None,
-        Utc::now() + chrono::TimeDelta::minutes(5),
-    )
+        permissions: permissions
+            .into_iter()
+            .map(|permission| permission.name())
+            .collect(),
+        request_context: None,
+        expires_at: Utc::now() + chrono::TimeDelta::minutes(5),
+    })
     .unwrap()
     .bearer_token
 }

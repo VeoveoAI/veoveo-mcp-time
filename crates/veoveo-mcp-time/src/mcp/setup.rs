@@ -107,11 +107,6 @@ fn resources() -> Result<Vec<McpResource<TimeResource>>, McpSetupError> {
             "Authorized Time domain resource.",
         )?);
     }
-    resources.push(McpResource::new(TimeResource::TimelineApp, |uri| {
-        veoveo_mcp_apps_extension::app_resource(uri, "timeline")
-            .with_title("Timeline")
-            .with_description("Authoritative time, operational calendars, epochs, and events.")
-    })?);
     Ok(resources)
 }
 
@@ -123,11 +118,19 @@ fn server_info() -> ServerConfig {
         .enable_resources_subscribe()
         .enable_completions()
         .build();
-    veoveo_mcp_apps_extension::extend_capabilities(&mut capabilities);
     capabilities.extensions.get_or_insert_default().insert(
         rmcp::model::TASKS_EXTENSION_ID.to_owned(),
         rmcp::model::JsonObject::new(),
     );
+    if let Some(registration) = super::declarations::REGISTRATION.get() {
+        let module = super::declarations::module().expect("Time's module declaration");
+        veoveo_mcp_ext_registration::mcp::advertise(
+            &mut capabilities,
+            registration,
+            &super::requirements::AUTHORIZATION,
+            Some(&module.summary()),
+        );
+    }
     let mut info = ServerConfig::default();
     info.capabilities = capabilities;
     info.server_info = rmcp::model::Implementation::new("time", env!("CARGO_PKG_VERSION"));
@@ -149,7 +152,7 @@ fn template(
             .with_description(description)
             .with_mime_type(mime);
         if let Some(collection) = collection {
-            veoveo_mcp_knowledge_extension::server::attach_collection(
+            veoveo_mcp_ext_knowledge::server::attach_collection(
                 &mut descriptor,
                 &collection.descriptor(),
             );

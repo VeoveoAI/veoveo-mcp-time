@@ -1,6 +1,6 @@
 use super::*;
 use crate::AuthorityCursor;
-use veoveo_mcp_knowledge_extension::ReadPolicy;
+use veoveo_mcp_ext_knowledge::ReadPolicy;
 
 #[tokio::test]
 async fn authority_observations_and_pages_preserve_stored_tenant_provenance() {

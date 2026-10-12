@@ -5,13 +5,18 @@ use std::sync::Arc;
 
 use axum::{
     Router,
+    extract::Request,
+    middleware::{self, Next},
+    response::IntoResponse,
     routing::{get, post},
 };
+use veoveo_mcp_contract::GatewayInternalIdentity;
 
-use crate::state::TimeApplication;
+use crate::{mcp::requirements, state::TimeApplication};
 
 /// Authority, calendar, epoch and clock-policy administration under
-/// `{mount}/admin`. The shared host serves the document routes beside these.
+/// `{mount}/admin`. The shared host serves the document routes beside these. Every
+/// route requires Time's administrative permission.
 pub fn router(state: Arc<TimeApplication>) -> Router {
     Router::new()
         .route(
@@ -62,4 +67,22 @@ pub fn router(state: Arc<TimeApplication>) -> Router {
             get(handlers::get_clock_policy).put(handlers::replace_clock_policy),
         )
         .with_state(state)
+        .layer(middleware::from_fn(authorize))
+}
+
+/// Admits an administrative request only when the Gateway granted Time's
+/// administrative permission for it.
+async fn authorize(request: Request, next: Next) -> axum::response::Response {
+    let allowed = request
+        .extensions()
+        .get::<GatewayInternalIdentity>()
+        .is_some_and(requirements::administers);
+    if !allowed {
+        return error::ApiError::forbidden(format!(
+            "Missing permission `{}`.",
+            requirements::ADMINISTRATION.name()
+        ))
+        .into_response();
+    }
+    next.run(request).await
 }

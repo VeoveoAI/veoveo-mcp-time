@@ -1,19 +1,13 @@
 use serde::{Serialize, de::DeserializeOwned};
 use veoveo_mcp_time::contract::{
     AuthorityReleaseId, CalendarId, EpochId, EventId, ResolveTimeRequest, TimeAcquisitionId,
-    TimeAuthorityReleaseUri, TimeExpression, TimeScope, TimeSourceId,
+    TimeAuthorityReleaseUri, TimeExpression, TimePermission, TimeScope, TimeSourceId,
 };
 use veoveo_types::{ResourceAddress, ResourceUri, ScopeDefinition, ScopeName};
 
 #[test]
 fn scope_wire_values_match_the_published_vocabulary_and_schema() {
-    let expected = [
-        "time:read",
-        "time:schedule",
-        "time:timeline",
-        "time:event:write",
-        "time:admin",
-    ];
+    let expected = ["time"];
     let schema = serde_json::to_value(schemars::schema_for!(TimeScope)).unwrap();
     assert_eq!(schema["enum"], serde_json::json!(expected));
     assert_eq!(TimeScope::ALL.len(), expected.len());
@@ -27,11 +21,27 @@ fn scope_wire_values_match_the_published_vocabulary_and_schema() {
             *scope
         );
     }
-    for unknown in ["time:reed", "map:read", "time:read time:schedule", ""] {
+    for unknown in ["time:read", "map", "time time", ""] {
         assert!(unknown.parse::<TimeScope>().is_err());
         assert!(serde_json::from_value::<TimeScope>(unknown.into()).is_err());
     }
     assert!(ScopeName::parse("installation:additional").is_ok());
+}
+
+#[test]
+fn permission_wire_values_follow_the_naming_convention() {
+    let expected = [
+        "time.authorities.read",
+        "time.schedules.expand",
+        "time.timelines.validate",
+        "time.events.write",
+        "time.authorities.administer",
+    ];
+    assert_eq!(TimePermission::ALL.len(), expected.len());
+    for (permission, wire) in TimePermission::ALL.iter().zip(expected) {
+        assert_eq!(permission.as_str(), wire);
+        assert_eq!(permission.name().as_str(), wire);
+    }
 }
 
 fn check_id<T: Serialize + DeserializeOwned>(valid: &str, foreign: &str) {

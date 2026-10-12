@@ -8,6 +8,8 @@ mod events;
 mod hosted;
 mod lifecycle;
 #[cfg(feature = "mcp")]
+mod permissions;
+#[cfg(feature = "mcp")]
 mod tool_input_tests;
 use super::*;
 use crate::contract::*;

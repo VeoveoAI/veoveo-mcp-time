@@ -1,6 +1,6 @@
 use super::*;
 use crate::{TimeResource, TimeResourceEntry, TimeResourcePage, TimeVersion};
-use veoveo_mcp_knowledge_extension::{ModifiedBy, ReadPolicy};
+use veoveo_mcp_ext_knowledge::{ModifiedBy, ReadPolicy};
 use veoveo_types::{AccessSubject, ResourceAddress};
 
 #[tokio::test]
@@ -39,8 +39,8 @@ async fn observations_use_stored_authority_and_versioned_members() {
         );
         let access = observation.access().unwrap();
         assert_eq!(
-            observation.content_sha256(),
-            &veoveo_mcp_knowledge_extension::content_digest(&text)
+            observation.content_digest(),
+            &veoveo_mcp_ext_knowledge::content_digest(&text)
         );
         let current: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(current["calendarId"], calendar.calendar_id.to_string());
@@ -52,8 +52,8 @@ async fn observations_use_stored_authority_and_versioned_members() {
         let retired_text = serde_json::to_string(&retired).unwrap();
         assert!(serde_json::from_str::<OperationalCalendar>(&retired_text).is_err());
         assert_ne!(
-            veoveo_mcp_knowledge_extension::content_digest(&retired_text),
-            *observation.content_sha256()
+            veoveo_mcp_ext_knowledge::content_digest(&retired_text),
+            *observation.content_digest()
         );
 
         assert_eq!(
@@ -211,7 +211,7 @@ async fn observations_use_stored_authority_and_versioned_members() {
             .unwrap();
         let (_, second) = updated.document().unwrap();
         assert_ne!(first.revision(), second.revision());
-        assert_ne!(first.content_sha256(), second.content_sha256());
+        assert_ne!(first.content_digest(), second.content_digest());
         assert!(second.modified_by().is_none());
 
         // Authorization happens in SQL even when the denied row cannot decode.

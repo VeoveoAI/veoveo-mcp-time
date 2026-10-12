@@ -4,7 +4,7 @@ use crate::{AuthorityCursor, EpochId, TimeKnowledgeCollection, TimeVersion};
 use anyhow::ensure;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use veoveo_mcp_knowledge_extension::{
+use veoveo_mcp_ext_knowledge::{
     AccessDescriptor, ModifiedBy, Observation, ReadPolicy, content_digest,
 };
 use veoveo_types::AccessSubject;

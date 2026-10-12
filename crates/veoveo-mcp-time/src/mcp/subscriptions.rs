@@ -5,11 +5,11 @@ use std::sync::Arc;
 use rmcp::{ErrorData as McpError, RoleServer, service::RequestContext};
 use veoveo_mcp_contract::{SubscriptionHub, hosting::ResourceSubscriptions};
 
-use super::{internal, require_scope};
-use crate::{
-    contract::{TimeResource, TimeScope},
-    state::TimeApplication,
+use super::{
+    internal,
+    requirements::{Target, authorize},
 };
+use crate::{contract::TimeResource, state::TimeApplication};
 
 /// Time's mutable resources. Subscribing to the event index restores the
 /// caller's event watchers, and subscribing to one event schedules it, so
@@ -39,7 +39,10 @@ impl ResourceSubscriptions for TimeSubscriptions {
                 None,
             ));
         }
-        let identity = require_scope(context, TimeScope::Read)?;
+        let identity = veoveo_mcp_contract::hosting::gateway_identity(context)?;
+        for address in &addresses {
+            authorize(&identity, Target::Resource(&address.to_string()))?;
+        }
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         for address in addresses {
             match address {

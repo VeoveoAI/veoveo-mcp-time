@@ -170,8 +170,7 @@ leap second assumptions.
 ## Contract Compliance
 
 <!-- veoveo:contract-compliance:start -->
-Contract revision: 4
-Catalog revision: 2
+Contract: https://veoveo.ai/contracts/hosted-mcp
 
 - C01: met
 - C02: met
