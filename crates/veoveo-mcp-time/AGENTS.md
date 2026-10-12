@@ -1,7 +1,7 @@
 # Time MCP Server — Agent Manual
 
 Delta over the repository root `AGENTS.md`. The normative server contract is
-[`mcp/contract/DESIGN.md`](../../mcp/contract/DESIGN.md), revision 4.
+[`mcp/contract/DESIGN.md`](https://github.com/VeoveoAI/veoveo-core/blob/2c9c7fe483211c7d761d59f3aafe5b7fa339108a/mcp/contract/DESIGN.md), revision 4.
 
 ## Purpose
 
@@ -60,66 +60,10 @@ leap second assumptions.
 ## Build And Test
 
 - `cargo check -p veoveo-mcp-time`
-- `cargo test -p veoveo-mcp-time --test gateway_consumers` runs local fixture and
-  receipt controls. Its ignored public-gateway case uses explicit read-only fixtures;
-  `cargo xtask smoke time-installed-consumers --help` lists prerequisites. Follow
-  [the installed input contract](../../testing/installed/DESIGN.md#time-consumers).
-  The same harness owns `time-installed-schedule-task`, whose private input requires
-  explicit `complete`, `cancel` or `recover` mode, a typed selected schedule request
-  and independent expected output. Cancel and recover require an acknowledged exact-ID
-  Working delivery and a current Working read. Recover admits a selected single-replica
-  `time-mcp` Rust container before Task creation. Ops may signal after the private
-  armed marker, or explicitly admit `recovery.runtimeSignal` for the fixed k3d
-  ancestor-containerd signal. That profile verifies node/container/PID/start-time
-  identity before the final authenticated same-Task Working read, persists signal
-  intent and dispatches once within the original deadline. An ambiguous dispatch
-  never permits replay. Do not run an external signal driver with that profile.
-  The same Task must still be Working after replacement.
-  Complete/recover verify delivered Completed and current official result agreement;
-  cancel requires delivered and current Cancelled without successful output. The
-  operation deadline starts once before connections: 120 seconds for complete/cancel,
-  300 for recover. The scenario allows 360 seconds plus one 30-second owner cleanup
-  grace, retaining original consuming close futures. Recurrence count may reach
-  1,000,000 while output is capped at 512 and the horizon at 31 days. Historical UTC
-  recurrence scanning can produce a small result after substantial real computation;
-  its duration is not guaranteed. Early completion fails cancellation/recovery
-  qualification. The private append-only receipt retains intents, opaque Gateway
-  Task identity, replacement progress and unresolved cleanup. See the installed input
-  contract for selected crash fields and external operator coordination.
-- `cargo xtask smoke time-installed-completed-task-handoff --help` describes the
-  retained completed-Task profile in the same harness. Its private input selects the
-  original complete-mode input, successful receipt and SHA-256, opaque Task ID and
-  creation time, and a typed physical A/B setup. Ops owns every routing and Deployment
-  mutation. Require A-only reads before B exists, A's observed process exit and Pod
-  absence during B-only reads, then A restoration before selector restoration and B
-  retirement. Fresh acknowledged exact-ID delivery is an initial completed snapshot.
-  Keep unfinished cross-replica recovery and later mutation delivery separate.
-  The operation uses one 300-second deadline and the existing 30-second cleanup grace.
-- `cargo xtask smoke time-installed-authorities --help` describes the separate
-  ignored `authority::isolated_authority_acquisition_activation_and_retained_epoch_through_gateway`
-  profile in the existing harness. `VEOVEO_TIME_AUTHORITY_INPUT` selects a private
-  fixture with an Ops-attested isolated namespace, tenant, context and verified
-  reader/admin principal identities; normal private OAuth token files; typed TZDB
-  and leap sources; independent product digests/version labels; initial bootstrap
-  references; and independent epoch physical/UTC expectations. Persisted pointers
-  and the source catalog must initially be empty. Never run this profile against
-  reference authorities. It creates four acquisition jobs, activates both families,
-  checks one concurrent winner and typed conflict, refuses a stale pointer guard,
-  and verifies immutable epoch v1 plus explicitly rebound v2. Resource delivery
-  must acknowledge the requested filter and accompany a changed current authority
-  after activation; initial snapshot delivery is recorded separately.
-  One original 900-second operation deadline caps all requests and joins. Each
-  acquisition permits at most 66 correlated status GETs separated by five seconds,
-  with bounded initial/final reads. The scenario allows 960 seconds and the existing
-  30-second owner cleanup grace. The private append-only journal records mutation
-  intents, acknowledged and unresolved identities, safe status/code/digests and
-  consuming SDK close futures under their original caps. It does not roll back
-  published authorities or delete retained state; Ops owns isolated retirement.
-  Acquisition interruption, authority restart/replica delivery and coordinated
-  installed upgrades require separate qualification. Local admission, pointer guard
-  and subscription counterexamples live in `gateway_consumers/authority/tests.rs`;
-  the shared owner close control is now
-  `cleanup::tests::interrupted_close_retains_original_future_and_deadline`.
+- Acceptance through the Gateway runs from this repository's environment once Time
+  registers with the Gateway: tool calls, a schedule Task with its subscription, a
+  future event that reaches Due and reconciliation after a disconnect. The monorepo's
+  installed harness profiles for Time remain in [its harness contract](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/testing/installed/DESIGN.md#time-consumers).
 - `cargo test -p veoveo-mcp-time --lib server::tasks::tests` qualifies durable
   cancellation at calculation checkpoints and final settlement using distinct
   workers on the existing isolated Store fixture. Keep the cancellation/completion
@@ -140,10 +84,6 @@ leap second assumptions.
   library control reads the real pointer guard for two successive activations;
   preserve the existing native active-pointer corruption checks.
 - `cargo test -p veoveo-mcp-time`
-- `tests/gateway_source_conformance.rs` supplies two disposable scheduled events to
-  the shared source checker. It cancels one before a Time Deployment restart and one
-  afterwards, then reconciles both to cancelled state. Prerequisites and input fields
-  follow [the installed harness contract](../../testing/installed/DESIGN.md).
 - `cargo test -p veoveo-mcp-time --no-default-features --features contract` checks
   public contract validation and compile-fail examples. Qualify dependency isolation
   with a separately resolved consumer workspace; a workspace-wide build may enable
@@ -158,11 +98,8 @@ leap second assumptions.
   Runtime library tests use the shared
   isolated SurrealDB fixture with the Time lane selected; schema changes require
   fresh lane admission and persistence checks.
-- `node --test tests/workbench-pagination.test.mjs` in `apps/console/web` checks
-  page navigation behavior headlessly; it provides no visual or GPU acceptance.
-- The container builds from `the repository Dockerfile` (needs Docker);
-  Helm material is the `time-mcp` domain service in `deploy/helm/veoveo`.
-  No GPU requirement.
+- `docker build --target check .` runs the gate, and the `runtime` stage builds the
+  deployable image. No GPU requirement.
 - `src/catalog/tests.rs` qualifies SQL tenant and owner predicates, latest epoch
   selection, event transition isolation, page boundaries, requested epoch batches,
   and bounded distinct completion against the
@@ -274,26 +211,6 @@ Catalog revision: 2
 
 ### Installed Future Events
 
-`cargo xtask smoke time-installed-events` selects
-`events::future_temporal_events_through_public_gateway` in the existing
-`gateway_consumers` target. `VEOVEO_TIME_EVENTS_INPUT` points to a private closed
-fixture with `installation`, `authority`, and `selectedPod`. Select a disposable
-single-replica Time Deployment and the same normal OAuth principal for every
-connection. Its profile must admit its required scopes plus `time:read` and
-`time:event:write`; an operator-created event is invisible to another agent owner.
-
-The original 300-second interval includes discovery, exact event-root listener
-acknowledgement, current-clock reads, four creations, guarded refusals, one fenced
-restart and explicit reconnects. Due coordinates preserve the current authority
-and uncertainty while adding checked TAI offsets of 20, 80, 180 and 240 seconds.
-The first and third events require delivered invalidation plus an uncached Due
-read. The second is cancelled before its due instant. The fourth becomes due
-while disconnected and qualifies current-state reconciliation after reconnect.
-An initial snapshot does not establish notification replay. Early Due refuses the
-required Scheduled checkpoint without renewing any deadline.
-
-The 30-second cleanup reconciles only acknowledged owned events still Scheduled,
-then closes every retained SDK generation. Creation intents and acknowledged IDs
-survive assertion and journal failures; an unknown create outcome is not retried
-or deleted. Due and cancelled records remain available for inspection. Ops owns
-retirement of isolated state. This profile does not replace calendar Task recovery.
+Installed future-event acceptance runs through the Gateway from this repository's
+environment, with the same owner, scope and deadline rules as the monorepo's
+[installed profile](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/testing/installed/DESIGN.md#time-consumers).

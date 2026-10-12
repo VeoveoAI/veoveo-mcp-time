@@ -43,10 +43,10 @@ retain the `time://` scheme.
 | [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under Veoveo hosted MCP contract revision 4. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
 | MCP Apps SEP-1865 / `io.modelcontextprotocol/ui` `2026-01-26` | The server-owned `ui://time/timeline.html` Timeline exposes clock authority, calendars, epochs, windows, and events. |
 | [JSON Schema Draft 2020-12](https://json-schema.org/draft/2020-12/) | Temporal expressions, authority bindings, calendars, epochs, windows, clock evidence, tasks, and results. |
-| [Veoveo concrete resource components](../../platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
+| [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/2c9c7fe483211c7d761d59f3aafe5b7fa339108a/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables, reserved expansion for slash-separated zone keys, and form-style cursor queries. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
-| [Veoveo knowledge source extension](../../mcp/knowledge-extension/DESIGN.md) | `ai.veoveo/knowledge-source` declares documentation and Time-owned collections, typed source observations, conditional reads, and URI enumeration. Events use Store-backed change notifications. |
+| [Veoveo knowledge source extension](https://github.com/VeoveoAI/veoveo-core/blob/2c9c7fe483211c7d761d59f3aafe5b7fa339108a/mcp/knowledge-extension/DESIGN.md) | `ai.veoveo/knowledge-source` declares documentation and Time-owned collections, typed source observations, conditional reads, and URI enumeration. Events use Store-backed change notifications. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
 | IANA Time Zone Database and [TZif RFC 8536](https://www.rfc-editor.org/rfc/rfc8536.html) | Versioned civil-time authority, compiled release products, zone completion, and fold/gap resolution. |
@@ -254,7 +254,7 @@ Temporal IDs validate their domain prefix, length, and character set during JSON
 deserialization as well as construction. `TimeAccessContext` carries tenant and
 principal selection for database access; it is distinct from an authorization scope.
 Resource builder adoption is tracked in the
-[consolidated plan](../../docs/CONTRACT_CONSISTENCY_PLAN.md#modular-types-and-server-contracts).
+[consolidated plan](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/docs/CONTRACT_CONSISTENCY_PLAN.md#modular-types-and-server-contracts).
 
 ### Hosted Process
 
@@ -396,7 +396,7 @@ no activation-fence table. Native qualification covers different-family contenti
 starting with absent pointers, existing pairs, concurrent pointer and release repairs,
 stale preflight metadata, tenant mismatch and failed file loads. Qualification results
 and pending installed acceptance are recorded in the
-[consolidated plan](../../docs/CONTRACT_CONSISTENCY_PLAN.md#unified-audit-log).
+[consolidated plan](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/docs/CONTRACT_CONSISTENCY_PLAN.md#unified-audit-log).
 
 ### Tenant Authority Contexts
 
@@ -425,7 +425,7 @@ The coordinated Time upgrade drains older replicas before admitting requests to 
 new image. This prevents replicas that only initialize bootstrap authority from serving
 alongside replicas that read the persisted pair. Retained-data preflight and snapshot
 rollback follow the procedure below. Installed restart and replica qualification remain
-pending in the [consolidated plan](../../docs/CONTRACT_CONSISTENCY_PLAN.md).
+pending in the [consolidated plan](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/docs/CONTRACT_CONSISTENCY_PLAN.md).
 
 ## Accepted Time Expressions
 
@@ -618,7 +618,8 @@ only when current SQL proves physical absence, terminal settlement, or a matchin
 Task held by another worker's unexpired lease. An unproven conflict or recovery
 observation error stops HTTP serving.
 
-The installed schedule fixture in `tests/gateway_consumers/schedule.rs` selects
+The installed schedule profile, kept in the monorepo's
+[installed harness](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/servers/time-mcp/tests/gateway_consumers/schedule.rs), selects
 completion, cancellation or unfinished process recovery explicitly. Cancellation
 and recovery require both delivered and current Working state for the acknowledged
 opaque Gateway Task identity. Recovery admits one maintained Rust container, observes
@@ -679,7 +680,7 @@ checker through the public gateway. It cancels one, restarts the Time Deployment
 then cancels the second. The checker verifies both notification paths, the retained
 cancellation and the unchanged second event across restart. Cleanup reconciles both
 events to cancelled state. Every declared collection needs populated fixtures.
-Inputs and commands follow [the installed harness contract](../../testing/installed/DESIGN.md).
+Inputs and commands follow [the installed harness contract](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/testing/installed/DESIGN.md).
 
 ### Resources
 
@@ -858,7 +859,7 @@ references keep their public spelling and are not converted into database keys.
 The persistence admission check applies before stored reads and writes. It does not
 narrow public provenance deserialization or rewrite retained keys. Time's schema lane
 defines tables and record fields; the Time contract defines JSON bodies and cursor versions.
-Broader DTO field typing remains in the [consolidated plan](../../docs/CONTRACT_CONSISTENCY_PLAN.md).
+Broader DTO field typing remains in the [consolidated plan](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/docs/CONTRACT_CONSISTENCY_PLAN.md).
 
 | Table | Responsibility |
 |---|---|
@@ -1050,10 +1051,11 @@ Examples of agent requests include:
 
 ## Verification
 
-`tests/gateway_consumers.rs` owns read-only public-gateway acceptance for the selected
+Read-only public-gateway acceptance covers the selected
 authority pair, clock, resolution and conversion vectors, versioned calendar and epoch,
-epoch arithmetic, window intersection and HTTPS authority-source metadata. Its closed
-input and private receipt follow the [installed harness contract](../../testing/installed/DESIGN.md#time-consumers).
+epoch arithmetic, window intersection and HTTPS authority-source metadata. It runs
+through the Gateway from this repository's environment, and its inputs follow the
+[installed harness contract](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/testing/installed/DESIGN.md#time-consumers).
 Native Task controls use two worker identities on separate connections to the same
 isolated Store. They commit cancellation between completion snapshot selection and
 settlement, verify remote and local cancellation, preserve completion and calculation

@@ -2,11 +2,11 @@
 
 veoveo-mcp-time is the Veoveo Time MCP server: authority-bound time resolution, calendar expansion, timeline validation and temporal events.
 
-This repository is a skeleton created from
-[veoveo-template-mcp-rust](https://github.com/VeoveoAI/veoveo-template-mcp-rust). It
-owns its toolchain, gate configuration, environment image and OpenShell policy. The
-placeholder crate in `crates/veoveo-mcp-time` gives the gates something to check until
-Time server code arrives.
+The server lives in `crates/veoveo-mcp-time`, ported from the Veoveo monorepo at main
+`0c33cf8a`. Its [design](crates/veoveo-mcp-time/DESIGN.md) and
+[agent manual](crates/veoveo-mcp-time/AGENTS.md) describe the domain, tools, Tasks and
+storage. It compiles against `veoveo-core`, with every core crate pinned to one revision
+in the workspace manifest.
 
 ## Gate
 
