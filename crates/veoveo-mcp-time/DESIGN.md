@@ -1034,11 +1034,11 @@ Examples of agent requests include:
 
 ## Verification
 
-Read-only public-gateway acceptance covers the selected
-authority pair, clock, resolution and conversion vectors, versioned calendar and epoch,
-epoch arithmetic, window intersection and HTTPS authority-source metadata. It runs
-through the Gateway from this repository's environment, and its inputs follow the
-[installed harness contract](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/testing/installed/DESIGN.md#time-consumers).
+`tests/acceptance.rs` qualifies Time through a live local installation and the Gateway:
+discovery, tool calls, a schedule Task, future events with resource notifications and
+reconciliation after a reconnect. Time's administrative HTTP surface is not reachable
+through the Gateway, so the `time.authorities.administer` permission is qualified by
+the hosted handler tests.
 Native Task controls use two worker identities on separate connections to the same
 isolated Store. They commit cancellation between completion snapshot selection and
 settlement, verify remote and local cancellation, preserve completion and calculation

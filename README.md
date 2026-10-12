@@ -54,7 +54,7 @@ The `Dockerfile` defines the `dev` environment, the `check` gate, the release `b
 ```sh
 docker build --target dev -t veoveo-mcp-time:dev .
 openshell sandbox create --name vv-mcp-time --from veoveo-mcp-time:dev \
-  --policy openshell/policy.yaml --env HOME=/sandbox --detach -- sleep infinity
+  --policy openshell/policy.yaml --provider vv-registration --detach -- sleep infinity
 ```
 
 Sandbox names use the short form `vv-mcp-time`, because OpenShell limits sandbox
@@ -63,31 +63,52 @@ names to 19 characters.
 ### Running Time in the environment
 
 Time runs inside `vv-mcp-time` on port 8800 and registers with a Gateway that the
-environment reaches at `http://host.openshell.internal:8080`. The environment's policy
-must allow the binary `/sandbox/src/target/debug/veoveo-mcp-time` to reach two
-endpoints:
+environment reaches at `http://host.openshell.internal:8080`. The environment needs the
+installation's `vv-registration` provider attached, which supplies
+`VEOVEO_REGISTRATION_SECRET` as a placeholder, and the policy in `openshell/policy.yaml`,
+which binds that provider to the Gateway endpoint and allows SurrealDB.
 
-- the Gateway at `host.openshell.internal:8080`, inspected as REST with
-  `credential_binding.provider: vv-registration`, so OpenShell substitutes the
-  registration secret only there;
-- the SurrealDB endpoint the registration response names.
+OpenShell pins every policy-listed executable path to the SHA-256 it first observes and
+denies the path once the file changes. Time therefore runs from a content-addressed copy
+under `/sandbox/run`, so each build gets a fresh path:
 
 ```sh
 openshell sandbox exec vv-mcp-time -- bash -lc 'cd /sandbox/src \
   && cargo build --locked --bin veoveo-mcp-time \
+  && bin=/sandbox/run/veoveo-mcp-time-$(sha256sum target/debug/veoveo-mcp-time | cut -c1-16) \
+  && install -D -m 0755 target/debug/veoveo-mcp-time "$bin" \
   && VEOVEO_PUBLIC_BASE_URL=http://host.openshell.internal:8800 \
      VEOVEO_GATEWAY_ISSUER=http://host.openshell.internal:8080 \
      VEOVEO_KEY_DIRECTORY=/sandbox/time/keys \
      VEOVEO_ACQUISITION_SCRATCH_DIRECTORY=/sandbox/time/acquisitions \
      VEOVEO_RELEASE_DIRECTORY=/sandbox/time/releases \
-     target/debug/veoveo-mcp-time'
-openshell forward start 8800 vv-mcp-time
+     "$bin"'
+openshell forward start 8800 vv-mcp-time -d
 ```
 
-The `vv-registration` provider supplies `VEOVEO_REGISTRATION_SECRET` to the sandbox as
-a placeholder. The forward makes Time reachable from the host on port 8800, where the
-Gateway reaches it as `http://host.openshell.internal:8800/time/mcp`. Time removes its
-registration when it receives SIGTERM or Ctrl-C.
+The first command keeps running in its terminal. Time registers before it listens, and
+the Gateway reaches it as `http://host.openshell.internal:8800/time/mcp`. Time removes
+its registration when it receives SIGTERM or Ctrl-C.
+
+## Acceptance
+
+`tests/acceptance.rs` calls Time through the Gateway as the installation's
+`acceptance-member` and `acceptance-admin` callers: discovery and tool calls, a refused
+unauthenticated request and an undeclared tool, a schedule Task to completion, an event
+that reaches Due with its notification, and current state after a reconnect. The tests
+are ignored by default. With the installation running and the callers' keys copied to
+`/sandbox/acceptance`, run them from a fresh nextest archive extraction, so the test
+binaries also get fresh paths:
+
+```sh
+openshell sandbox exec vv-mcp-time -- bash -lc 'cd /sandbox/src \
+  && cargo nextest archive --test acceptance --archive-file /sandbox/run/acceptance.tar.zst \
+  && run=/sandbox/run/acceptance-$(date +%s%N) && mkdir -p "$run" \
+  && VEOVEO_ACCEPTANCE_GATEWAY=http://host.openshell.internal:8080 \
+     VEOVEO_ACCEPTANCE_KEY_DIRECTORY=/sandbox/acceptance \
+     cargo nextest run --archive-file /sandbox/run/acceptance.tar.zst \
+       --workspace-remap /sandbox/src --extract-to "$run" --run-ignored only'
+```
 
 ## License
 

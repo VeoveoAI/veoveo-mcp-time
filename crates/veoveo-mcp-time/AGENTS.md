@@ -69,10 +69,12 @@ leap second assumptions.
 ## Build And Test
 
 - `cargo check -p veoveo-mcp-time`
-- Acceptance through the Gateway runs from this repository's environment once Time
-  registers with the Gateway: tool calls, a schedule Task with its subscription, a
-  future event that reaches Due and reconciliation after a disconnect. The monorepo's
-  installed harness profiles for Time remain in [its harness contract](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/testing/installed/DESIGN.md#time-consumers).
+- `tests/acceptance.rs` runs through a live local installation from this repository's
+  environment (see the README's Acceptance section): discovery and tool calls as the
+  member and admin callers, refused unauthenticated and undeclared requests, a schedule
+  Task to completion with an acknowledged Task subscription, an event that reaches Due
+  with its resource notification, and current state after a reconnect. The tests are
+  ignored by default; run them from a fresh nextest archive extraction.
 - `cargo test -p veoveo-mcp-time --lib server::tasks::tests` qualifies durable
   cancellation at calculation checkpoints and final settlement using distinct
   workers on the existing isolated Store fixture. Keep the cancellation/completion
@@ -222,6 +224,8 @@ Contract: https://veoveo.ai/contracts/hosted-mcp
 
 ### Installed Future Events
 
-Installed future-event acceptance runs through the Gateway from this repository's
-environment, with the same owner, scope and deadline rules as the monorepo's
-[installed profile](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/testing/installed/DESIGN.md#time-consumers).
+`an_event_reaches_due_with_a_notification` and
+`a_reconnected_caller_reconciles_current_state` in `tests/acceptance.rs` qualify future
+events through the Gateway: the caller subscribes to `time://events`, creates an event
+five seconds ahead and reads it as Due after the resource notification, and a caller
+that disconnects reads the current state after reconnecting rather than a replay.
