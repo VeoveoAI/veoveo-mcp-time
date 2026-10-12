@@ -48,6 +48,10 @@ required-features = ["contract"]
 name = "window_contract"
 required-features = ["contract"]
 
+[[test]]
+name = "acceptance"
+required-features = ["mcp"]
+
 [features]
 schema = ["dep:veoveo-modules", "dep:veoveo-types", "dep:serde", "dep:schemars"]
 default = ["mcp"]
@@ -144,6 +148,7 @@ surrealdb = { version = "=3.3.0", default-features = false, optional = true }
 
 [dev-dependencies]
 veoveo-test-fixtures = { workspace = true, features = ["store", "tool-inputs"] }
+veoveo-oauth-client.workspace = true
 veoveo-modules = { workspace = true, features = ["runner"] }
 veoveo-mcp-contract = { workspace = true, features = ["runtime", "testing"] }
 veoveo-gateway-contract.workspace = true
