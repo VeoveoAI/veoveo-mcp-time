@@ -1,6 +1,10 @@
-//! Keyset pages over each collection, in the order its cursor encodes.
+//! Keyset pages over each collection, in the order its cursor encodes. Every page has a
+//! first-page and a next-page statement, so no predicate depends on whether a cursor is
+//! present, and a cached generic plan still seeks the index past the cursor.
 use super::*;
-use crate::contract::{AuthorityCursor, CalendarCursor, EpochCursor, EventCursor};
+use crate::contract::{
+    AcquisitionCursor, AuthorityCursor, CalendarCursor, EpochCursor, EventCursor, SourceCursor,
+};
 
 fn validate_limit(limit: u32) -> Result<i64, PersistenceError> {
     if !(1..=101).contains(&limit) {
@@ -10,6 +14,68 @@ fn validate_limit(limit: u32) -> Result<i64, PersistenceError> {
 }
 
 impl TimePersistence {
+    pub(crate) async fn time_sources_page(
+        &self,
+        tenant: TenantId,
+        after: Option<&SourceCursor>,
+        limit: u32,
+    ) -> Result<Vec<TimeSourceRecord>, PersistenceError> {
+        let limit = validate_limit(limit)?;
+        let Some(after) = after else {
+            return Ok(sqlx::query_file_as!(
+                TimeSourceRecord,
+                "src/persistence/queries/source_page_first.sql",
+                tenant as TenantId,
+                limit,
+            )
+            .fetch_all(&self.pool)
+            .await?);
+        };
+        validate_key("source_key", after.source_id(), "time-source-")?;
+        Ok(sqlx::query_file_as!(
+            TimeSourceRecord,
+            "src/persistence/queries/source_page_after.sql",
+            tenant as TenantId,
+            after.source_id() as &TimeSourceId,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub(crate) async fn time_acquisitions_page(
+        &self,
+        tenant: TenantId,
+        after: Option<&AcquisitionCursor>,
+        limit: u32,
+    ) -> Result<Vec<TimeAcquisitionRecord>, PersistenceError> {
+        let limit = validate_limit(limit)?;
+        let Some(after) = after else {
+            return Ok(sqlx::query_file_as!(
+                TimeAcquisitionRecord,
+                "src/persistence/queries/acquisition_page_first.sql",
+                tenant as TenantId,
+                limit,
+            )
+            .fetch_all(&self.pool)
+            .await?);
+        };
+        validate_key(
+            "acquisition_key",
+            after.acquisition_id(),
+            "time-acquisition-",
+        )?;
+        Ok(sqlx::query_file_as!(
+            TimeAcquisitionRecord,
+            "src/persistence/queries/acquisition_page_after.sql",
+            tenant as TenantId,
+            after.acquisition_id() as &TimeAcquisitionId,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub(crate) async fn time_authority_releases_page(
         &self,
         tenant: TenantId,
@@ -17,11 +83,21 @@ impl TimePersistence {
         limit: u32,
     ) -> Result<Vec<TimeAuthorityReleaseRecord>, PersistenceError> {
         let limit = validate_limit(limit)?;
+        let Some(after) = after else {
+            return Ok(sqlx::query_file_as!(
+                TimeAuthorityReleaseRecord,
+                "src/persistence/queries/release_page_first.sql",
+                tenant as TenantId,
+                limit,
+            )
+            .fetch_all(&self.pool)
+            .await?);
+        };
         Ok(sqlx::query_file_as!(
             TimeAuthorityReleaseRecord,
-            "src/persistence/queries/release_page.sql",
+            "src/persistence/queries/release_page_after.sql",
             tenant as TenantId,
-            after.map(AuthorityCursor::release_id) as Option<&AuthorityReleaseId>,
+            after.release_id() as &AuthorityReleaseId,
             limit,
         )
         .fetch_all(&self.pool)
@@ -35,15 +111,23 @@ impl TimePersistence {
         limit: u32,
     ) -> Result<Vec<TimeCalendarVersionRecord>, PersistenceError> {
         let limit = validate_limit(limit)?;
-        if let Some(after) = after {
-            validate_key("calendar_key", after.calendar_id(), "calendar-")?;
-        }
+        let Some(after) = after else {
+            return Ok(sqlx::query_file_as!(
+                TimeCalendarVersionRecord,
+                "src/persistence/queries/calendar_page_first.sql",
+                tenant_id as TenantId,
+                limit,
+            )
+            .fetch_all(&self.pool)
+            .await?);
+        };
+        validate_key("calendar_key", after.calendar_id(), "calendar-")?;
         Ok(sqlx::query_file_as!(
             TimeCalendarVersionRecord,
-            "src/persistence/queries/calendar_page.sql",
+            "src/persistence/queries/calendar_page_after.sql",
             tenant_id as TenantId,
-            after.map(CalendarCursor::calendar_id) as Option<&CalendarId>,
-            after.map(|after| version(after.version())),
+            after.calendar_id() as &CalendarId,
+            version(after.version()),
             limit,
         )
         .fetch_all(&self.pool)
@@ -57,15 +141,23 @@ impl TimePersistence {
         limit: u32,
     ) -> Result<Vec<TimeEpochRecord>, PersistenceError> {
         let limit = validate_limit(limit)?;
-        if let Some(after) = after {
-            validate_key("epoch_key", after.epoch_id(), "epoch-")?;
-        }
+        let Some(after) = after else {
+            return Ok(sqlx::query_file_as!(
+                TimeEpochRecord,
+                "src/persistence/queries/epoch_page_first.sql",
+                tenant_id as TenantId,
+                limit,
+            )
+            .fetch_all(&self.pool)
+            .await?);
+        };
+        validate_key("epoch_key", after.epoch_id(), "epoch-")?;
         Ok(sqlx::query_file_as!(
             TimeEpochRecord,
-            "src/persistence/queries/epoch_page.sql",
+            "src/persistence/queries/epoch_page_after.sql",
             tenant_id as TenantId,
-            after.map(EpochCursor::epoch_id) as Option<&EpochId>,
-            after.map(|after| version(after.version())),
+            after.epoch_id() as &EpochId,
+            version(after.version()),
             limit,
         )
         .fetch_all(&self.pool)
@@ -80,18 +172,28 @@ impl TimePersistence {
         limit: u32,
     ) -> Result<Vec<TimeEventRecord>, PersistenceError> {
         let limit = validate_limit(limit)?;
-        if let Some(after) = after {
-            validate_key("event_key", after.event_id(), "event-")?;
-        }
+        let Some(after) = after else {
+            return Ok(sqlx::query_file_as!(
+                TimeEventRecord,
+                "src/persistence/queries/event_page_first.sql",
+                identity.tenant_id as TenantId,
+                identity.principal_id as PrincipalId,
+                state as Option<TimeEventState>,
+                limit,
+            )
+            .fetch_all(&self.pool)
+            .await?);
+        };
+        validate_key("event_key", after.event_id(), "event-")?;
         Ok(sqlx::query_file_as!(
             TimeEventRecord,
-            "src/persistence/queries/event_page.sql",
+            "src/persistence/queries/event_page_after.sql",
             identity.tenant_id as TenantId,
             identity.principal_id as PrincipalId,
             state as Option<TimeEventState>,
-            after.map(EventCursor::tai_seconds),
-            after.map(|after| nanosecond(after.nanosecond())),
-            after.map(EventCursor::event_id) as Option<&EventId>,
+            after.tai_seconds(),
+            nanosecond(after.nanosecond()),
+            after.event_id() as &EventId,
             limit,
         )
         .fetch_all(&self.pool)

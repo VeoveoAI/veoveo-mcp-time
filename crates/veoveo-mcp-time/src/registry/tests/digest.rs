@@ -112,7 +112,7 @@ async fn retained_digests_carry_provenance_idempotency_and_reject_corruption() {
             .await
             .unwrap_err();
         assert!(!format!("{error:#}").contains("PRIVATE_INVALID_DIGEST"));
-        assert!(catalog.list_releases(&owner).await.is_err());
+        assert!(catalog.releases_page(&owner, None).await.is_err());
         assert!(
             catalog
                 .release(&foreign, &release.release_id)

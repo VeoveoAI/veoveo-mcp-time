@@ -11,6 +11,7 @@ use crate::{
 };
 use veoveo_platform_store::{PlatformStore, PrincipalKind};
 
+mod admin_pages;
 mod knowledge;
 mod metadata;
 mod numeric;

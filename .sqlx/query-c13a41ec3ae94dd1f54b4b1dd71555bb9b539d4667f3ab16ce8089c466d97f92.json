@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    release_key AS \"release_key: AuthorityReleaseId\",\n    owner AS \"owner: PrincipalId\",\n    source_key AS \"source_key: TimeSourceId\",\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    state AS \"state: TimeAuthorityReleaseState\",\n    version_label,\n    source_url,\n    source_digest,\n    artifact_path,\n    retrieved_at,\n    validated_at,\n    body,\n    record_version,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.authority_release\nWHERE tenant = $1 AND ($2::text IS NULL OR release_key > $2)\nORDER BY release_key\nLIMIT $3\n",
+  "query": "-- The tenant's acquired releases after a cursor position, seeking the primary key past it.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    release_key AS \"release_key: AuthorityReleaseId\",\n    owner AS \"owner: PrincipalId\",\n    source_key AS \"source_key: TimeSourceId\",\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    state AS \"state: TimeAuthorityReleaseState\",\n    version_label,\n    source_url,\n    source_digest,\n    artifact_path,\n    retrieved_at,\n    validated_at,\n    body,\n    record_version,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.authority_release\nWHERE tenant = $1 AND release_key > $2\nORDER BY release_key\nLIMIT $3\n",
   "describe": {
     "columns": [
       {
@@ -242,5 +242,5 @@
       false
     ]
   },
-  "hash": "e15307879f77ae0511ccb25e3fa32c0bb196832ee390169c4ac07912bd8f22e4"
+  "hash": "c13a41ec3ae94dd1f54b4b1dd71555bb9b539d4667f3ab16ce8089c466d97f92"
 }

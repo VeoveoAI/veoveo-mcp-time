@@ -9,7 +9,8 @@ mod cursor;
 mod identifiers;
 mod release;
 pub use cursor::{
-    AuthorityCursor, BootstrapAuthorityCursor, CalendarCursor, EpochCursor, EventCursor,
+    AcquisitionCursor, AuthorityCursor, BootstrapAuthorityCursor, CalendarCursor, EpochCursor,
+    EventCursor, SourceCursor,
 };
 pub use identifiers::{TimeDocument, TimeZoneId};
 pub use release::TimeAuthorityReleaseUri;

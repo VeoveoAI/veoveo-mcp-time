@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    source_key AS \"source_key: TimeSourceId\",\n    owner AS \"owner: PrincipalId\",\n    name,\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    source_url,\n    expected_content_type,\n    enabled,\n    body,\n    record_version,\n    created_at,\n    updated_at\nFROM time.source\nWHERE tenant = $1\nORDER BY name, source_key\n",
+  "query": "-- The first rows of a tenant's sources in source ID order; the primary key serves it.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    source_key AS \"source_key: TimeSourceId\",\n    owner AS \"owner: PrincipalId\",\n    name,\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    source_url,\n    expected_content_type,\n    enabled,\n    body,\n    record_version,\n    created_at,\n    updated_at\nFROM time.source\nWHERE tenant = $1\nORDER BY source_key\nLIMIT $2\n",
   "describe": {
     "columns": [
       {
@@ -138,7 +138,8 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -156,5 +157,5 @@
       false
     ]
   },
-  "hash": "f459c8ebc6ef25000034ab7f5dd37adbe347087e8b8c78296d05f82e01ae46ec"
+  "hash": "c308a742911dfbd8e370662de25f0708c326de61cbf5a91415d432cb94adde5d"
 }

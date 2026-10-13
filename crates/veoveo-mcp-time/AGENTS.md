@@ -51,11 +51,14 @@ leap second assumptions.
   before serializing or binding it; never relax the body-column comparisons instead.
 - Events become due only through the per-process due loop in `src/due.rs`, which runs
   one conditional `UPDATE`. Do not add in-process timers per event.
+- Every collection and administration listing is a keyset page with separate
+  first-page and next-page statements. Do not reintroduce a `$cursor IS NULL OR …`
+  predicate, which loses the index seek in a cached generic plan.
 - Authority activation is atomic: optimistic versions plus a full preflight
   load of the prospective TZDB and leap second pair; one active release per
   family per tenant. Acquisition downloads run under fixed host, media,
   digest, size, and time policy with archive traversal rejected.
-- `list_active_authorities` returns `AdminPage<ActiveAuthoritySelection>` with
+- `list_active_authorities` returns `AdminPage<ActiveAuthoritySelection, NoCursor>` with
   closed `{pointerVersion, release}` entries. Use `selection.write_guard()` for
   activation; the persisted pointer version differs from `release.recordVersion`.
   Preserve the joined tenant/parent/body admission and reject non-active releases.
@@ -138,6 +141,7 @@ leap second assumptions.
 - `src/catalog/tests.rs` qualifies SQL tenant and owner predicates, latest epoch
   selection, event transition isolation, page boundaries, requested epoch batches,
   and bounded distinct completion.
+  `src/catalog/tests/admin_pages.rs` walks the source and acquisition pages.
 - `src/catalog/tests/metadata.rs` qualifies retained body/key agreement, the schema's
   refusal of corrupt columns, redacted diagnostics and immutable acquisition metadata.
   Corruption goes through `src/tests/queries/`. Preserve the lifecycle-column rules in

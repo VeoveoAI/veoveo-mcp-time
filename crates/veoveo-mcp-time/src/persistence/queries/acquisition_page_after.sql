@@ -1,3 +1,5 @@
+-- The tenant's acquisitions older than a cursor position, seeking the primary key
+-- backwards from it.
 SELECT
     tenant AS "tenant: TenantId",
     acquisition_key AS "acquisition_key: TimeAcquisitionId",
@@ -13,5 +15,6 @@ SELECT
     created_at,
     updated_at
 FROM time.acquisition
-WHERE tenant = $1
-ORDER BY created_at DESC, acquisition_key
+WHERE tenant = $1 AND acquisition_key < $2
+ORDER BY acquisition_key DESC
+LIMIT $3

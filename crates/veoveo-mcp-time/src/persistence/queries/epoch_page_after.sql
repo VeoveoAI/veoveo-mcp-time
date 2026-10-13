@@ -1,3 +1,6 @@
+-- The tenant's epoch versions after a cursor position. The order mixes directions, so
+-- no row comparison expresses the position; `epoch_key >= $2` lets the page index seek
+-- to the cursor's epoch, and the disjunction drops its versions already shown.
 SELECT
     tenant AS "tenant: TenantId",
     epoch_key AS "epoch_key: EpochId",
@@ -14,10 +17,7 @@ SELECT
     work_context
 FROM time.epoch
 WHERE tenant = $1
-    AND (
-        $2::text IS NULL
-        OR epoch_key > $2
-        OR (epoch_key = $2 AND epoch_version < $3)
-    )
+    AND epoch_key >= $2
+    AND (epoch_key > $2 OR epoch_version < $3)
 ORDER BY epoch_key, epoch_version DESC
 LIMIT $4

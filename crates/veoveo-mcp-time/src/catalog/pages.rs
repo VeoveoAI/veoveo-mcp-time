@@ -1,17 +1,57 @@
 use super::{
-    TimeAccessContext, TimeCatalog, calendar_from_record, epoch_from_record, event_from_record,
+    TimeAccessContext, TimeCatalog, acquisition_from_record, calendar_from_record,
+    epoch_from_record, event_from_record, source_from_record,
 };
 use crate::contract::EventState;
 use crate::{
     contract::{
-        CalendarCursor, CollectionPage, Epoch, EpochCursor, EpochId, Event, EventCursor,
-        OperationalCalendar, TimeVersion,
+        AcquisitionCursor, AdminPage, AdminPageLimit, CalendarCursor, CollectionPage, Epoch,
+        EpochCursor, EpochId, Event, EventCursor, OperationalCalendar, SourceCursor,
+        TimeAcquisition, TimeSource, TimeVersion,
     },
     index,
 };
 use anyhow::Result;
 
 impl TimeCatalog {
+    /// One page of the tenant's sources in source ID order.
+    pub async fn sources_page(
+        &self,
+        scope: &TimeAccessContext,
+        after: Option<&SourceCursor>,
+        limit: AdminPageLimit,
+    ) -> Result<AdminPage<TimeSource, SourceCursor>> {
+        let rows = self
+            .persistence
+            .time_sources_page(scope.identity.tenant_id, after, index::admin_fetch(limit))
+            .await?;
+        index::admin_page(
+            rows,
+            limit,
+            |row| Ok(SourceCursor::new(&row.source_key)),
+            source_from_record,
+        )
+    }
+
+    /// One page of the tenant's acquisitions, the most recently started first.
+    pub async fn acquisitions_page(
+        &self,
+        scope: &TimeAccessContext,
+        after: Option<&AcquisitionCursor>,
+        limit: AdminPageLimit,
+    ) -> Result<AdminPage<TimeAcquisition, AcquisitionCursor>> {
+        let rows = self
+            .persistence
+            .time_acquisitions_page(scope.identity.tenant_id, after, index::admin_fetch(limit))
+            .await?;
+        index::admin_page(
+            rows,
+            limit,
+            |row| Ok(AcquisitionCursor::new(&row.acquisition_key)),
+            acquisition_from_record,
+        )
+    }
+
     pub async fn calendars_page(
         &self,
         scope: &TimeAccessContext,

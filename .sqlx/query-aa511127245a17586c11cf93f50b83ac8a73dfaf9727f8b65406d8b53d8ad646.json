@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    release_key AS \"release_key: AuthorityReleaseId\",\n    owner AS \"owner: PrincipalId\",\n    source_key AS \"source_key: TimeSourceId\",\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    state AS \"state: TimeAuthorityReleaseState\",\n    version_label,\n    source_url,\n    source_digest,\n    artifact_path,\n    retrieved_at,\n    validated_at,\n    body,\n    record_version,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.authority_release\nWHERE tenant = $1\nORDER BY created_at DESC, release_key\n",
+  "query": "-- The first rows of a tenant's acquired releases in release ID order.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    release_key AS \"release_key: AuthorityReleaseId\",\n    owner AS \"owner: PrincipalId\",\n    source_key AS \"source_key: TimeSourceId\",\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    state AS \"state: TimeAuthorityReleaseState\",\n    version_label,\n    source_url,\n    source_digest,\n    artifact_path,\n    retrieved_at,\n    validated_at,\n    body,\n    record_version,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.authority_release\nWHERE tenant = $1\nORDER BY release_key\nLIMIT $2\n",
   "describe": {
     "columns": [
       {
@@ -215,7 +215,8 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -240,5 +241,5 @@
       false
     ]
   },
-  "hash": "53c4b4a74082ab93c9e8e7b9076cc34f40efc5dcf40cd3904394e29593b29c23"
+  "hash": "aa511127245a17586c11cf93f50b83ac8a73dfaf9727f8b65406d8b53d8ad646"
 }

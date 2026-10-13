@@ -33,16 +33,17 @@ async fn operator_reads_pointer_guard_for_next_activation() {
         let owner_token = token("tenant-a");
         // The operator reads the actual pointer guard, rather than the release's
         // independently advancing record version, for the next activation.
-        let empty: AdminPage<crate::ActiveAuthoritySelection> = serde_json::from_value(
-            call(
-                gateway,
-                &owner_token,
-                "list_active_authorities",
-                serde_json::json!({}),
+        let empty: AdminPage<crate::ActiveAuthoritySelection, crate::NoCursor> =
+            serde_json::from_value(
+                call(
+                    gateway,
+                    &owner_token,
+                    "list_active_authorities",
+                    serde_json::json!({}),
+                )
+                .await,
             )
-            .await,
-        )
-        .unwrap();
+            .unwrap();
         assert!(empty.items.is_empty());
         let operator = scope(&db.a, "tenant-a").await;
         let mut guard = TimeWriteGuard::Absent;
@@ -66,16 +67,17 @@ async fn operator_reads_pointer_guard_for_next_activation() {
                 serde_json::to_value(&activation).unwrap(),
             )
             .await;
-            let selected: AdminPage<crate::ActiveAuthoritySelection> = serde_json::from_value(
-                call(
-                    gateway,
-                    &owner_token,
-                    "list_active_authorities",
-                    serde_json::json!({}),
+            let selected: AdminPage<crate::ActiveAuthoritySelection, crate::NoCursor> =
+                serde_json::from_value(
+                    call(
+                        gateway,
+                        &owner_token,
+                        "list_active_authorities",
+                        serde_json::json!({}),
+                    )
+                    .await,
                 )
-                .await,
-            )
-            .unwrap();
+                .unwrap();
             assert_eq!(selected.items.len(), 1);
             let selected = &selected.items[0];
             assert_eq!(selected.pointer_version.get(), version);
@@ -83,16 +85,17 @@ async fn operator_reads_pointer_guard_for_next_activation() {
             assert_eq!(selected.release.release_id, candidate.release_id);
             guard = selected.write_guard();
         }
-        let other: AdminPage<crate::ActiveAuthoritySelection> = serde_json::from_value(
-            call(
-                gateway,
-                &token("tenant-b"),
-                "list_active_authorities",
-                serde_json::json!({}),
+        let other: AdminPage<crate::ActiveAuthoritySelection, crate::NoCursor> =
+            serde_json::from_value(
+                call(
+                    gateway,
+                    &token("tenant-b"),
+                    "list_active_authorities",
+                    serde_json::json!({}),
+                )
+                .await,
             )
-            .await,
-        )
-        .unwrap();
+            .unwrap();
         assert!(other.items.is_empty());
     })
     .await

@@ -207,20 +207,28 @@ fn active_selection_exposes_pointer_guard_and_rejects_unadmitted_wire() {
         .build()
         .is_err()
     );
-    let page = AdminPage {
+    let page = AdminPage::<_, NoCursor> {
         items: vec![selection],
         next_cursor: None,
     };
     let wire = serde_json::to_value(page).unwrap();
-    let admitted: AdminPage<ActiveAuthoritySelection> =
+    let admitted: AdminPage<ActiveAuthoritySelection, NoCursor> =
         serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(admitted.items.len(), 1);
     let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(AdminPage<ActiveAuthoritySelection>)).unwrap(),
+        &serde_json::to_value(schemars::schema_for!(AdminPage<ActiveAuthoritySelection, NoCursor>))
+            .unwrap(),
     )
     .unwrap();
     assert!(validator.is_valid(&wire));
+    // The active selection is one page, so neither its schema nor its decoder admits a cursor.
+    let mut continued = wire.clone();
+    continued["nextCursor"] = json!("next");
+    assert!(!validator.is_valid(&continued));
+    assert!(
+        serde_json::from_value::<AdminPage<ActiveAuthoritySelection, NoCursor>>(continued).is_err()
+    );
     let old = json!({"items":[wire["items"][0]["release"].clone()],"nextCursor":null});
     assert!(!validator.is_valid(&old));
-    assert!(serde_json::from_value::<AdminPage<ActiveAuthoritySelection>>(old).is_err());
+    assert!(serde_json::from_value::<AdminPage<ActiveAuthoritySelection, NoCursor>>(old).is_err());
 }

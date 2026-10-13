@@ -327,7 +327,13 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             set_body(&db.a, tenant, row, &bad).await;
             let error = catalog.source(&owner, &source.source_id).await.unwrap_err();
             assert!(!format!("{error:#}").contains("STORED_SECRET_MARKER"));
-            assert!(catalog.list_sources(&owner).await.is_err(), "{field}");
+            assert!(
+                catalog
+                    .sources_page(&owner, None, crate::AdminPageLimit::MAX)
+                    .await
+                    .is_err(),
+                "{field}"
+            );
             assert!(
                 catalog
                     .source(&foreign, &source.source_id)
@@ -417,7 +423,10 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                 catalog.release(&owner, &release.release_id).await.is_err(),
                 "{field}"
             );
-            assert!(catalog.list_releases(&owner).await.is_err(), "{field}");
+            assert!(
+                catalog.releases_page(&owner, None).await.is_err(),
+                "{field}"
+            );
             assert!(
                 catalog
                     .release(&foreign, &release.release_id)
@@ -526,7 +535,12 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                     .await
                     .is_err()
             );
-            assert!(catalog.list_acquisitions(&owner).await.is_err());
+            assert!(
+                catalog
+                    .acquisitions_page(&owner, None, crate::AdminPageLimit::MAX)
+                    .await
+                    .is_err()
+            );
             assert!(
                 catalog
                     .acquisition(&foreign, &acquisition.acquisition_id)

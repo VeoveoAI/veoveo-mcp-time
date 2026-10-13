@@ -1,3 +1,4 @@
+-- The first rows of a tenant's acquired releases in release ID order.
 SELECT
     tenant AS "tenant: TenantId",
     release_key AS "release_key: AuthorityReleaseId",
@@ -19,6 +20,6 @@ SELECT
     owner_key,
     work_context
 FROM time.authority_release
-WHERE tenant = $1 AND ($2::text IS NULL OR release_key > $2)
+WHERE tenant = $1
 ORDER BY release_key
-LIMIT $3
+LIMIT $2

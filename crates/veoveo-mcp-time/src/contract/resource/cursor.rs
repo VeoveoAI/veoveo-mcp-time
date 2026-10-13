@@ -1,10 +1,14 @@
-//! Collection-specific current cursor envelopes; only changed event positions use v2.
+//! Collection-specific current cursor envelopes for resource collections and
+//! administration listings; only changed event positions use v2.
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use super::{TimeResourceError, TimeVersion};
 use crate::{
-    contract::{AuthorityReleaseId, CalendarId, EpochId, EventId, SubsecondNanoseconds},
+    contract::{
+        AuthorityReleaseId, CalendarId, EpochId, EventId, SubsecondNanoseconds, TimeAcquisitionId,
+        TimeSourceId,
+    },
     uris,
 };
 
@@ -51,9 +55,11 @@ fn decode<P: DeserializeOwned>(
     Ok(cursor.position)
 }
 
+/// One collection a cursor walks: a resource collection root, or the table behind an
+/// administration listing. A cursor admits only its own collection's envelope.
 trait CursorCollection {
     type Position: Serialize + DeserializeOwned;
-    const URI: &'static str;
+    const COLLECTION: &'static str;
     const VERSION: u8 = 1;
 }
 
@@ -70,14 +76,14 @@ impl<C: CursorCollection> veoveo_types::CursorCodec for TimeCursorCodec<C> {
         Ok(hex::encode(
             serde_json::to_vec(&WireCursor {
                 version: C::VERSION,
-                collection: C::URI.to_owned(),
+                collection: C::COLLECTION.to_owned(),
                 position,
             })
             .expect("closed Time cursor fields serialize"),
         ))
     }
     fn decode(&self, wire: &str) -> Result<Self::Position, Self::Error> {
-        decode(wire, C::URI, C::VERSION)
+        decode(wire, C::COLLECTION, C::VERSION)
     }
 }
 
@@ -92,7 +98,7 @@ fn admit_position<C: CursorCollection + Default>(
 struct CalendarCollection;
 impl CursorCollection for CalendarCollection {
     type Position = VersionPosition<CalendarId>;
-    const URI: &'static str = uris::CALENDARS_URI;
+    const COLLECTION: &'static str = uris::CALENDARS_URI;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -115,7 +121,7 @@ impl CalendarCursor {
 struct EpochCollection;
 impl CursorCollection for EpochCollection {
     type Position = VersionPosition<EpochId>;
-    const URI: &'static str = uris::EPOCHS_URI;
+    const COLLECTION: &'static str = uris::EPOCHS_URI;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -138,7 +144,7 @@ impl EpochCursor {
 struct EventCollection;
 impl CursorCollection for EventCollection {
     type Position = EventPosition;
-    const URI: &'static str = uris::EVENTS_URI;
+    const COLLECTION: &'static str = uris::EVENTS_URI;
     const VERSION: u8 = 2;
 }
 
@@ -162,7 +168,7 @@ impl EventCursor {
 struct AuthorityCollection;
 impl CursorCollection for AuthorityCollection {
     type Position = AuthorityReleaseId;
-    const URI: &'static str = uris::AUTHORITY_RELEASES_URI;
+    const COLLECTION: &'static str = uris::AUTHORITY_RELEASES_URI;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -185,7 +191,7 @@ impl AuthorityCursor {
 struct BootstrapAuthorityCollection;
 impl CursorCollection for BootstrapAuthorityCollection {
     type Position = AuthorityReleaseId;
-    const URI: &'static str = uris::BOOTSTRAP_AUTHORITIES_URI;
+    const COLLECTION: &'static str = uris::BOOTSTRAP_AUTHORITIES_URI;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -288,6 +294,74 @@ impl BootstrapAuthorityCursor {
         }
     }
     pub fn release_id(&self) -> &AuthorityReleaseId {
+        self.cursor.position()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct SourceCollection;
+impl CursorCollection for SourceCollection {
+    type Position = TimeSourceId;
+    const COLLECTION: &'static str = "time.source";
+}
+
+/// The position after the last source of a `list_sources` page.
+/// ```compile_fail
+/// use veoveo_mcp_time::{SourceCursor, TimeAcquisitionId};
+/// SourceCursor::new(&TimeAcquisitionId::parse("time-acquisition-example").unwrap());
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+pub struct SourceCursor {
+    #[schemars(with = "String")]
+    cursor: veoveo_types::OpaqueCursor<TimeCursorCodec<SourceCollection>>,
+}
+impl SourceCursor {
+    pub fn new(id: &TimeSourceId) -> Self {
+        Self {
+            cursor: admit_position::<SourceCollection>(id.clone()),
+        }
+    }
+    pub fn parse(wire: impl Into<String>) -> Result<Self, TimeResourceError> {
+        veoveo_types::OpaqueCursor::parse(TimeCursorCodec::<SourceCollection>::default(), wire)
+            .map(|cursor| Self { cursor })
+    }
+    pub fn as_str(&self) -> &str {
+        self.cursor.as_str()
+    }
+    pub fn source_id(&self) -> &TimeSourceId {
+        self.cursor.position()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct AcquisitionCollection;
+impl CursorCollection for AcquisitionCollection {
+    type Position = TimeAcquisitionId;
+    const COLLECTION: &'static str = "time.acquisition";
+}
+
+/// The position after the last acquisition of a `list_acquisitions` page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+pub struct AcquisitionCursor {
+    #[schemars(with = "String")]
+    cursor: veoveo_types::OpaqueCursor<TimeCursorCodec<AcquisitionCollection>>,
+}
+impl AcquisitionCursor {
+    pub fn new(id: &TimeAcquisitionId) -> Self {
+        Self {
+            cursor: admit_position::<AcquisitionCollection>(id.clone()),
+        }
+    }
+    pub fn parse(wire: impl Into<String>) -> Result<Self, TimeResourceError> {
+        veoveo_types::OpaqueCursor::parse(TimeCursorCodec::<AcquisitionCollection>::default(), wire)
+            .map(|cursor| Self { cursor })
+    }
+    pub fn as_str(&self) -> &str {
+        self.cursor.as_str()
+    }
+    pub fn acquisition_id(&self) -> &TimeAcquisitionId {
         self.cursor.position()
     }
 }

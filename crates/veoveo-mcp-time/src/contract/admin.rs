@@ -3,16 +3,114 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AuthorityReleaseId, ClockQualityPolicy, Epoch, OperationalCalendar, TimeAcquisitionId,
-    TimeSourceId,
+    AcquisitionCursor, AuthorityReleaseId, ClockQualityPolicy, Epoch, OperationalCalendar,
+    SourceCursor, TimeAcquisitionId, TimeSourceId,
 };
 
+/// One page of an administration listing. `next_cursor` continues the listing and is
+/// absent on its last page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub struct AdminPage<T> {
+pub struct AdminPage<T, C> {
     pub items: Vec<T>,
-    pub next_cursor: Option<String>,
+    pub next_cursor: Option<C>,
+}
+
+/// The cursor of a listing that always fits one page. It has no value, so the page's
+/// `nextCursor` is always null.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NoCursor {}
+
+impl JsonSchema for NoCursor {
+    fn inline_schema() -> bool {
+        true
+    }
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "NoCursor".into()
+    }
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        // No cursor value exists, so the page's cursor field admits only null.
+        schemars::json_schema!({"type": "null"})
+    }
+}
+
+/// How many records one administration page holds: 1 to 100, and 100 when omitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "u64", into = "u64")]
+pub struct AdminPageLimit(u8);
+
+impl AdminPageLimit {
+    pub const MAX: Self = Self(100);
+
+    pub fn new(value: u64) -> Result<Self, super::admission::TimeValueError> {
+        u8::try_from(value)
+            .ok()
+            .filter(|value| (1..=Self::MAX.0).contains(value))
+            .map(Self)
+            .ok_or(super::admission::TimeValueError(
+                "administration page limit must be in 1..=100",
+            ))
+    }
+
+    pub fn get(self) -> u32 {
+        u32::from(self.0)
+    }
+}
+
+impl Default for AdminPageLimit {
+    fn default() -> Self {
+        Self::MAX
+    }
+}
+
+impl TryFrom<u64> for AdminPageLimit {
+    type Error = super::admission::TimeValueError;
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<AdminPageLimit> for u64 {
+    fn from(value: AdminPageLimit) -> Self {
+        u64::from(value.0)
+    }
+}
+
+impl JsonSchema for AdminPageLimit {
+    fn inline_schema() -> bool {
+        true
+    }
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "AdminPageLimit".into()
+    }
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({"type":"integer", "minimum":1, "maximum":100})
+    }
+}
+
+/// Selects one page of the tenant's authority sources, in source ID order.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
+pub struct ListSourcesRequest {
+    /// The previous page's `nextCursor`, or none for the first page.
+    #[serde(default)]
+    pub cursor: Option<SourceCursor>,
+    #[serde(default)]
+    pub limit: AdminPageLimit,
+}
+
+/// Selects one page of the tenant's acquisitions, the most recently started first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
+pub struct ListAcquisitionsRequest {
+    /// The previous page's `nextCursor`, or none for the first page.
+    #[serde(default)]
+    pub cursor: Option<AcquisitionCursor>,
+    #[serde(default)]
+    pub limit: AdminPageLimit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

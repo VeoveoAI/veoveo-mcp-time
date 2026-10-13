@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    acquisition_key AS \"acquisition_key: TimeAcquisitionId\",\n    owner AS \"owner: PrincipalId\",\n    source_key AS \"source_key: TimeSourceId\",\n    expected_source_digest,\n    idempotency_key,\n    status AS \"status: TimeAcquisitionState\",\n    phase AS \"phase: TimeAcquisitionPhase\",\n    staged_release_key AS \"staged_release_key: AuthorityReleaseId\",\n    body,\n    record_version,\n    created_at,\n    updated_at\nFROM time.acquisition\nWHERE tenant = $1\nORDER BY created_at DESC, acquisition_key\n",
+  "query": "-- The first rows of a tenant's acquisitions, newest key first. Acquisition keys are\n-- UUIDv7, so this is the order Time started them; the primary key serves it backwards.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    acquisition_key AS \"acquisition_key: TimeAcquisitionId\",\n    owner AS \"owner: PrincipalId\",\n    source_key AS \"source_key: TimeSourceId\",\n    expected_source_digest,\n    idempotency_key,\n    status AS \"status: TimeAcquisitionState\",\n    phase AS \"phase: TimeAcquisitionPhase\",\n    staged_release_key AS \"staged_release_key: AuthorityReleaseId\",\n    body,\n    record_version,\n    created_at,\n    updated_at\nFROM time.acquisition\nWHERE tenant = $1\nORDER BY acquisition_key DESC\nLIMIT $2\n",
   "describe": {
     "columns": [
       {
@@ -149,7 +149,8 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -168,5 +169,5 @@
       false
     ]
   },
-  "hash": "1f390a624ea7f95c907851de542ed171aefbaf8448cc11668b6339dd12220a57"
+  "hash": "79398a67d441eef6390f62d955956a9d31c74d501e427601e6a12846787c0272"
 }

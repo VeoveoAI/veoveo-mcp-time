@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    calendar_key AS \"calendar_key: CalendarId\",\n    calendar_version,\n    owner AS \"owner: PrincipalId\",\n    name,\n    zone_id,\n    state AS \"state: TimeCalendarState\",\n    body,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.calendar_version\nWHERE tenant = $1\n    AND (\n        $2::text IS NULL\n        OR calendar_key > $2\n        OR (calendar_key = $2 AND calendar_version < $3)\n    )\nORDER BY calendar_key, calendar_version DESC\nLIMIT $4\n",
+  "query": "-- The tenant's calendar versions after a cursor position. The order mixes directions, so\n-- no row comparison expresses the position; `calendar_key >= $2` lets the page index\n-- seek to the cursor's calendar, and the disjunction drops its versions already shown.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    calendar_key AS \"calendar_key: CalendarId\",\n    calendar_version,\n    owner AS \"owner: PrincipalId\",\n    name,\n    zone_id,\n    state AS \"state: TimeCalendarState\",\n    body,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.calendar_version\nWHERE tenant = $1\n    AND calendar_key >= $2\n    AND (calendar_key > $2 OR calendar_version < $3)\nORDER BY calendar_key, calendar_version DESC\nLIMIT $4\n",
   "describe": {
     "columns": [
       {
@@ -171,5 +171,5 @@
       false
     ]
   },
-  "hash": "322ba80bbc58f1113affc8b2ea2d0be5e8f8f43a518609ae3f290c0dd20be441"
+  "hash": "621234719156b57579fdbb1e6c607876b3c6575eff74156e794980c831088022"
 }

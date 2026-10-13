@@ -16,33 +16,37 @@ use super::{
     requirements::{Target, require},
 };
 use crate::contract::{
-    ActivateReleaseRequest, ActiveAuthoritySelection, AdminPage, AuthorityRelease,
-    CancelAcquisitionRequest, ClockQualityPolicyRecord, CreateCalendarRequest,
+    AcquisitionCursor, ActivateReleaseRequest, ActiveAuthoritySelection, AdminPage,
+    AuthorityRelease, CancelAcquisitionRequest, ClockQualityPolicyRecord, CreateCalendarRequest,
     CreateCalendarRequestValue, CreateSourceRequest, CreateSourceRequestValue, Epoch,
-    GetAcquisitionRequest, GetSourceRequest, OperationalCalendar, ReplaceClockQualityPolicyRequest,
-    ReplaceSourceRequest, StartAcquisitionRequest, StartAcquisitionRequestValue, TimeAcquisition,
-    TimeSource, UpsertEpochRequest, UpsertEpochRequestValue,
+    GetAcquisitionRequest, GetSourceRequest, ListAcquisitionsRequest, ListSourcesRequest, NoCursor,
+    OperationalCalendar, ReplaceClockQualityPolicyRequest, ReplaceSourceRequest, SourceCursor,
+    StartAcquisitionRequest, StartAcquisitionRequestValue, TimeAcquisition, TimeSource,
+    UpsertEpochRequest, UpsertEpochRequestValue,
 };
 
 #[tool_router(router = administration_router, vis = "pub(crate)")]
 impl TimeMcp {
     #[tool(
         title = "List authority sources",
-        description = "List the tenant's registered time-authority sources: HTTPS locations of IANA time zone and leap-second data.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<AdminPage<TimeSource>>(),
+        description = "List the tenant's registered time-authority sources, the HTTPS locations of IANA time zone and leap-second data, in source ID order. A page holds up to `limit` sources, 100 by default. Pass its `nextCursor` as `cursor` to read the next page.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<AdminPage<TimeSource, SourceCursor>>(),
         annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
     )]
     async fn list_sources(
         &self,
+        Parameters(request): Parameters<ListSourcesRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let identity = require(&context, Target::Tool("list_sources"))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
-        match self.state.catalog.list_sources(&scope).await {
-            Ok(items) => {
-                let page = page(items);
-                structured_result(format!("{} sources", page.items.len()), &page)
-            }
+        match self
+            .state
+            .catalog
+            .sources_page(&scope, request.cursor.as_ref(), request.limit)
+            .await
+        {
+            Ok(page) => structured_result(format!("{} sources", page.items.len()), &page),
             Err(error) => rejected(error),
         }
     }
@@ -118,21 +122,24 @@ impl TimeMcp {
 
     #[tool(
         title = "List acquisitions",
-        description = "List the tenant's authority acquisitions and their progress.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<AdminPage<TimeAcquisition>>(),
+        description = "List the tenant's authority acquisitions and their progress, the most recently started first. A page holds up to `limit` acquisitions, 100 by default. Pass its `nextCursor` as `cursor` to read the next page.",
+        output_schema = rmcp::handler::server::tool::schema_for_type::<AdminPage<TimeAcquisition, AcquisitionCursor>>(),
         annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
     )]
     async fn list_acquisitions(
         &self,
+        Parameters(request): Parameters<ListAcquisitionsRequest>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let identity = require(&context, Target::Tool("list_acquisitions"))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
-        match self.state.catalog.list_acquisitions(&scope).await {
-            Ok(items) => {
-                let page = page(items);
-                structured_result(format!("{} acquisitions", page.items.len()), &page)
-            }
+        match self
+            .state
+            .catalog
+            .acquisitions_page(&scope, request.cursor.as_ref(), request.limit)
+            .await
+        {
+            Ok(page) => structured_result(format!("{} acquisitions", page.items.len()), &page),
             Err(error) => rejected(error),
         }
     }
@@ -238,7 +245,7 @@ impl TimeMcp {
     #[tool(
         title = "List active authorities",
         description = "List the tenant's active release for each authority dataset with the pointer version activate_release requires as its expected active pointer version.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<AdminPage<ActiveAuthoritySelection>>(),
+        output_schema = rmcp::handler::server::tool::schema_for_type::<AdminPage<ActiveAuthoritySelection, NoCursor>>(),
         annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
     )]
     async fn list_active_authorities(
@@ -248,8 +255,12 @@ impl TimeMcp {
         let identity = require(&context, Target::Tool("list_active_authorities"))?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         match self.state.catalog.active_authorities(&scope).await {
+            // At most one release per dataset family, so one page holds them all.
             Ok(items) => {
-                let page = page(items);
+                let page = AdminPage::<_, NoCursor> {
+                    items,
+                    next_cursor: None,
+                };
                 structured_result(format!("{} active authorities", page.items.len()), &page)
             }
             Err(error) => rejected(error),
@@ -381,13 +392,6 @@ impl TimeMcp {
             record_version,
         };
         structured_result("replaced clock policy".to_owned(), &record)
-    }
-}
-
-fn page<T>(items: Vec<T>) -> AdminPage<T> {
-    AdminPage {
-        items,
-        next_cursor: None,
     }
 }
 

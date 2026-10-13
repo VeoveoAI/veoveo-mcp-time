@@ -659,8 +659,13 @@ Calendar, epoch, event and authority pages contain `items`, `limit: 100`, and
 `nextCursor`. A client reads the next page by passing the opaque cursor as the root's
 `cursor` query parameter, as in `time://events?cursor=<nextCursor>`. SQL applies
 the tenant and owner predicates and the cursor position as a keyset condition before
-its 101-record lookahead, and indexes cover each order.
-Calendars and epochs sort by key ascending and version descending. Events sort by
+its 101-record lookahead, and indexes cover each order. Each collection has one
+statement for its first page and one for the pages after a cursor, so no predicate tests
+whether a cursor is present and PostgreSQL's cached generic plan seeks the index past the
+position. Calendars and epochs sort by key ascending and version descending, a mixed
+order that no row comparison expresses: the next-page statement bounds the key with
+`>=` the cursor's key, which the page index seeks, and filters the versions of that key
+already returned. Events sort by
 TAI seconds, nanosecond, then event key ascending. These positions use immutable
 fields. Each page observes the records present at its read. Inserts before its position
 appear on a fresh walk.
@@ -772,7 +777,18 @@ Releases, calendars, epochs and the clock policy are read through Time's resourc
 An acquisition is a durable job with its own idempotency, phases and cancellation:
 `start_acquisition` returns its record, and `get_acquisition` reports its progress.
 
-`list_active_authorities` returns `AdminPage<ActiveAuthoritySelection>`. Each closed
+`list_sources` and `list_acquisitions` return keyset pages, `AdminPage<TimeSource,
+SourceCursor>` and `AdminPage<TimeAcquisition, AcquisitionCursor>`. A request names an
+optional `cursor` and a `limit` of 1 to 100 records, 100 when omitted. SQL reads one
+record past the limit, and `nextCursor` appears only when that record exists. Sources
+list in source ID order. Acquisitions list newest first: Time assigns their UUIDv7 IDs,
+so ID order is the order they started. Both orders seek the table's primary key. Each
+cursor is an opaque envelope that names its listing, so neither listing nor a resource
+collection admits another's cursor. The tenant predicate applies to every page.
+
+`list_active_authorities` returns `AdminPage<ActiveAuthoritySelection, NoCursor>`, one
+page with at most one selection per family. `NoCursor` has no value, so `nextCursor` is
+always null. Each closed
 entry contains `pointerVersion` and `release`, an admitted active `AuthorityRelease`.
 The positive pointer version advances independently of the release's `recordVersion`.
 An operator passes the selection's `write_guard()` as
@@ -810,9 +826,10 @@ vocabularies and `TimeAcquisitionPhase` bind as `text` through their `postgres` 
 which the `runtime` feature enables, and tenants and principals bind as `uuid`.
 Contract-only consumers resolve no database dependency. Calendar, epoch and
 existing-record guards use `TimeVersion`. Collection queries accept `CalendarCursor`,
-`EpochCursor` or `EventCursor` directly. Completion selects one of six fixed queries
-through `TimeCompletion`. Tenant and event-owner predicates, keyset positions, sorting,
-distinct selection and limits execute in SQL.
+`EpochCursor`, `EventCursor`, `AuthorityCursor`, `SourceCursor` or `AcquisitionCursor`
+directly. Completion selects one of six fixed queries through `TimeCompletion`. Tenant
+and event-owner predicates, keyset positions, sorting, distinct selection and limits
+execute in SQL.
 
 Public Time IDs accept bounded prefixed names because bootstrap authority provenance
 can name image-provided releases. Stored keys are the prefix followed by a lowercase
@@ -1109,7 +1126,9 @@ Runtime tests run against `veoveo-test-fixtures`' PostgreSQL 18 cluster: each te
 clones a database with the kernel migrations, applies Time's migrations as
 `server_time` and connects two pools as two registration logins. They cover stored
 URL/ID admission, SQL isolation and pagination, requested epoch batches and
-completion. Retained-metadata cases corrupt bodies through fixture statements, verify
+completion. Administration page cases walk five sources and four acquisitions two at a
+time, each record once in its order, and refuse a cursor from another listing.
+Retained-metadata cases corrupt bodies through fixture statements, verify
 read/collection rejection, check that the schema refuses corrupt columns, preserve
 lifecycle columns, and reject acquisition identity changes before writing. Isolated authority tests use separate connections to
 qualify retirement, competing pointer updates and exhaustion rollback followed by retry.

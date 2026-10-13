@@ -66,19 +66,6 @@ impl TimePersistence {
         .await?)
     }
 
-    pub(crate) async fn list_time_sources(
-        &self,
-        tenant_id: TenantId,
-    ) -> Result<Vec<TimeSourceRecord>, PersistenceError> {
-        Ok(sqlx::query_file_as!(
-            TimeSourceRecord,
-            "src/persistence/queries/sources.sql",
-            tenant_id as TenantId,
-        )
-        .fetch_all(&self.pool)
-        .await?)
-    }
-
     pub(crate) async fn create_time_authority_release(
         &self,
         draft: TimeAuthorityReleaseDraft,
@@ -123,19 +110,6 @@ impl TimePersistence {
             release_key as &AuthorityReleaseId,
         )
         .fetch_optional(&self.pool)
-        .await?)
-    }
-
-    pub(crate) async fn list_time_authority_releases(
-        &self,
-        tenant_id: TenantId,
-    ) -> Result<Vec<TimeAuthorityReleaseRecord>, PersistenceError> {
-        Ok(sqlx::query_file_as!(
-            TimeAuthorityReleaseRecord,
-            "src/persistence/queries/releases.sql",
-            tenant_id as TenantId,
-        )
-        .fetch_all(&self.pool)
         .await?)
     }
 }

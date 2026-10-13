@@ -70,19 +70,6 @@ impl TimePersistence {
         .await?)
     }
 
-    pub(crate) async fn list_time_acquisitions(
-        &self,
-        tenant_id: TenantId,
-    ) -> Result<Vec<TimeAcquisitionRecord>, PersistenceError> {
-        Ok(sqlx::query_file_as!(
-            TimeAcquisitionRecord,
-            "src/persistence/queries/acquisitions.sql",
-            tenant_id as TenantId,
-        )
-        .fetch_all(&self.pool)
-        .await?)
-    }
-
     pub(crate) async fn time_acquisition_for_release(
         &self,
         tenant_id: TenantId,

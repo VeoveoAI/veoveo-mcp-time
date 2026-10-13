@@ -162,15 +162,6 @@ impl TimeCatalog {
             .transpose()
     }
 
-    pub async fn list_sources(&self, scope: &TimeAccessContext) -> Result<Vec<TimeSource>> {
-        self.persistence
-            .list_time_sources(scope.identity.tenant_id)
-            .await?
-            .into_iter()
-            .map(source_from_record)
-            .collect()
-    }
-
     pub async fn create_release(
         &self,
         scope: &TimeAccessContext,
@@ -208,15 +199,6 @@ impl TimeCatalog {
             .await?
             .map(release_from_record)
             .transpose()
-    }
-
-    pub async fn list_releases(&self, scope: &TimeAccessContext) -> Result<Vec<AuthorityRelease>> {
-        self.persistence
-            .list_time_authority_releases(scope.identity.tenant_id)
-            .await?
-            .into_iter()
-            .map(release_from_record)
-            .collect()
     }
 
     pub async fn active_releases(
@@ -350,18 +332,6 @@ impl TimeCatalog {
             .await?
             .map(acquisition_from_record)
             .transpose()
-    }
-
-    pub async fn list_acquisitions(
-        &self,
-        scope: &TimeAccessContext,
-    ) -> Result<Vec<TimeAcquisition>> {
-        self.persistence
-            .list_time_acquisitions(scope.identity.tenant_id)
-            .await?
-            .into_iter()
-            .map(acquisition_from_record)
-            .collect()
     }
 
     pub async fn update_acquisition(

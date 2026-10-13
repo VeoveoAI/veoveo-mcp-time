@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    event_key AS \"event_key: EventId\",\n    owner AS \"owner: PrincipalId\",\n    name,\n    state AS \"state: TimeEventState\",\n    due_tai_seconds_since_1970,\n    due_nanosecond,\n    due,\n    idempotency_key,\n    body,\n    record_version,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.event\nWHERE tenant = $1\n    AND owner = $2\n    AND ($3::text IS NULL OR state = $3)\n    AND (\n        $4::bigint IS NULL\n        OR (due_tai_seconds_since_1970, due_nanosecond, event_key) > ($4, $5, $6)\n    )\nORDER BY due_tai_seconds_since_1970, due_nanosecond, event_key\nLIMIT $7\n",
+  "query": "-- The first rows of an owner's events in due order, optionally in one state.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    event_key AS \"event_key: EventId\",\n    owner AS \"owner: PrincipalId\",\n    name,\n    state AS \"state: TimeEventState\",\n    due_tai_seconds_since_1970,\n    due_nanosecond,\n    due,\n    idempotency_key,\n    body,\n    record_version,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.event\nWHERE tenant = $1\n    AND owner = $2\n    AND ($3::text IS NULL OR state = $3)\nORDER BY due_tai_seconds_since_1970, due_nanosecond, event_key\nLIMIT $4\n",
   "describe": {
     "columns": [
       {
@@ -185,9 +185,6 @@
         "Uuid",
         "Uuid",
         "Text",
-        "Int8",
-        "Int4",
-        "Text",
         "Int8"
       ]
     },
@@ -210,5 +207,5 @@
       false
     ]
   },
-  "hash": "701f80b743ead375fa9c0ebde4f20bdef36580d199991af62605a8854db5f88b"
+  "hash": "7ce5c8b72e8205c84977315c6e39c8baef54c03c587706e1411ffb9f4510550c"
 }

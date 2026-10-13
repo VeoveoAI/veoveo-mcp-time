@@ -80,7 +80,7 @@ async fn nanosecond_timestamps_round_trip_through_the_database_at_microsecond_pr
             release
         );
         assert_eq!(
-            catalog.list_releases(&owner).await.unwrap(),
+            catalog.releases_page(&owner, None).await.unwrap().items,
             std::slice::from_ref(&release)
         );
         let stored = body(&db.a, tenant, Row::Release(&release.release_id)).await;

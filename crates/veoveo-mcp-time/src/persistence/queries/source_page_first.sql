@@ -1,3 +1,4 @@
+-- The first rows of a tenant's sources in source ID order; the primary key serves it.
 SELECT
     tenant AS "tenant: TenantId",
     source_key AS "source_key: TimeSourceId",
@@ -13,4 +14,5 @@ SELECT
     updated_at
 FROM time.source
 WHERE tenant = $1
-ORDER BY name, source_key
+ORDER BY source_key
+LIMIT $2

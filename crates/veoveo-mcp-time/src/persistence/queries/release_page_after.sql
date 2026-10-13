@@ -1,3 +1,4 @@
+-- The tenant's acquired releases after a cursor position, seeking the primary key past it.
 SELECT
     tenant AS "tenant: TenantId",
     release_key AS "release_key: AuthorityReleaseId",
@@ -19,5 +20,6 @@ SELECT
     owner_key,
     work_context
 FROM time.authority_release
-WHERE tenant = $1
-ORDER BY created_at DESC, release_key
+WHERE tenant = $1 AND release_key > $2
+ORDER BY release_key
+LIMIT $3
