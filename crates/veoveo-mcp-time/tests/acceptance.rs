@@ -5,22 +5,27 @@
 //! Time environment, set `VEOVEO_ACCEPTANCE_GATEWAY` to the Gateway origin and
 //! `VEOVEO_ACCEPTANCE_KEY_DIRECTORY` to the directory holding the callers' keys, then
 //! run `cargo nextest run --test acceptance --run-ignored only`.
+//!
+//! A subscription first delivers what it watches as it stands when the subscription
+//! opens: a Task's current status, or an update naming each resource. A test that
+//! claims a pushed change therefore reads nothing between opening the subscription and
+//! the change it waits for, and requires the change to follow that opening delivery.
 use anyhow::{Context, Result, bail, ensure};
 use rmcp::{
     ClientHandler, ClientLifecycleMode, ClientServiceExt, RoleClient,
     model::{
-        CallToolRequestParams, CallToolResponse, ClientCapabilities, ClientConfig, GetTaskParams,
-        Implementation, ProtocolVersion, ReadResourceRequestParams, ResourceContents,
-        ServerNotification, SubscriptionFilter, TaskPayload, TaskStatus,
+        CallToolRequestParams, CallToolResponse, ClientCapabilities, ClientConfig, DetailedTask,
+        GetTaskParams, Implementation, ProtocolVersion, ReadResourceRequestParams,
+        ResourceContents, ServerNotification, SubscriptionFilter, TaskPayload, TaskStatus,
     },
-    service::RunningService,
+    service::{RunningService, ServiceError, Subscription},
     transport::{
         StreamableHttpClientTransport, streamable_http_client::StreamableHttpClientTransportConfig,
     },
 };
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
-use veoveo_mcp_time::{Event, EventState};
+use veoveo_mcp_time::{ConvertTimeOutput, Event, EventState, ExpandScheduleOutput, TimeScale};
 use veoveo_oauth_client::{ClientAssertionKeyId, ClientAssertionSigner};
 use veoveo_types::OAuthClientId;
 
@@ -185,10 +190,57 @@ async fn create_event(client: &Client, name: &str, due: Value) -> Result<Event> 
     Ok(serde_json::from_value(created)?)
 }
 
+fn event_uri(event: &Event) -> String {
+    format!("time://events/{}", event.event_id)
+}
+
 async fn event(client: &Client, event: &Event) -> Result<Event> {
     Ok(serde_json::from_value(
-        read(client, &format!("time://events/{}", event.event_id)).await?,
+        read(client, &event_uri(event)).await?,
     )?)
+}
+
+/// Subscribe to one event's own resource; the Gateway must accept it unchanged.
+async fn watch_event(client: &Client, event: &Event) -> Result<Subscription> {
+    let filter = SubscriptionFilter::builder()
+        .resource_subscriptions([event_uri(event)])
+        .build();
+    let listener = client.listen(filter.clone()).await?;
+    ensure!(
+        listener.acknowledged() == &filter,
+        "the Gateway did not acknowledge the event subscription"
+    );
+    Ok(listener)
+}
+
+/// The next update naming the watched event; it carries no state, so the caller reads it.
+async fn next_event_update(listener: &mut Subscription, event: &Event) -> Result<()> {
+    let uri = event_uri(event);
+    loop {
+        let notification = listener
+            .next()
+            .await?
+            .context("the event subscription ended")?;
+        if let ServerNotification::ResourceUpdatedNotification(update) = notification {
+            ensure!(
+                update.params.uri == uri,
+                "a notification names {}",
+                update.params.uri
+            );
+            return Ok(());
+        }
+    }
+}
+
+/// The Gateway refuses a tool call with a protocol error or a tool error result. A
+/// transport failure proves no refusal.
+async fn refused(client: &Client, name: &str) -> Result<()> {
+    match client.call_tool(tool(name, json!({}))?).await {
+        Err(ServiceError::McpError(_)) => Ok(()),
+        Ok(result) if result.is_error.unwrap_or(false) => Ok(()),
+        Ok(_) => bail!("time__{name} was served"),
+        Err(error) => Err(error).context(format!("time__{name} failed without a refusal")),
+    }
 }
 
 #[tokio::test]
@@ -212,13 +264,24 @@ async fn member_discovers_and_calls_time_through_the_gateway() -> Result<()> {
         );
     }
     let instant = now(&member).await?;
-    let converted = call(
-        &member,
-        "convert_time",
-        json!({"instant": instant, "scales": ["utc", "tai"]}),
+    let converted: ConvertTimeOutput = serde_json::from_value(
+        call(
+            &member,
+            "convert_time",
+            json!({"instant": instant, "scales": ["utc", "tai"]}),
+        )
+        .await?,
     )
-    .await?;
-    ensure!(converted.is_object(), "convert_time returned no projection");
+    .context("convert_time returned no Time conversion")?;
+    let scales: Vec<TimeScale> = converted
+        .scales
+        .iter()
+        .map(|representation| representation.scale)
+        .collect();
+    ensure!(
+        scales == [TimeScale::Utc, TimeScale::Tai],
+        "convert_time projected {scales:?}"
+    );
     let admin = installation.connect(ADMIN).await?;
     now(&admin).await?;
     Ok(())
@@ -247,15 +310,7 @@ async fn the_gateway_refuses_unauthenticated_and_undeclared_requests() -> Result
         "a 401 carries no Bearer challenge"
     );
     let member = installation.connect(MEMBER).await?;
-    let undeclared = member.call_tool(tool("undeclared_tool", json!({}))?).await;
-    match undeclared {
-        Err(_) => {}
-        Ok(result) => ensure!(
-            result.is_error.unwrap_or(false),
-            "an undeclared tool was served"
-        ),
-    }
-    Ok(())
+    refused(&member, "undeclared_tool").await
 }
 
 #[tokio::test]
@@ -295,60 +350,63 @@ async fn a_schedule_task_reports_its_status_and_completes_through_the_gateway() 
         listener.acknowledged() == &filter,
         "the Gateway did not acknowledge the Task subscription"
     );
-    let current = member.get_task(GetTaskParams::new(&task_id)).await?.task;
-    ensure!(
-        matches!(current.status(), TaskStatus::Working),
-        "the schedule Task finished before its subscription opened: {:?}",
-        current.status()
-    );
-    let notified = tokio::time::timeout(Duration::from_secs(120), async {
+    // Nothing polls the Task until its completion arrives on the subscription. The
+    // subscription's first status is the one it opened with. That status must still be
+    // Working, so Completed can only reach the caller as a pushed change.
+    let completed = tokio::time::timeout(Duration::from_secs(120), async {
+        let mut opened_working = false;
         loop {
-            match listener
+            let notification = listener
                 .next()
                 .await?
-                .context("the Task subscription ended before a status")?
-            {
-                ServerNotification::TaskStatusNotification(notification) => {
+                .context("the Task subscription ended before the Task completed")?;
+            let ServerNotification::TaskStatusNotification(notification) = notification else {
+                continue;
+            };
+            let task: DetailedTask = notification.params.task;
+            ensure!(
+                task.task.task_id == task_id,
+                "a status notification names another Task"
+            );
+            match task.status() {
+                TaskStatus::Working => opened_working = true,
+                TaskStatus::Completed => {
                     ensure!(
-                        notification.params.task.task.task_id == task_id,
-                        "a status notification names another Task"
+                        opened_working,
+                        "the subscription opened on a Completed Task and pushed no status \
+                         change: the schedule finished before its subscription opened"
                     );
-                    return Ok::<_, anyhow::Error>(notification.params.task.status());
+                    return Ok::<_, anyhow::Error>(task);
                 }
-                _ => continue,
+                status => bail!("the schedule Task reported {status:?}"),
             }
         }
     })
     .await
-    .context("no Task status notification within 120 seconds")??;
-    let completed = tokio::time::timeout(Duration::from_secs(120), async {
-        loop {
-            let current = member.get_task(GetTaskParams::new(&task_id)).await?.task;
-            if !matches!(current.status(), TaskStatus::Working) {
-                return Ok::<_, anyhow::Error>(current);
-            }
-            tokio::time::sleep(Duration::from_millis(250)).await;
-        }
-    })
-    .await
-    .context("the schedule Task did not finish within 120 seconds")??;
-    ensure!(
-        matches!(completed.status(), TaskStatus::Completed),
-        "the schedule Task ended {:?}",
-        completed.status()
-    );
-    let TaskPayload::Completed { result } = completed.payload else {
-        bail!("a completed Task carries no result")
+    .context("the Gateway pushed no Completed status for the schedule Task within 120 seconds")??;
+    let TaskPayload::Completed { result } = &completed.payload else {
+        bail!("the pushed Completed status carries no result")
     };
-    let occurrences = result
-        .get("structuredContent")
-        .and_then(|content| content.get("occurrences"))
-        .and_then(Value::as_array)
-        .context("schedule occurrences")?;
-    ensure!(!occurrences.is_empty(), "the schedule has no occurrences");
+    let output: ExpandScheduleOutput = serde_json::from_value(
+        result
+            .get("structuredContent")
+            .cloned()
+            .context("the pushed result has no structured content")?,
+    )
+    .context("the pushed result is not an expanded schedule")?;
+    ensure!(
+        !output.occurrences.is_empty(),
+        "the schedule has no occurrences"
+    );
+    // The pushed result is the one the Task retains.
+    let retained = member.get_task(GetTaskParams::new(&task_id)).await?.task;
+    ensure!(
+        retained.payload == completed.payload,
+        "tasks/get returns a different outcome than the pushed completion"
+    );
     eprintln!(
-        "Task {task_id}: notified {notified:?}, {} occurrences",
-        occurrences.len()
+        "Task {task_id}: pushed Completed with {} occurrences",
+        output.occurrences.len()
     );
     Ok(())
 }
@@ -360,13 +418,9 @@ async fn administration_is_admitted_for_admins_and_refused_to_members() -> Resul
     let member = installation.connect(MEMBER).await?;
     let admin = installation.connect(ADMIN).await?;
     for name in ["list_sources", "list_active_authorities"] {
-        match member.call_tool(tool(name, json!({}))?).await {
-            Err(_) => {}
-            Ok(result) => ensure!(
-                result.is_error.unwrap_or(false),
-                "a member was admitted to {name}"
-            ),
-        }
+        refused(&member, name)
+            .await
+            .with_context(|| format!("a member called {name}"))?;
         let page = call(&admin, name, json!({})).await?;
         ensure!(page["items"].is_array(), "{name} returned no page");
     }
@@ -378,39 +432,43 @@ async fn administration_is_admitted_for_admins_and_refused_to_members() -> Resul
 async fn an_event_reaches_due_with_a_notification() -> Result<()> {
     let installation = Installation::from_env()?;
     let member = installation.connect(MEMBER).await?;
-    let mut listener = member
-        .listen(
-            SubscriptionFilter::builder()
-                .resource_subscription("time://events")
-                .build(),
-        )
-        .await?;
-    let due = later(&now(&member).await?, 5)?;
+    let due = later(&now(&member).await?, 10)?;
     let created = create_event(&member, "Acceptance event", due).await?;
     ensure!(
         created.state == EventState::Scheduled,
         "a new event is not Scheduled"
     );
+    // The event's own resource is read only after an update names it, and only that
+    // event changes it. The subscription opens with one update while the event is
+    // still Scheduled, so Due can only follow a pushed change.
+    let mut listener = watch_event(&member, &created).await?;
     tokio::time::timeout(Duration::from_secs(60), async {
+        next_event_update(&mut listener, &created).await?;
+        let opened = event(&member, &created).await?;
+        ensure!(
+            opened.state == EventState::Scheduled,
+            "the subscription opened on a {:?} event, so no change was pushed",
+            opened.state
+        );
         loop {
-            let notification = listener
-                .next()
-                .await?
-                .context("the event subscription ended before Due")?;
-            if let ServerNotification::ResourceUpdatedNotification(update) = notification {
-                ensure!(
-                    update.params.uri.starts_with("time://events"),
-                    "a notification names {}",
-                    update.params.uri
-                );
-                if event(&member, &created).await?.state == EventState::Due {
+            next_event_update(&mut listener, &created).await?;
+            let current = event(&member, &created).await?;
+            match current.state {
+                EventState::Scheduled => {}
+                EventState::Due => {
+                    ensure!(
+                        current.record_version > opened.record_version,
+                        "the Due event kept version {:?}",
+                        current.record_version
+                    );
                     return Ok::<_, anyhow::Error>(());
                 }
+                EventState::Cancelled => bail!("the event was cancelled"),
             }
         }
     })
     .await
-    .context("the event was not delivered as Due within 60 seconds")??;
+    .context("the Gateway pushed no update of the event's Due state within 60 seconds")??;
     Ok(())
 }
 
@@ -421,14 +479,38 @@ async fn a_reconnected_caller_reconciles_current_state() -> Result<()> {
     let member = installation.connect(MEMBER).await?;
     let due = later(&now(&member).await?, 3)?;
     let created = create_event(&member, "Acceptance reconnect", due).await?;
+    // A subscriber sees the event Scheduled, then disconnects before it is due, so
+    // the event changes while no session watches it.
+    let mut listener = watch_event(&member, &created).await?;
+    let scheduled = tokio::time::timeout(Duration::from_secs(30), async {
+        next_event_update(&mut listener, &created).await?;
+        event(&member, &created).await
+    })
+    .await
+    .context("the event subscription did not open within 30 seconds")??;
+    ensure!(
+        scheduled.state == EventState::Scheduled,
+        "the event was {:?} before the caller disconnected",
+        scheduled.state
+    );
+    drop(listener);
     member.cancel().await?;
     tokio::time::sleep(Duration::from_secs(8)).await;
+    // The new session's subscription opens with an update naming the event. Reading
+    // after it returns the current state, which no update delivered while disconnected.
     let member = installation.connect(MEMBER).await?;
-    let current = event(&member, &created).await?;
+    let mut listener = watch_event(&member, &created).await?;
+    let current = tokio::time::timeout(Duration::from_secs(30), async {
+        next_event_update(&mut listener, &created).await?;
+        event(&member, &created).await
+    })
+    .await
+    .context("the reconnected subscription did not open within 30 seconds")??;
     ensure!(
-        current.state == EventState::Due,
-        "the event read after reconnecting is {:?}",
-        current.state
+        current.state == EventState::Due && current.record_version > scheduled.record_version,
+        "the event read after reconnecting is {:?} at version {:?}",
+        current.state,
+        current.record_version
     );
     Ok(())
 }

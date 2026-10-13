@@ -119,10 +119,11 @@ its registration when it receives SIGTERM or Ctrl-C.
 `tests/acceptance.rs` calls Time through the Gateway as the installation's
 `acceptance-member` and `acceptance-admin` callers: discovery and tool calls, a refused
 unauthenticated request and an undeclared tool, administration refused to the member
-and admitted for the admin, a schedule Task whose status notification arrives through
-its subscription before it completes, an event that reaches Due with its notification,
-and current state after a reconnect. The tests
-are ignored by default. With the installation running and the callers' keys copied to
+and admitted for the admin, a schedule Task whose completion and result arrive as a
+pushed status notification, an event whose Due state follows a pushed update of its
+resource, and current state after a reconnect. Each subscription opens with the state it
+watches, so a test that claims a push reads nothing until a change follows that opening
+state. The tests are ignored by default. With the installation running and the callers' keys copied to
 `/sandbox/acceptance`, run them from a fresh nextest archive extraction, so the test
 binaries also get fresh paths:
 

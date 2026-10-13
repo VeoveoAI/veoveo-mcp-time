@@ -85,10 +85,11 @@ leap second assumptions.
   environment (see the README's Acceptance section): discovery and tool calls as the
   member and admin callers, refused unauthenticated and undeclared requests,
   administration refused to the member and admitted for the admin, a schedule Task whose
-  status notification arrives through its subscription before it completes, an event that
-  reaches Due
-  with its resource notification, and current state after a reconnect. The tests are
-  ignored by default; run them from a fresh nextest archive extraction.
+  completion and result arrive as a pushed status notification, an event whose Due state
+  follows a pushed update of its resource, and current state after a reconnect. A test
+  that claims a push polls nothing before the change and requires it to follow the state
+  the subscription opened with. The tests are ignored by default; run them from a fresh
+  nextest archive extraction.
 - `cargo test -p veoveo-mcp-time --lib server::tasks::tests` qualifies durable
   cancellation at calculation checkpoints and final settlement using two process
   instances on separate pools. Keep the cancellation/completion interleave
@@ -243,6 +244,8 @@ Contract: https://veoveo.ai/contracts/hosted-mcp
 
 `an_event_reaches_due_with_a_notification` and
 `a_reconnected_caller_reconciles_current_state` in `tests/acceptance.rs` qualify future
-events through the Gateway: the caller subscribes to `time://events`, creates an event
-five seconds ahead and reads it as Due after the resource notification, and a caller
-that disconnects reads the current state after reconnecting rather than a replay.
+events through the Gateway. The caller creates an event ten seconds ahead and subscribes
+to its own resource. The subscription's opening update reads Scheduled, and the event
+must read Due after a later update. A subscriber that disconnects while its event is
+Scheduled reconnects after the event is due. Its new subscription opens with an update
+that leads to a read of the current Due state at an advanced version.

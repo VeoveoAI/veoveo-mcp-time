@@ -1075,8 +1075,10 @@ Examples of agent requests include:
 `tests/acceptance.rs` qualifies Time through a live local installation and the Gateway:
 discovery, tool calls, a schedule Task, future events with resource notifications and
 reconciliation after a reconnect, and administration refused to a member and admitted
-for an admin. The schedule Task keeps working long enough that its status notification
-arrives through the subscription before completion.
+for an admin. The schedule Task keeps working long enough that its subscription opens on
+a Working status. Its completion and result must then arrive as a pushed status
+notification, and the test polls the Task only afterwards. The event test likewise reads
+Due only after an update that follows its subscription's opening update.
 Native Task controls run two process instances on separate pools of the same test
 database. They commit cancellation between completion snapshot selection and
 settlement, verify remote and local cancellation, preserve completion and calculation
