@@ -4,8 +4,9 @@ veoveo-mcp-time is the Veoveo Time MCP server: authority-bound time resolution, 
 
 The server lives in `crates/veoveo-mcp-time`. Its [design](crates/veoveo-mcp-time/DESIGN.md)
 and [agent manual](crates/veoveo-mcp-time/AGENTS.md) describe the domain, tools, Tasks,
-storage and authorization. It compiles against `veoveo-core`, with every core crate
-pinned to one revision in the workspace manifest.
+storage and authorization. It serves MCP through `veoveo-sdk-rust` and stores its
+state through `veoveo-core`, with each repository's crates pinned to one revision in
+the workspace manifest.
 
 ## Permissions
 
@@ -23,8 +24,6 @@ The administrative ones carry the `administer` risk, so only roles that allow it
 | `time.calendars.write` | `create_calendar` |
 | `time.epochs.write` | `create_epoch` |
 | `time.clock-policies.write` | `replace_clock_policy` |
-
-Knowledge collections also require the coarse OAuth scope `time`.
 
 ## Configuration
 

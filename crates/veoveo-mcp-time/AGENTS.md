@@ -1,9 +1,9 @@
 # Time MCP Server — Agent Manual
 
-Delta over the repository root `AGENTS.md`. The normative server contract is
-[`mcp/contract/DESIGN.md`](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/contract/DESIGN.md),
-and registration follows
-[`mcp/ext-registration/DESIGN.md`](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-registration/DESIGN.md).
+Delta over the repository root `AGENTS.md`. The normative server contract is the
+[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/5c6e1bafc4acd64df117c7ed92149b969619093a/crates/veoveo-sdk-rust/DESIGN.md) in
+`veoveo-sdk-rust`, and registration follows its
+[server registration protocol](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/5c6e1bafc4acd64df117c7ed92149b969619093a/crates/veoveo-sdk-rust/src/registration/DESIGN.md).
 
 ## Purpose
 
@@ -15,7 +15,7 @@ leap second assumptions.
 
 ## Invariants
 
-- The server is hosted through `veoveo_mcp_contract::hosting`: `TimeMcp` implements
+- The server is hosted through `veoveo_sdk_rust::hosting`: `TimeMcp` implements
   `DomainServer` and `TimeSubscriptions` implements `ResourceSubscriptions`. Tenant
   administration is MCP tools in `src/mcp/administration.rs`, joined to the domain
   tools by `TimeMcp::tools()`. `/readyz` at the listener root reports ready while the
@@ -71,8 +71,8 @@ leap second assumptions.
 - Packaged bootstrap references bind the authority family and source-file SHA-256.
   Their immutable resource IDs must change with the bytes, never with a process
   restart or path. `server/bootstrap.rs` owns construction and qualification.
-- `expand_schedule` and `validate_timeline` run only through the final Task
-  API extension on `veoveo-task-runtime`; a direct call returns an instruction
+- `expand_schedule` and `validate_timeline` run only through the SDK's MCP Tasks
+  adapter over core's `veoveo-task-runtime`; a direct call returns an instruction
   to use the task form. Creating a Task only queues it; `server::tasks::work`
   consumes the runtime's claim stream and runs what this instance claims. Recovery
   of a dead instance's Tasks is the kernel's; do not add leases, heartbeats or a
@@ -172,10 +172,9 @@ leap second assumptions.
 - Catalog bodies decode through the current public metadata types. Lifecycle columns
   supply current state and version; zero and overflowing body versions are rejected.
   Historical formats have no adapter. The foundations installation drains and resets.
-- `catalog/knowledge.rs` binds observations to SQL-admitted records and stored creation
-  provenance. Calendar/epoch/release reads are tenant-shared; events are owner-only.
-  Keep packaged bootstrap references separate from tenant-acquired releases, and keep
-  epoch version URIs distinct in enumeration. Source access and content both affect revisions.
+- Calendar, epoch and release reads are shared within the tenant, and events are
+  readable only by their owner. Keep packaged bootstrap references separate from
+  tenant-acquired releases, and keep epoch version URIs distinct in enumeration.
 - `contract/instant.rs` owns subsecond admission and checked total-coordinate
   construction. Keep `SubsecondNanoseconds` through requests, cursors and persistence
   drafts; convert at protocol-library and database-driver adapters. Durations have

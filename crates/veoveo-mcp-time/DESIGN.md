@@ -27,13 +27,12 @@ port         8800
 
 | Standard or protocol | Implemented profile |
 |---|---|
-| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/contract/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
+| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/5c6e1bafc4acd64df117c7ed92149b969619093a/crates/veoveo-sdk-rust/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
 | [JSON Schema Draft 2020-12](https://json-schema.org/draft/2020-12/) | Temporal expressions, authority bindings, calendars, epochs, windows, clock evidence, tasks, and results. |
-| [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
+| [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/7a6c210ff1f9ee9f5150c0a5d101afeb98d659da/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
-| [Veoveo knowledge source extension](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-knowledge/DESIGN.md) | `ai.veoveo/knowledge-source` declares documentation and Time-owned collections, typed source observations, conditional reads, and enumeration from each collection root. Resource updates follow database change notifications. |
-| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
+| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/5c6e1bafc4acd64df117c7ed92149b969619093a/crates/veoveo-sdk-rust/src/registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
 | [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Gateway forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. When a token names a key Time does not hold, Time reads the issuer's RFC 8414 metadata and fetches its `jwks_uri` with the registration's HTTP client, at most once per refresh interval. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
@@ -43,7 +42,7 @@ port         8800
 | TAI, UTC, TT, TDB, GPS, and Galileo system time | Typed projections from one integral TAI instant. The server records authority and uncertainty rather than treating scales as interchangeable strings. |
 | [NTPv4 RFC 5905](https://www.rfc-editor.org/rfc/rfc5905.html) and [Network Time Security RFC 8915](https://www.rfc-editor.org/rfc/rfc8915.html) | Approved node clocks may use NTP/NTS. Time MCP consumes a bounded `ntpd-rs` observation; it does not act as an NTP network endpoint. |
 | HTTPS | Registered IANA authority sources are acquired under fixed host, media, digest, size, and elapsed-time policy. |
-| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/435fc1a90d5761f6dca2af05f4cadde324b72428/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Its statements and schema follow that design's server schema rules, which a native conformance test checks. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. |
+| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/7a6c210ff1f9ee9f5150c0a5d101afeb98d659da/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Its statements and schema follow that design's server schema rules, which a native conformance test checks. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. |
 
 Time JSON uses camelCase members and snake_case vocabulary; decoding rejects
 retired and mixed keys. Authority source is a closed tagged object: bootstrap
@@ -51,8 +50,7 @@ has no payload members, while acquisition carries its typed source and acquisiti
 The source variant order and admitted JSON spellings stay fixed. SQL, CLI/environment, prompt arguments, IDs and URI queries
 keep their profiles. `ntpd-rs` retains upstream snake_case fields and PascalCase
 leap values. Event cursors use envelope version 2 with `taiSeconds`/`eventKey`;
-calendar, epoch and authority positions use envelope version 1. Knowledge hashes
-current owner JSON and access.
+calendar, epoch and authority positions use envelope version 1.
 Bootstrap identity and source digests hash raw TZDB/leap bytes, excluding JSON.
 
 ## Domain Contract
@@ -186,8 +184,8 @@ A claimed Task whose persisted request no longer decodes settles as failed.
 
 `TimePermission` declares Time's five permission names once through `Vocabulary` and
 implements `PermissionDefinition` with each permission's resource, access and risk.
-`TimeScope` declares the single coarse OAuth scope `time`, which knowledge collections
-require of their readers. [Authorization](#authorization) describes how handlers use them.
+`TimeScope` declares the single coarse OAuth scope `time`.
+[Authorization](#authorization) describes how handlers use them.
 
 `mcp/setup.rs` implements `McpServerContract` with `TimeScope` and `TimeResource`.
 The HTTP process validates its `McpServerSetup` before serving. MCP initialization
@@ -529,8 +527,10 @@ Schedule expansion and timeline validation use the final Task API extension. A n
 tool call returns an instruction to invoke the task form. The Task adapter supports
 create, get, update, cancel, list discovery, and task subscriptions.
 
-Tasks persist through `veoveo-task-runtime` in the kernel `tasks` schema. Ownership
-includes tenant, principal, profile, server, and data labels. Creating a Task queues
+Tasks persist through `veoveo-task-runtime` in the kernel `tasks` schema, and the
+SDK's `durable_tasks` adapter serves them over MCP. Ownership includes tenant,
+principal, server and data labels, and the Task's surface is the Gateway profile the
+call arrived on, so a caller reads a Task only through that profile. Creating a Task queues
 it. Each process consumes the runtime's claim stream: a claim records the process
 instance as the Task's owner, and the process decodes the persisted request and runs
 it. The stream wakes on `tasks.time`, the channel of Time's own Tasks, so other servers'
@@ -603,41 +603,23 @@ keys. Completion requests use that exact advertised template after the
 spellings do not select the zone completion handler. Contract and discovery tests
 qualify the current template against the typed zone builder.
 
-### Knowledge Collections
+### Collections
 
-Time declares calendar versions, epoch versions, events, acquired authority releases
-and packaged bootstrap authorities through `ai.veoveo/knowledge-source`. Every domain
-collection requires the coarse `time` scope and enumerates from its collection root,
-such as `time://events`. Collection pages contain at most 100 `items`, each with a
-typed `uri` and `title`, and an optional `nextCursor`. Source SQL selects tenant and event owner before ordering and LIMIT.
-Every epoch version has its own member URI; the unversioned epoch resource selects
-the current version for operational callers.
+Calendar versions, epoch versions, events, acquired authority releases and packaged
+bootstrap authorities each enumerate from a collection root, such as `time://events`.
+A page holds at most 100 `items`, each with a typed `uri` and `title`, and an optional
+`nextCursor`. The SQL selects the tenant, and for events the owner, before ordering
+and LIMIT. Every epoch version has its own member URI, and the unversioned epoch
+resource selects the current version for operational callers.
 
-Calendar, epoch and acquired-release observations carry the stored tenant, creating
-principal and Work Context with `readPolicy: {kind: "tenant"}`. Events use `subjects`
-and remain readable only by their owner. A reader's selected context never supplies
-provenance. The source checks logical identities against the native ownership links.
-Revisions bind the returned JSON, its access descriptor and stored modification time.
-The creating principal comes from that same access descriptor. Conditional reads
-follow the same SQL admission as full reads and use private zero-TTL delivery.
-
-The packaged bootstrap collection uses profile access and carries no invented record
-owner or context. Its member addresses use `time://authorities/bootstrap/{release_id}`;
-tenant-acquired references use `time://authorities/releases/{release_id}`. The typed
-reference builder rejects disagreement between source kind and resource address.
-Both kinds retain their original compiler digests. Calendar and epoch versions and
-compiler references are immutable. Event observations include the current stored
-modification time, and event changes reach subscribers through the `time` channel.
-Events do not claim a last-modifying principal because due transitions record no
-actor. Immutable members attribute creation to their stored owner. Member JSON is
-limited to 64 KiB; calendar creation rejects a larger document before writing it.
-
-The monorepo's [`gateway_source_conformance.rs`](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/servers/time-mcp/tests/gateway_source_conformance.rs) supplies two future events to the shared MCP
-checker through the public gateway. It cancels one, restarts the Time Deployment,
-then cancels the second. The checker verifies both notification paths, the retained
-cancellation and the unchanged second event across restart. Cleanup reconciles both
-events to cancelled state. Every declared collection needs populated fixtures.
-Inputs and commands follow [the installed harness contract](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/testing/installed/DESIGN.md).
+Calendar, epoch and acquired-release reads are shared within the tenant, and events
+are readable only by their owner. Packaged bootstrap references use
+`time://authorities/bootstrap/{release_id}`, and tenant-acquired references use
+`time://authorities/releases/{release_id}`. The typed reference builder rejects
+disagreement between source kind and resource address, and both kinds keep their
+original compiler digests. Calendar and epoch versions and compiler references are
+immutable, and event changes reach subscribers through the `time` channel. Calendar
+creation rejects a document larger than 64 KiB before writing it.
 
 ### Resources
 
@@ -1085,7 +1067,6 @@ Examples of agent requests include:
 | `src/contract/window.rs` | checked half-open bounds, authority agreement and metadata-preserving intersection |
 | `src/catalog.rs`, `src/catalog/pages.rs` | typed catalog operations, domain body decoding, collection envelopes and completion |
 | `src/catalog/records.rs` | current body/key and indexed-field checks, lifecycle-column decoding and redacted metadata errors |
-| `src/catalog/knowledge.rs` and `src/persistence/provenance.rs` | source-owned knowledge reads, stored creation context and checked observation attribution |
 | `src/persistence/` | private typed query/mutation interfaces, driver records, admission and SQL visibility |
 | `src/persistence/active.rs`, `src/persistence/activation.rs` | pointer/release snapshot admission and the locked activation transaction |
 | `src/persistence/due.rs`, `src/due.rs` | the due statement and the per-process due loop |
