@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Ends every other session of this login that holds an advisory lock, as a crash of its\n-- process would. A Time replica's only such session holds its process instance's lock.\nSELECT pg_terminate_backend(locks.pid) AS \"terminated!\"\nFROM pg_locks AS locks\nJOIN pg_stat_activity AS sessions ON sessions.pid = locks.pid\nWHERE locks.locktype = 'advisory'\n    AND locks.granted\n    AND sessions.usename = current_user\n    AND locks.pid <> pg_backend_pid()\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "terminated!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bc79f7fcc109e0573c65aa4a27eaa0f5c25623052e7e90ac02b34558e047dd83"
+}

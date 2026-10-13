@@ -98,7 +98,12 @@ leap second assumptions.
   exclusive settlement. Local shutdown without durable cancel intent stops success
   publication before shared transition dispatch and leaves the request for Resume
   recovery. Keep token checks at both selected-snapshot dispatch seams;
-  a transition already entered may settle despite a later local stop. Installed cancellation and unfinished restart
+  a transition already entered may settle despite a later local stop.
+  `server::tasks::tests::recovery` runs Time's consumer on two replicas. The first stalls
+  mid-calculation behind a lock on the authority pointers and loses its instance lock as
+  a crash would. After the kernel reaper requeues the Task, the first replica settles and
+  reclaims nothing, and the second completes the Task with the result the engine expands
+  directly. Keep that stall deterministic. Installed cancellation and installed restart
   still require their own observable qualification.
 - `cargo test -p veoveo-mcp-time --lib server::tasks::calculation::tests`
   checks async responsiveness during a retained blocking job and joins the original

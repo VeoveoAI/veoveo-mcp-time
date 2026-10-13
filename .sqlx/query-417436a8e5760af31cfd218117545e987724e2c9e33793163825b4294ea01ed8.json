@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Holds every reader of Time's active authority pointers until this transaction ends.\nLOCK TABLE time.active_authority IN ACCESS EXCLUSIVE MODE\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "417436a8e5760af31cfd218117545e987724e2c9e33793163825b4294ea01ed8"
+}

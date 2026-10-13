@@ -1,3 +1,5 @@
+mod recovery;
+
 use super::*;
 use std::time::Duration;
 use veoveo_platform_store::{Instance, PlatformStore};

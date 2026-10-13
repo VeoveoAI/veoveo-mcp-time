@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- How many sessions wait for a lock on Time's active authority pointers.\nSELECT count(*) AS \"waiting!\"\nFROM pg_locks\nWHERE locktype = 'relation'\n    AND relation = 'time.active_authority'::regclass\n    AND NOT granted\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "waiting!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1844dae704e48dfc381f9752bfca313a0e020ef783306f491cf055f319d317ef"
+}

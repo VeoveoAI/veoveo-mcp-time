@@ -1087,8 +1087,14 @@ does not own the Task. A local-token control checks that shutdown without durabl
 cancel intent leaves the original Task unfinished without a result. Selected-snapshot
 controls stop success publication after owner reads and exercise the reconciliation
 dispatch seam against actual retained Task state. A claim control shows that a replica
-other than the creator claims a queued Task from the stream.
-These controls do not qualify installed cancellation or unfinished process restart.
+other than the creator claims a queued Task from the stream. A recovery control runs
+Time's own consumer on two replicas. The first claims a schedule Task, reports progress
+and stalls inside authority loading behind a test lock. The test then ends its instance
+lock session, as a crash would. The kernel reaper returns the Task to the queue, the
+released worker no longer owns it and settles nothing, and the dead replica's consumer
+stops without claiming it again. The second replica's consumer completes the Task with
+the output the engine expands directly from the same request. These controls do not
+qualify installed cancellation or the restart of an installed process.
 
 Local controls qualify fixture and receipt handling, clock classification, touching
 and one-nanosecond interval assertions, and incomplete HTTP response tracing. Installed execution,
