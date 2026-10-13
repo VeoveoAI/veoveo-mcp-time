@@ -3465,6 +3465,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",
@@ -3908,7 +3909,7 @@ dependencies = [
 [[package]]
 name = "veoveo-sdk-rust"
 version = "0.1.0"
-source = "git+https://github.com/VeoveoAI/veoveo-sdk-rust?rev=5216efe847079c720282e934ab09417be1265266#5216efe847079c720282e934ab09417be1265266"
+source = "git+https://github.com/VeoveoAI/veoveo-sdk-rust?rev=25d9ea53ba5f7479a26af361a70f368a3be1b8da#25d9ea53ba5f7479a26af361a70f368a3be1b8da"
 dependencies = [
  "anyhow",
  "aws-lc-rs",
@@ -3952,7 +3953,7 @@ dependencies = [
 [[package]]
 name = "veoveo-sdk-rust-fixture"
 version = "0.1.0"
-source = "git+https://github.com/VeoveoAI/veoveo-sdk-rust?rev=5216efe847079c720282e934ab09417be1265266#5216efe847079c720282e934ab09417be1265266"
+source = "git+https://github.com/VeoveoAI/veoveo-sdk-rust?rev=25d9ea53ba5f7479a26af361a70f368a3be1b8da#25d9ea53ba5f7479a26af361a70f368a3be1b8da"
 dependencies = [
  "anyhow",
  "aws-lc-rs",
