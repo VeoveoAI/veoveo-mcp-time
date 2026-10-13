@@ -1,9 +1,9 @@
 # Time MCP Server — Agent Manual
 
 Delta over the repository root `AGENTS.md`. The normative server contract is the
-[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/4f2773f5959bd58473831bd06a6ee02d6254fdfd/crates/veoveo-sdk-rust/DESIGN.md) in
+[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/8cc3235fe03a8463bef57c661ae0b8a1a99a2715/crates/veoveo-sdk-rust/DESIGN.md) in
 `veoveo-sdk-rust`, and registration follows its
-[server registration protocol](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/4f2773f5959bd58473831bd06a6ee02d6254fdfd/crates/veoveo-sdk-rust/src/registration/DESIGN.md).
+[server registration protocol](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/8cc3235fe03a8463bef57c661ae0b8a1a99a2715/crates/veoveo-sdk-rust/src/registration/DESIGN.md).
 
 ## Purpose
 

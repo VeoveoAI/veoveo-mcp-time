@@ -71,6 +71,7 @@ pub(super) fn token_granting(
                 .collect(),
             request_context: None,
             acting_server: None,
+            acting_task: None,
             expires_at: Utc::now() + chrono::TimeDelta::minutes(5),
         })
         .unwrap()
