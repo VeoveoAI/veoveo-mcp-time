@@ -50,7 +50,8 @@ leap second assumptions.
   through `admission::stored_timestamp`, or `stored_deadline` for a due instant,
   before serializing or binding it; never relax the body-column comparisons instead.
 - Events become due only through the per-process due loop in `src/due.rs`, which runs
-  one conditional `UPDATE`. Do not add in-process timers per event.
+  one conditional `UPDATE` per batch of the earliest events until a batch comes back
+  short. Keep the batch bound and `SKIP LOCKED`. Do not add in-process timers per event.
 - Every collection and administration listing is a keyset page with separate
   first-page and next-page statements. Do not reintroduce a `$cursor IS NULL OR …`
   predicate, which loses the index seek in a cached generic plan. Completion matches
@@ -205,8 +206,9 @@ leap second assumptions.
   consumes its observed draft.
 - `src/registry/tests/notifications.rs` qualifies tenant-scoped resource updates and
   authority eviction from real triggers and `LISTEN`; `src/registry/tests/due.rs`
-  qualifies that overdue events become due at process start without a read and that
-  replicas change each event once.
+  qualifies that overdue events become due at process start without a read, that
+  replicas change each event once, and that a backlog larger than a batch drains in
+  short statements.
 - The optional ntpd-rs observation socket is a deployment concern; unit tests
   use bounded fake observations.
 

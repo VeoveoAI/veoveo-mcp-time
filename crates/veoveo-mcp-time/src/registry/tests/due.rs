@@ -210,6 +210,82 @@ async fn replicas_change_each_due_event_once() {
     .expect("due replica qualification exceeded 90 seconds");
 }
 
+#[tokio::test]
+async fn a_backlog_larger_than_a_batch_becomes_due_in_short_statements() {
+    tokio::time::timeout(Duration::from_secs(90), async {
+        let db = TimeDb::new().await;
+        let files = AuthorityFiles::new().await;
+        let engine = TemporalEngine::new(files.bootstrap.clone());
+        let catalog = TimeCatalog::new(db.a.pool().clone());
+        let owner = scope(&db.a, "due-backlog").await;
+        // Seven events passed while no process ran, the earliest first.
+        let mut backlog = Vec::new();
+        for seconds in (4..=10).rev() {
+            let event = event_at(
+                &catalog,
+                &owner,
+                &engine,
+                -chrono::TimeDelta::seconds(seconds),
+            )
+            .await;
+            backlog.push(event.event_id.to_string());
+        }
+        let batch = crate::persistence::DueBatch::of(3);
+        let keys = |due: Vec<crate::persistence::DueEvent>| -> BTreeSet<String> {
+            due.into_iter()
+                .map(|due| due.event_key.to_string())
+                .collect()
+        };
+        // One statement changes one batch, and it takes the earliest events.
+        let first = crate::persistence::TimePersistence::new(db.b.pool().clone())
+            .mark_due_batch(batch)
+            .await
+            .unwrap();
+        assert_eq!(
+            keys(first),
+            backlog[..3].iter().cloned().collect::<BTreeSet<_>>()
+        );
+        // The loop runs full batches until one comes back short.
+        let rest = TimeCatalog::new(db.b.pool().clone())
+            .mark_due_events_in(batch)
+            .await
+            .unwrap();
+        assert_eq!(
+            keys(rest),
+            backlog[3..].iter().cloned().collect::<BTreeSet<_>>()
+        );
+        assert!(catalog.mark_due_events_in(batch).await.unwrap().is_empty());
+        for key in &backlog {
+            let event = catalog
+                .event(&owner, &EventId::parse(key).unwrap())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(event.state, EventState::Due);
+            assert_eq!(event.record_version.get(), 2);
+        }
+
+        // Replicas running small batches at once still change each event once.
+        let mut overdue = BTreeSet::new();
+        for _ in 0..20 {
+            let event = event_at(&catalog, &owner, &engine, -chrono::TimeDelta::seconds(1)).await;
+            overdue.insert(event.event_id.to_string());
+        }
+        let left = TimeCatalog::new(db.a.pool().clone());
+        let right = TimeCatalog::new(db.b.pool().clone());
+        let small = crate::persistence::DueBatch::of(4);
+        let (from_left, from_right) = tokio::join!(
+            left.mark_due_events_in(small),
+            right.mark_due_events_in(small)
+        );
+        let (from_left, from_right) = (keys(from_left.unwrap()), keys(from_right.unwrap()));
+        assert!(from_left.is_disjoint(&from_right));
+        assert_eq!(&from_left | &from_right, overdue);
+    })
+    .await
+    .expect("due backlog qualification exceeded 90 seconds");
+}
+
 #[test]
 fn due_instants_round_up_to_the_microsecond() {
     let engine = tokio::runtime::Runtime::new()

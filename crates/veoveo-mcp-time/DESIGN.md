@@ -737,12 +737,15 @@ the next second. Cancellation updates the record under optimistic concurrency.
 
 Each process runs one due loop. It reads the earliest `due` of a scheduled event
 together with the database clock, sleeps for the difference or until an event change
-or a listener reconnect wakes it, and then runs one statement that moves every
-scheduled event whose `due` has passed to `due`, advancing its version and body.
-Replicas run the same statement, and row locks with the `scheduled` predicate change
-each event once. An event that became due while no process ran changes at the next
-start. The row trigger then notifies subscribers on every replica. An event whose
-version is exhausted stays scheduled rather than failing the statement for others.
+or a listener reconnect wakes it. It then moves the scheduled events whose `due` has
+passed to `due`, advancing each version and body, in batches of at most 500, the earliest
+first. Each batch is one statement, and the loop repeats it until a batch comes back
+short, so a backlog after an outage becomes a run of short statements. Replicas run the
+same statement: `FOR UPDATE SKIP LOCKED` gives each replica different rows, and the
+`scheduled` predicate changes each event once. An event that became due while no process
+ran changes at the next start. The row trigger then notifies subscribers on every
+replica. An event whose version is exhausted stays scheduled rather than failing the
+statement for others.
 
 The installed future-event consumer arms the stable event-root subscription before
 creation and reads the current authority-bound clock to construct checked TAI
@@ -1161,7 +1164,10 @@ and eviction on a tenant's authority notification and on reconciliation. Notific
 cases subscribe one tenant's hub and show that another tenant's event changes never
 reach it. Due cases show that an overdue event becomes due once a process starts,
 without a read or a subscription, and that two replicas running the statement and
-their loops change each event once. A precision case builds a release, an acquisition
+their loops change each event once. A backlog case shows that one statement changes one
+batch of the earliest events and that the loop drains a backlog larger than a batch,
+including while two replicas run small batches at once.
+A precision case builds a release, an acquisition
 and an event from a nanosecond timestamp, reads each back through the database
 unchanged, and shows that a direct write of a sub-microsecond timestamp fails.
 Permission cases issue access tokens with chosen grants and call every permission

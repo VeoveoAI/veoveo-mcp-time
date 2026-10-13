@@ -498,7 +498,25 @@ impl TimeCatalog {
     /// Move every scheduled event whose instant has passed to due and return them. Each
     /// event changes once, whichever replica runs it.
     pub(crate) async fn mark_due_events(&self) -> Result<Vec<crate::persistence::DueEvent>> {
-        Ok(self.persistence.mark_due_events().await?)
+        self.mark_due_events_in(crate::persistence::DueBatch::DEFAULT)
+            .await
+    }
+
+    /// Mark due events one batch per statement until a batch comes back short, which
+    /// means no further event had passed when it ran or another replica holds the rest.
+    pub(crate) async fn mark_due_events_in(
+        &self,
+        batch: crate::persistence::DueBatch,
+    ) -> Result<Vec<crate::persistence::DueEvent>> {
+        let mut due = Vec::new();
+        loop {
+            let changed = self.persistence.mark_due_batch(batch).await?;
+            let short = changed.len() < batch.len();
+            due.extend(changed);
+            if short {
+                return Ok(due);
+            }
+        }
     }
 
     /// The earliest scheduled due instant and the database clock.

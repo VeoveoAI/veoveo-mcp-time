@@ -24,14 +24,39 @@ pub(crate) struct DueEvent {
     pub(crate) event_key: EventId,
 }
 
+/// How many events one due statement changes. A backlog, such as the events that passed
+/// while no process ran, becomes a run of short statements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DueBatch(u16);
+
+impl DueBatch {
+    pub(crate) const DEFAULT: Self = Self(500);
+
+    #[cfg(test)]
+    pub(crate) fn of(size: u16) -> Self {
+        assert!(size > 0, "a due batch changes at least one event");
+        Self(size)
+    }
+
+    pub(crate) fn len(self) -> usize {
+        usize::from(self.0)
+    }
+}
+
 impl TimePersistence {
-    /// Move every scheduled event whose instant has passed to due, once across replicas.
-    pub(crate) async fn mark_due_events(&self) -> Result<Vec<DueEvent>, PersistenceError> {
-        Ok(
-            sqlx::query_file_as!(DueEvent, "src/persistence/queries/mark_due_events.sql")
-                .fetch_all(&self.pool)
-                .await?,
+    /// Move at most one batch of the scheduled events whose instant has passed to due,
+    /// the earliest first. Each event changes once, whichever replica runs it.
+    pub(crate) async fn mark_due_batch(
+        &self,
+        batch: DueBatch,
+    ) -> Result<Vec<DueEvent>, PersistenceError> {
+        Ok(sqlx::query_file_as!(
+            DueEvent,
+            "src/persistence/queries/mark_due_events.sql",
+            i64::from(batch.0),
         )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     pub(crate) async fn next_due_event(&self) -> Result<NextDue, PersistenceError> {

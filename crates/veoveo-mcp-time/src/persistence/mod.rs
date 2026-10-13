@@ -30,7 +30,7 @@ mod validation;
 pub(crate) use activation::AuthorityActivation;
 pub(crate) use active::ActiveAuthoritySnapshot;
 pub(crate) use drafts::*;
-pub(crate) use due::{DueEvent, NextDue};
+pub(crate) use due::{DueBatch, DueEvent, NextDue};
 pub(crate) use records::*;
 pub(crate) use validation::validate_key;
 use validation::*;
