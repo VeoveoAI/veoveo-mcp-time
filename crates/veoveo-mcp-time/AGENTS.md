@@ -53,7 +53,8 @@ leap second assumptions.
   one conditional `UPDATE`. Do not add in-process timers per event.
 - Every collection and administration listing is a keyset page with separate
   first-page and next-page statements. Do not reintroduce a `$cursor IS NULL OR …`
-  predicate, which loses the index seek in a cached generic plan.
+  predicate, which loses the index seek in a cached generic plan. Completion matches
+  ID prefixes as `COLLATE "C"` key ranges, never as substrings or `LIKE` patterns.
 - Authority activation is atomic: optimistic versions plus a full preflight
   load of the prospective TZDB and leap second pair; one active release per
   family per tenant. Acquisition downloads run under fixed host, media,
@@ -140,7 +141,7 @@ leap second assumptions.
   deployable image. No GPU requirement.
 - `src/catalog/tests.rs` qualifies SQL tenant and owner predicates, latest epoch
   selection, event transition isolation, page boundaries, requested epoch batches,
-  and bounded distinct completion.
+  and bounded distinct prefix completion with `LIKE` metacharacters taken literally.
   `src/catalog/tests/admin_pages.rs` walks the source and acquisition pages.
 - `src/catalog/tests/metadata.rs` qualifies retained body/key agreement, the schema's
   refusal of corrupt columns, redacted diagnostics and immutable acquisition metadata.

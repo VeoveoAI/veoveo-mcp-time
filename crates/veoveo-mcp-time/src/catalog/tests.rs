@@ -203,32 +203,49 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .complete_time_values(
                     &owner.identity,
                     TimeCompletion::EventId,
-                    "FFFFFFFF-FFFF-7000-8000-000000000065",
+                    "EVENT-FFFFFFFF-FFFF-7000-8000-000000000065",
                     101
                 )
                 .await
                 .unwrap(),
             vec!["event-ffffffff-ffff-7000-8000-000000000065"]
         );
-        assert!(
+        assert_eq!(
             TimePersistence::new(db.a.pool().clone())
                 .complete_time_values(
                     &owner.identity,
                     TimeCompletion::EventId,
-                    "00000000-0000-7000",
+                    "event-ffffffff-ffff-7000-8000-00000000006",
                     101
                 )
                 .await
-                .unwrap()
-                .is_empty()
+                .unwrap(),
+            (0x60..=0x65)
+                .map(|i| format!("event-ffffffff-ffff-7000-8000-{i:012x}"))
+                .collect::<Vec<_>>()
         );
-        assert!(
-            TimePersistence::new(db.a.pool().clone())
-                .complete_time_values(&owner.identity, TimeCompletion::EventId, "' OR true;", 101)
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        // Completion matches a prefix; the peer's keys stay outside the owner predicate,
+        // and LIKE metacharacters and other text match literally.
+        for prefix in [
+            "ffffffff-ffff-7000-8000-000000000065",
+            "event-00000000-0000-7000",
+            "' OR true;",
+            "%",
+            "_",
+            "event_",
+            "event-%",
+            "event-ffffffff-ffff-7000-8000-00000000006_",
+            "\\",
+        ] {
+            assert!(
+                TimePersistence::new(db.a.pool().clone())
+                    .complete_time_values(&owner.identity, TimeCompletion::EventId, prefix, 101)
+                    .await
+                    .unwrap()
+                    .is_empty(),
+                "{prefix:?}"
+            );
+        }
         for limit in [0, 102] {
             assert!(
                 TimePersistence::new(db.a.pool().clone())
@@ -363,6 +380,44 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .await
                 .unwrap()
                 .is_empty()
+        );
+        // A version prefix matches the leading digits only.
+        assert_eq!(
+            TimePersistence::new(db.a.pool().clone())
+                .complete_time_values(&peer.identity, versions(), "2", 101)
+                .await
+                .unwrap(),
+            vec!["2"]
+        );
+        assert_eq!(
+            TimePersistence::new(db.a.pool().clone())
+                .complete_time_values(&peer.identity, versions(), "1", 101)
+                .await
+                .unwrap(),
+            vec!["1", "12"]
+        );
+        assert!(
+            TimePersistence::new(db.a.pool().clone())
+                .complete_time_values(&peer.identity, versions(), "%", 101)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            TimePersistence::new(db.a.pool().clone())
+                .complete_time_values(
+                    &owner.identity,
+                    TimeCompletion::EpochVersion {
+                        epoch_key: Some(
+                            EpochId::parse("epoch-00000000-0000-7000-8000-000000000001").unwrap()
+                        ),
+                    },
+                    "1",
+                    101
+                )
+                .await
+                .unwrap(),
+            vec!["1", "12"]
         );
         assert!(
             TimePersistence::new(db.a.pool().clone())

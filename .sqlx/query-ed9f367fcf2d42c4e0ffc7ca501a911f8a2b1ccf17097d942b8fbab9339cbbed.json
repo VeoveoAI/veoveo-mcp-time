@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT DISTINCT calendar_key::text AS \"candidate!\"\nFROM time.calendar_version\nWHERE tenant = $1 AND strpos(lower(calendar_key), $2) > 0\nORDER BY 1\nLIMIT $3\n",
+  "query": "-- Calendar IDs that start with a prefix: the keys in [$2, $3), a range the page index seeks.\nSELECT DISTINCT calendar_key::text AS \"candidate!\"\nFROM time.calendar_version\nWHERE tenant = $1 AND calendar_key >= $2 AND calendar_key < $3\nORDER BY 1\nLIMIT $4\n",
   "describe": {
     "columns": [
       {
@@ -19,6 +19,7 @@
       "Left": [
         "Uuid",
         "Text",
+        "Text",
         "Int8"
       ]
     },
@@ -26,5 +27,5 @@
       false
     ]
   },
-  "hash": "ae972f0b3c84a480cf4258b2febfacc49d7369391fec28d20c1f5b492c8f3cb5"
+  "hash": "ed9f367fcf2d42c4e0ffc7ca501a911f8a2b1ccf17097d942b8fbab9339cbbed"
 }

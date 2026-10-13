@@ -688,12 +688,17 @@ time://events/{event_id}
 ```
 
 Completions enumerate the packaged IANA zones and visible calendar, version,
-epoch, and event ids. Completion queries apply tenant and event-owner predicates,
-text matching, distinct selection, and ordering in SQL before fetching at most 101
-candidates. MCP returns 100 values and sets `hasMore` when a
+epoch, and event ids. Store-backed completion queries apply tenant and event-owner
+predicates, prefix matching, distinct selection, and ordering in SQL before fetching at
+most 101 candidates. MCP returns 100 values and sets `hasMore` when a
 further candidate exists. It reports a total only when the complete match set fits.
-Calendar-version completion narrows its SQL query to the selected `calendar_id`
-when the client supplies that argument in completion context.
+Stored IDs are lowercase printable ASCII, so an ID prefix matches case-insensitively and
+becomes the half-open key range `[prefix, successor)` that the `COLLATE "C"` indexes
+seek. Every character compares literally, and a prefix with any other character matches
+nothing. Version completion matches the leading digits of each version number.
+Calendar-version and epoch-version completion narrow their SQL query to the selected
+`calendar_id` or `epoch_id` when the client supplies that argument in completion
+context.
 Calendars, epochs, authorities, the clock policy and events emit resource updates.
 Every row change of a Time table notifies the `time` channel with the table, the
 operation, the row key and the tenant. Each replica's change watcher maps the table
@@ -827,9 +832,9 @@ which the `runtime` feature enables, and tenants and principals bind as `uuid`.
 Contract-only consumers resolve no database dependency. Calendar, epoch and
 existing-record guards use `TimeVersion`. Collection queries accept `CalendarCursor`,
 `EpochCursor`, `EventCursor`, `AuthorityCursor`, `SourceCursor` or `AcquisitionCursor`
-directly. Completion selects one of six fixed queries through `TimeCompletion`. Tenant
-and event-owner predicates, keyset positions, sorting, distinct selection and limits
-execute in SQL.
+directly. Completion selects one of eight fixed queries through `TimeCompletion`, and
+an ID prefix reaches SQL as its typed key range. Tenant and event-owner predicates,
+keyset positions, sorting, distinct selection and limits execute in SQL.
 
 Public Time IDs accept bounded prefixed names because bootstrap authority provenance
 can name image-provided releases. Stored keys are the prefix followed by a lowercase
@@ -1128,6 +1133,7 @@ clones a database with the kernel migrations, applies Time's migrations as
 URL/ID admission, SQL isolation and pagination, requested epoch batches and
 completion. Administration page cases walk five sources and four acquisitions two at a
 time, each record once in its order, and refuse a cursor from another listing.
+Completion cases treat `%`, `_` and other characters literally and match only prefixes.
 Retained-metadata cases corrupt bodies through fixture statements, verify
 read/collection rejection, check that the schema refuses corrupt columns, preserve
 lifecycle columns, and reject acquisition identity changes before writing. Isolated authority tests use separate connections to

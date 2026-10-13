@@ -1,7 +1,6 @@
+-- Version numbers of any of the tenant's epochs whose decimal form starts with $2.
 SELECT DISTINCT epoch_version::text AS "candidate!"
 FROM time.epoch
-WHERE tenant = $1
-    AND ($2::text IS NULL OR epoch_key = $2)
-    AND strpos(epoch_version::text, $3) > 0
+WHERE tenant = $1 AND starts_with(epoch_version::text, $2)
 ORDER BY 1
-LIMIT $4
+LIMIT $3

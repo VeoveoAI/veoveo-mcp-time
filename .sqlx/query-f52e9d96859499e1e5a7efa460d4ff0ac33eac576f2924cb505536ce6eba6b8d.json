@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT DISTINCT epoch_version::text AS \"candidate!\"\nFROM time.epoch\nWHERE tenant = $1\n    AND ($2::text IS NULL OR epoch_key = $2)\n    AND strpos(epoch_version::text, $3) > 0\nORDER BY 1\nLIMIT $4\n",
+  "query": "-- Version numbers of any of the tenant's epochs whose decimal form starts with $2.\nSELECT DISTINCT epoch_version::text AS \"candidate!\"\nFROM time.epoch\nWHERE tenant = $1 AND starts_with(epoch_version::text, $2)\nORDER BY 1\nLIMIT $3\n",
   "describe": {
     "columns": [
       {
@@ -14,7 +14,6 @@
       "Left": [
         "Uuid",
         "Text",
-        "Text",
         "Int8"
       ]
     },
@@ -22,5 +21,5 @@
       null
     ]
   },
-  "hash": "d8d6ca3d40d5fde1d5ef23cc35726c497c4bcb46d639b2a5d64cbbeb1b3223f9"
+  "hash": "f52e9d96859499e1e5a7efa460d4ff0ac33eac576f2924cb505536ce6eba6b8d"
 }

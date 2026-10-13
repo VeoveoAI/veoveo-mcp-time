@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT DISTINCT epoch_key::text AS \"candidate!\"\nFROM time.epoch\nWHERE tenant = $1 AND strpos(lower(epoch_key), $2) > 0\nORDER BY 1\nLIMIT $3\n",
+  "query": "-- Epoch IDs that start with a prefix: the keys in [$2, $3), a range the page index seeks.\nSELECT DISTINCT epoch_key::text AS \"candidate!\"\nFROM time.epoch\nWHERE tenant = $1 AND epoch_key >= $2 AND epoch_key < $3\nORDER BY 1\nLIMIT $4\n",
   "describe": {
     "columns": [
       {
@@ -19,6 +19,7 @@
       "Left": [
         "Uuid",
         "Text",
+        "Text",
         "Int8"
       ]
     },
@@ -26,5 +27,5 @@
       false
     ]
   },
-  "hash": "69c6612a9445e4186a8e8a8dbff70ffaf0c4344fdf079c3dd94431d20ba3670a"
+  "hash": "061aa3d5f48b5cad71c2261530a515a229566ce1954e8dd3118960ec569b9441"
 }
