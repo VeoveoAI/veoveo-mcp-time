@@ -27,12 +27,12 @@ port         8800
 
 | Standard or protocol | Implemented profile |
 |---|---|
-| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/5216efe847079c720282e934ab09417be1265266/crates/veoveo-sdk-rust/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
+| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/25d9ea53ba5f7479a26af361a70f368a3be1b8da/crates/veoveo-sdk-rust/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
 | [JSON Schema Draft 2020-12](https://json-schema.org/draft/2020-12/) | Temporal expressions, authority bindings, calendars, epochs, windows, clock evidence, tasks, and results. |
 | [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/50e72a3a1895d59b4f1eedd2b50cf947fa5d2e72/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
-| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/5216efe847079c720282e934ab09417be1265266/crates/veoveo-sdk-rust/src/registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
+| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/25d9ea53ba5f7479a26af361a70f368a3be1b8da/crates/veoveo-sdk-rust/src/registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
 | [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Gateway forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. When a token names a key Time does not hold, Time reads the issuer's RFC 8414 metadata and fetches its `jwks_uri` with the registration's HTTP client, at most once per refresh interval. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
@@ -531,9 +531,9 @@ Tasks persist through `veoveo-task-runtime` in the kernel `tasks` schema, and th
 SDK's `durable_tasks` adapter serves them over MCP. Ownership includes tenant,
 principal, server and data labels, and the Task's surface is the Gateway profile the
 call arrived on, so a caller reads a Task only through that profile. Creating a Task queues
-it. Each process consumes the runtime's claim stream: a claim records the process
-instance as the Task's owner, and the process decodes the persisted request and runs
-it. The stream wakes on `tasks.time`, the channel of Time's own Tasks, so other servers'
+it. Each process runs the SDK's `TaskWorker` over the runtime's claim stream: a claim
+records the process instance as the Task's owner, and the worker decodes the persisted
+request and runs it. The stream wakes on `tasks.time`, the channel of Time's own Tasks, so other servers'
 Task changes never wake it. A request that does not decode as a Time calculation
 settles as failed. Both temporal task types use `Resume` recovery because their
 outputs are deterministic under the persisted authority-bound request. When a process
@@ -543,12 +543,12 @@ lock ends the claim stream, and Time then stops serving. Terminal task records r
 for seven days unless a retention pin extends their lifetime, and the Task runtime
 prunes the expired ones in batches.
 
-Time runs this consumer itself rather than the SDK's `TaskWorker`. A local shutdown
-settles nothing: Time passes the worker's stop token to resumable settlement, which
-withholds a success while the token is cancelled, and leaves the Task to its
-instance's recovery. `TaskWorker` settles without the stop token.
+A local shutdown settles nothing. Once stopped, the worker waits up to 30 seconds for
+its running calculations, and a calculation interrupted by the stop publishes neither
+its result nor a failure: its Task stays with the process instance, whose recovery
+queues it when the process ends.
 
-Workers read durable cancellation before scope resolution, after scope resolution,
+Workers check `ctx.checkpoint()` before scope resolution, after scope resolution,
 and after authority and epoch loading. These checkpoints observe requests committed
 through another server replica without relying on a shared local cancellation token.
 Hosted schedule expansion and timeline validation run finite calculations on Tokio's
@@ -560,17 +560,16 @@ serialization finish between checkpoints; this profile promises neither hard abo
 nor a fixed drain latency. Hard process termination follows instance recovery.
 A local shutdown stop without durable cancellation prevents result publication and
 leaves the request for `Resume` recovery once the instance is reaped; it does not
-fabricate a terminal cancellation. Success publication carries that token through snapshot
-selection and checks it immediately before entering each shared transition. A stop
-observed after selection reads current state once to settle durable cancellation or
-leave the unfinished request for recovery. Entering the shared transition starts
-settlement: its internal database awaits and compare-and-set determine the outcome.
-A later local stop cannot undo that dispatch, and shutdown may leave its outcome
-unresolved until current-state reconciliation. Local token cancellation and database
-settlement do not form an atomic operation.
+fabricate a terminal cancellation. The worker passes the Task's cancellation token to
+resumable settlement, which withholds a success while the token is cancelled and
+settles a durable cancellation committed meanwhile. Entering the shared transition
+starts settlement: its internal database awaits and compare-and-set determine the
+outcome. A later local stop cannot undo that dispatch, and shutdown may leave its
+outcome unresolved until current-state reconciliation. Local token cancellation and
+database settlement do not form an atomic operation.
 
-Final calculation settlement delegates the selected Task snapshot to TaskRuntime's
-Resume settlement with the PreserveFailure policy. If cancellation wins that transition, the executing
+Final calculation settlement goes through TaskRuntime's Resume settlement with the
+PreserveFailure policy, `TaskWorker`'s default. If cancellation wins that transition, the executing
 worker rereads current state once and settles `CancelRequested` as `Cancelled`
 without publishing the calculated result. An already committed terminal outcome
 wins. A genuine calculation failure keeps its failure code and message, including

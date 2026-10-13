@@ -1,9 +1,9 @@
 # Time MCP Server — Agent Manual
 
 Delta over the repository root `AGENTS.md`. The normative server contract is the
-[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/5216efe847079c720282e934ab09417be1265266/crates/veoveo-sdk-rust/DESIGN.md) in
+[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/25d9ea53ba5f7479a26af361a70f368a3be1b8da/crates/veoveo-sdk-rust/DESIGN.md) in
 `veoveo-sdk-rust`, and registration follows its
-[server registration protocol](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/5216efe847079c720282e934ab09417be1265266/crates/veoveo-sdk-rust/src/registration/DESIGN.md).
+[server registration protocol](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/25d9ea53ba5f7479a26af361a70f368a3be1b8da/crates/veoveo-sdk-rust/src/registration/DESIGN.md).
 
 ## Purpose
 
@@ -97,21 +97,18 @@ leap second assumptions.
   that claims a push polls nothing before the change and requires it to follow the state
   the subscription opened with. The tests are ignored by default; run them from a fresh
   nextest archive extraction.
-- `cargo test -p veoveo-mcp-time --lib server::tasks::tests` qualifies durable
-  cancellation at calculation checkpoints and final settlement using two process
-  instances on separate pools. Keep the cancellation/completion interleave
-  deterministic; do not manufacture a slow installed schedule. Preserve completion
-  that committed first, genuine calculation failures and the owning instance's
-  exclusive settlement. Local shutdown without durable cancel intent stops success
-  publication before shared transition dispatch and leaves the request for Resume
-  recovery. Keep token checks at both selected-snapshot dispatch seams;
-  a transition already entered may settle despite a later local stop.
-  `server::tasks::tests::recovery` runs Time's consumer on two replicas. The first stalls
-  mid-calculation behind a lock on the authority pointers and loses its instance lock as
-  a crash would. After the kernel reaper requeues the Task, the first replica settles and
-  reclaims nothing, and the second completes the Task with the result the engine expands
-  directly. Keep that stall deterministic. Installed cancellation and installed restart
-  still require their own observable qualification.
+- `cargo test -p veoveo-mcp-time --lib server::tasks::tests` runs Time's consumer, the
+  SDK's `TaskWorker`, on two process instances on separate pools. The SDK qualifies the
+  worker's settlement seams; these tests qualify Time's checkpoints. A queued Task is
+  claimed by a replica that did not create it. `server::tasks::tests::recovery` stalls a
+  calculation behind a lock on the authority pointers. When the first replica loses its
+  instance lock as a crash would, the kernel reaper requeues the Task, the first replica
+  settles and reclaims nothing, and the second completes it with the result the engine
+  expands directly. When the first replica's process stops instead, its calculation
+  publishes nothing, invents no cancellation and is finished by the second replica after
+  recovery. A cancellation requested on another replica settles the Task as cancelled at
+  the next checkpoint. Keep each stall deterministic. Installed cancellation and
+  installed restart still require their own observable qualification.
 - `cargo test -p veoveo-mcp-time --lib server::tasks::calculation::tests`
   checks async responsiveness during a retained blocking job and joins the original
   job after interruption. `cargo test -p veoveo-mcp-time --lib cooperative_stop`
