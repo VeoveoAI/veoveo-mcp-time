@@ -47,18 +47,49 @@ network_policies:
   # SHA-256 it first observes and denies the path after the file changes, so Time runs
   # from a content-addressed copy under /sandbox/run, and acceptance tests run from a
   # fresh nextest archive extraction under /sandbox/run. Time registers with the Gateway
-  # through its forward, where OpenShell substitutes the registration secret.
+  # through its forward, where OpenShell substitutes the registration secret, and keeps
+  # and removes the registration at its client URI. When a forwarded token names a key
+  # Time does not hold, Time reads the issuer's RFC 8414 metadata and the JWK Set its
+  # jwks_uri names.
   local_gateway:
     endpoints:
       - host: host.openshell.internal
         port: 8080
         protocol: rest
         enforcement: enforce
-        access: full
+        rules:
+          - allow:
+              method: GET
+              path: "/.well-known/oauth-authorization-server"
+          - allow:
+              method: GET
+              path: "/jwks.json"
+          - allow:
+              method: POST
+              path: "/oauth/register"
+          - allow:
+              method: GET
+              path: "/oauth/register/*"
+          - allow:
+              method: PUT
+              path: "/oauth/register/*"
+          - allow:
+              method: DELETE
+              path: "/oauth/register/*"
         credential_binding:
           provider: vv-registration
     binaries:
       - path: /sandbox/run/veoveo-mcp-time-*
+  # Acceptance tests obtain tokens and call MCP through the Gateway as the installation's
+  # acceptance callers.
+  local_gateway_acceptance:
+    endpoints:
+      - host: host.openshell.internal
+        port: 8080
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries:
       - path: /sandbox/run/acceptance-*/**
   # The installation's PostgreSQL server, which the registration's database grant names.
   local_database:

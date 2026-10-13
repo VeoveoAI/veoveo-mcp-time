@@ -18,8 +18,8 @@ slug         time
 URI scheme   time
 permissions  time.*
 MCP          /time/mcp
-liveness     /time/livez
-readiness    /time/readyz (ready while the clock is observed)
+liveness     /livez
+readiness    /readyz (ready while the clock is observed)
 port         8800
 ```
 
@@ -34,7 +34,7 @@ port         8800
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
 | [Veoveo knowledge source extension](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-knowledge/DESIGN.md) | `ai.veoveo/knowledge-source` declares documentation and Time-owned collections, typed source observations, conditional reads, and enumeration from each collection root. Resource updates follow database change notifications. |
 | [Veoveo server registration](https://github.com/VeoveoAI/veoveo-core/blob/37eab1febc73d116a6dc6e8a285604c5be551a11/mcp/ext-registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
-| [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Gateway forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. |
+| [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Gateway forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. When a token names a key Time does not hold, Time reads the issuer's RFC 8414 metadata and fetches its `jwks_uri` with the registration's HTTP client, at most once per refresh interval. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
 | IANA Time Zone Database and [TZif RFC 8536](https://www.rfc-editor.org/rfc/rfc8536.html) | Versioned civil-time authority, compiled release products, zone completion, and fold/gap resolution. |
@@ -43,7 +43,7 @@ port         8800
 | TAI, UTC, TT, TDB, GPS, and Galileo system time | Typed projections from one integral TAI instant. The server records authority and uncertainty rather than treating scales as interchangeable strings. |
 | [NTPv4 RFC 5905](https://www.rfc-editor.org/rfc/rfc5905.html) and [Network Time Security RFC 8915](https://www.rfc-editor.org/rfc/rfc8915.html) | Approved node clocks may use NTP/NTS. Time MCP consumes a bounded `ntpd-rs` observation; it does not act as an NTP network endpoint. |
 | HTTPS | Registered IANA authority sources are acquired under fixed host, media, digest, size, and elapsed-time policy. |
-| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/7632308/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. |
+| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/435fc1a90d5761f6dca2af05f4cadde324b72428/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. |
 
 Time JSON uses camelCase members and snake_case vocabulary; decoding rejects
 retired and mixed keys. Authority source is a closed tagged object: bootstrap
@@ -533,13 +533,15 @@ Tasks persist through `veoveo-task-runtime` in the kernel `tasks` schema. Owners
 includes tenant, principal, profile, server, and data labels. Creating a Task queues
 it. Each process consumes the runtime's claim stream: a claim records the process
 instance as the Task's owner, and the process decodes the persisted request and runs
-it. A request that does not decode as a Time calculation settles as failed. Both
-temporal task types use `Resume` recovery because their outputs are deterministic under
-the persisted authority-bound request. When a process dies, the kernel reaps its
-instance and returns its Tasks to the queue, where any replica claims and resumes
-them; no lease or heartbeat is involved. A lost instance lock ends the claim stream,
-and Time then stops serving. Terminal task records retain for seven days unless a
-retention pin extends their lifetime.
+it. The stream wakes on `tasks.time`, the channel of Time's own Tasks, so other servers'
+Task changes never wake it. A request that does not decode as a Time calculation
+settles as failed. Both temporal task types use `Resume` recovery because their
+outputs are deterministic under the persisted authority-bound request. When a process
+dies, the kernel reaps its instance and returns its Tasks to the queue, where any
+replica claims and resumes them; no lease or heartbeat is involved. A lost instance
+lock ends the claim stream, and Time then stops serving. Terminal task records retain
+for seven days unless a retention pin extends their lifetime, and the Task runtime
+prunes the expired ones in batches.
 
 Workers read durable cancellation before scope resolution, after scope resolution,
 and after authority and epoch loading. These checkpoints observe requests committed

@@ -18,15 +18,17 @@ leap second assumptions.
 - The server is hosted through `veoveo_mcp_contract::hosting`: `TimeMcp` implements
   `DomainServer` and `TimeSubscriptions` implements `ResourceSubscriptions`. Tenant
   administration is MCP tools in `src/mcp/administration.rs`, joined to the domain
-  tools by `TimeMcp::tools()`. `/time/readyz` reports ready while the clock is
-  observed. Do not add a `ServerHandler`, host check or token verification here.
+  tools by `TimeMcp::tools()`. `/readyz` at the listener root reports ready while the
+  clock is observed. Do not add a `ServerHandler`, host check or token verification here.
 - `src/mcp/requirements.rs` is the only source of permission requirements. A new tool,
   fixed resource, template or prompt gets its row there, and its handler checks
   through `require` or `authorize`. The table builds the registration and Discover
   declaration, so the Gateway and Time evaluate the same requirements.
 - Time registers with the Gateway before serving and takes its access-token trust and
   database login from the registration. Do not add static trust, JWKS or database
-  credentials to configuration. `RegistrationClient::maintain` deletes the
+  credentials to configuration. The registration's HTTP client also refreshes the
+  forwarded-token keys from the issuer's RFC 8414 metadata, which the OpenShell policy
+  lets Time's binary read. `RegistrationClient::maintain` deletes the
   registration after serving ends; the live process instance keeps it, so do not add
   renewal or update calls.
 - Owns the `time://` URI scheme. Identity: slug `time`, MCP `/time/mcp`,

@@ -9,11 +9,13 @@ use veoveo_mcp_ext_registration::{
 use super::config::Args;
 use crate::mcp::requirements::AUTHORIZATION;
 
-/// Register Time and return the client that later removes the registration.
+/// Register Time. Returns the client that later removes the registration, the
+/// registration, and the HTTP client that reached the Gateway, which also fetches the
+/// Gateway's token keys when a forwarded token names a key the registration lacks.
 pub(super) async fn register(
     args: &Args,
     declaration: RegistrationDeclaration,
-) -> Result<(RegistrationClient, Registration)> {
+) -> Result<(RegistrationClient, Registration, reqwest::Client)> {
     let key = KeyDirectory::new(&args.key_directory)
         .load_or_generate()
         .context("loading Time's registration key")?;
@@ -25,7 +27,7 @@ pub(super) async fn register(
         .await
         .context("discovering the Gateway's registration endpoint")?;
     let client = RegistrationClient::new(
-        http,
+        http.clone(),
         endpoint,
         args.registration_secret.clone(),
         key,
@@ -36,5 +38,5 @@ pub(super) async fn register(
         .await
         .context("registering Time with the Gateway")?;
     tracing::info!(client_id = %registration.client_id(), "registered with the Gateway");
-    Ok((client, registration))
+    Ok((client, registration, http))
 }

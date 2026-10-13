@@ -42,6 +42,10 @@ Every flag has a matching `VEOVEO_` environment variable.
 | `VEOVEO_ALLOWED_HOSTS` | Extra comma-separated host authorities that pass host validation. |
 | `VEOVEO_NTPD_OBSERVATION_SOCKET` | Optional ntpd-rs observation socket. |
 
+Time answers liveness at `/livez` and readiness at `/readyz` on its listening port,
+outside the `/time` prefix, for example `http://<host>:8800/livez`. Readiness holds while
+Time observes its clock.
+
 The registration response supplies the access-token issuer and keys and the PostgreSQL
 login Time connects with, so neither is configured here. Time applies its own
 migrations in the schema `time` at startup. Run `veoveo-mcp-time --help` for the

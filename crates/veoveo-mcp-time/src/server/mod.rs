@@ -45,7 +45,8 @@ pub async fn run() -> Result<()> {
         .set(declaration.clone())
         .map_err(|_| anyhow::anyhow!("Time's registration was declared twice"))?;
     std::sync::LazyLock::force(&crate::mcp::SERVER_SETUP);
-    let (registration_client, registration) = registration::register(&args, declaration).await?;
+    let (registration_client, registration, http) =
+        registration::register(&args, declaration).await?;
     // The registration lasts while Time's login holds a live process instance. Once
     // serving ends, on SIGTERM or Ctrl-C or on a failure, the client deletes it, which
     // also drops the login. Time never renews it.
@@ -53,7 +54,7 @@ pub async fn run() -> Result<()> {
     let mut served = None;
     let maintained = registration_client
         .maintain(registration, async {
-            served = Some(serve(&args, &public_deployment, &issued).await);
+            served = Some(serve(&args, &public_deployment, &issued, http).await);
         })
         .await;
     if let Err(error) = maintained {
@@ -63,11 +64,13 @@ pub async fn run() -> Result<()> {
 }
 
 /// Connect with the registration's database login, migrate Time's schema and serve until
-/// SIGTERM or Ctrl-C, or until the process instance loses its lock.
+/// SIGTERM or Ctrl-C, or until the process instance loses its lock. `http` refreshes the
+/// Gateway's token keys from its issuer metadata.
 async fn serve(
     args: &Args,
     public_deployment: &PublicDeployment,
     registration: &Registration,
+    http: reqwest::Client,
 ) -> Result<()> {
     let grant = registration
         .database()
@@ -157,7 +160,7 @@ async fn serve(
     let hosted = HostedServer::for_domain::<TimeMcp>()
         .deployment(public_deployment, args.allow_loopback_hosts)?
         .allowed_hosts(args.allowed_hosts.iter().cloned())
-        .internal_trust(registration.access_tokens())?
+        .internal_trust(registration.access_tokens(), http)?
         .handler(move || {
             Hosted::new(TimeMcp::new(handler_state.clone())).with_tasks(
                 DurableTasks::with_listener(
