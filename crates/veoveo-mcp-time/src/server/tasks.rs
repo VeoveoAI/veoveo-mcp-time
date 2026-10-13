@@ -1,5 +1,4 @@
 mod calculation;
-mod settlement;
 #[cfg(test)]
 mod tests;
 
@@ -7,11 +6,13 @@ use crate::contract::TimeTaskKind;
 use std::{collections::BTreeSet, sync::Arc};
 use veoveo_types::TaskTypeDefinition;
 
-use futures::StreamExt;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
-use veoveo_sdk_rust::{GatewayInternalIdentity, PrincipalKind};
+use veoveo_sdk_rust::{
+    GatewayInternalIdentity, PrincipalKind,
+    durable_tasks::{TaskContext, TaskWorker},
+};
 use veoveo_task_runtime::{
     CreateTask, RecoveryClass, TaskFailure, TaskOwner, TaskRetentionPin, TaskRuntime, TaskSnapshot,
     TaskSurface, TaskTransition,
@@ -204,32 +205,30 @@ fn time_task(
 /// Run every Task this process's instance claims until `stop` is cancelled. A Task
 /// whose instance died returns to the queue, so a replica claims and resumes it here.
 /// The claim stream fails when the instance loses its lock, and so does this consumer.
+/// Once stopped, the worker waits for its running Tasks: a calculation interrupted by
+/// the stop publishes nothing and stays with its instance, whose recovery queues it.
 pub(super) async fn work(
     state: Arc<TimeApplication>,
     stop: CancellationToken,
 ) -> anyhow::Result<()> {
-    let mut claimed = state.tasks.work().await?;
-    loop {
-        let next = tokio::select! {
-            () = stop.cancelled() => return Ok(()),
-            next = claimed.next() => next,
-        };
-        let snapshot = next.ok_or_else(|| anyhow::anyhow!("the Task claim stream ended"))??;
-        if let Err(error) = execute(state.clone(), snapshot, stop.child_token()).await {
-            tracing::warn!(%error, "Time could not start a claimed Task");
-        }
-        state.tasks.reap_workers().await;
-    }
+    TaskWorker::new(state.tasks.clone())
+        .run(
+            move |ctx| {
+                let state = state.clone();
+                async move { run_time_task(state, ctx).await }
+            },
+            stop,
+        )
+        .await?;
+    Ok(())
 }
 
-/// Start the worker of one claimed Task. A request this version cannot read fails the
-/// Task instead of leaving it claimed.
-async fn execute(
+/// One claimed Time Task. A request this version cannot read fails the Task.
+async fn run_time_task(
     state: Arc<TimeApplication>,
-    snapshot: TaskSnapshot,
-    cancellation: CancellationToken,
-) -> anyhow::Result<()> {
-    let task_id = snapshot.task_id;
+    ctx: TaskContext,
+) -> anyhow::Result<TaskTransition> {
+    let snapshot = ctx.task();
     let request = serde_json::from_value::<TimeTaskRequest>(snapshot.request.clone())
         .ok()
         .filter(|request| {
@@ -237,93 +236,38 @@ async fn execute(
                 && request.task_type() == snapshot.task_type
         });
     let Some(request) = request else {
-        settlement::update(
-            &state.tasks,
-            task_id,
-            TaskTransition::Failed(TaskFailure::new(
-                "unsupported_time_task",
-                "the Task type or request is not a Time calculation",
-            )),
-            &cancellation,
-        )
-        .await?;
-        return Ok(());
+        return Ok(failed(
+            "unsupported_time_task",
+            "the Task type or request is not a Time calculation",
+        ));
     };
-    let join = tokio::spawn(run_time_task(
-        state.clone(),
-        task_id,
-        snapshot.owner,
-        request,
-        cancellation.clone(),
-    ));
-    state
-        .tasks
-        .register_worker(task_id, cancellation, join)
-        .await?;
-    Ok(())
-}
-
-async fn run_time_task(
-    state: Arc<TimeApplication>,
-    task_id: TaskId,
-    owner: TaskOwner,
-    request: TimeTaskRequest,
-    cancellation: CancellationToken,
-) {
-    let mut calculation = calculation::Calculation::new(&cancellation);
-    if let Err(error) = run_time_task_inner(
-        state,
-        task_id,
-        owner,
-        request,
-        cancellation,
-        &mut calculation,
-    )
-    .await
-    {
-        tracing::warn!(%task_id, "Time task execution did not settle: {error}");
-    }
-    // Cooperative stop and join complete before this registered worker exits.
+    let mut calculation = calculation::Calculation::new(&ctx.cancellation_token());
+    let outcome = calculate(&state, &ctx, request, &mut calculation).await;
+    // Cooperative stop and join complete before this worker settles or releases.
     calculation.stop_and_drain().await;
+    outcome
 }
 
-async fn run_time_task_inner(
-    state: Arc<TimeApplication>,
-    task_id: TaskId,
-    owner: TaskOwner,
+/// The calculation of one Time Task. It checks for a stop or a cancellation between its
+/// steps, and the worker settles a requested cancellation or leaves a stopping Task to
+/// its recovery.
+async fn calculate(
+    state: &TimeApplication,
+    ctx: &TaskContext,
     request: TimeTaskRequest,
-    cancellation: CancellationToken,
     calculation: &mut calculation::Calculation,
-) -> anyhow::Result<()> {
-    update_task(
-        &state,
-        task_id,
-        TaskTransition::Running {
-            message: request.description().to_owned(),
-            progress: 0.05,
-        },
-        &cancellation,
-    )
+) -> anyhow::Result<TaskTransition> {
+    ctx.update(TaskTransition::Running {
+        message: request.description().to_owned(),
+        progress: 0.05,
+    })
     .await?;
-    if !settlement::continue_work(&state.tasks, task_id, &cancellation).await? {
-        return Ok(());
-    }
-    let scope = match state.scope_from_task_owner(&owner).await {
+    ctx.checkpoint().await?;
+    let scope = match state.scope_from_task_owner(&ctx.task().owner).await {
         Ok(scope) => scope,
-        Err(error) => {
-            return fail_task(
-                &state,
-                task_id,
-                "temporal_calculation_failed",
-                error,
-                &cancellation,
-            )
-            .await;
-        }
+        Err(error) => return Ok(failed("temporal_calculation_failed", error)),
     };
-    if !settlement::continue_work(&state.tasks, task_id, &cancellation).await? {
-        return Ok(());
-    }
+    ctx.checkpoint().await?;
     let engine = match &request {
         TimeTaskRequest::ExpandSchedule(_) => state.engine(&scope).await,
         TimeTaskRequest::ValidateTimeline(request) => {
@@ -334,20 +278,9 @@ async fn run_time_task_inner(
     };
     let engine = match engine {
         Ok(engine) => engine,
-        Err(error) => {
-            return fail_task(
-                &state,
-                task_id,
-                "temporal_calculation_failed",
-                error,
-                &cancellation,
-            )
-            .await;
-        }
+        Err(error) => return Ok(failed("temporal_calculation_failed", error)),
     };
-    if !settlement::continue_work(&state.tasks, task_id, &cancellation).await? {
-        return Ok(());
-    }
+    ctx.checkpoint().await?;
     let result = calculation
         .run(move |stop| match request {
             TimeTaskRequest::ExpandSchedule(request) => engine
@@ -358,49 +291,23 @@ async fn run_time_task_inner(
                 .and_then(|output| tool_result("validated mission timeline", &output)),
         })
         .await;
-    if result
-        .as_ref()
-        .is_err_and(|error| error.is::<crate::engine::CalculationStopped>())
-    {
-        // A cooperative stop is not a calculation failure. Observe durable intent
-        // to settle remote/local cancellation, or leave shutdown for Resume.
-        settlement::continue_work(&state.tasks, task_id, &cancellation).await?;
-        return Ok(());
-    }
-    // Shutdown can cancel a local worker without a durable cancellation request.
-    // Stop publication and leave the Task to its instance's recovery.
-    if settlement::local_stop(&state.tasks, task_id, &cancellation).await? {
-        return Ok(());
-    }
     match result {
-        Ok(result) => {
+        Ok(result) => Ok(
             match veoveo_sdk_rust::durable_tasks::mcp_task_completion(
                 "Temporal calculation completed",
                 result,
             ) {
-                Ok(transition) => update_task(&state, task_id, transition, &cancellation).await,
-                Err(error) => {
-                    fail_task(
-                        &state,
-                        task_id,
-                        "result_serialization_failed",
-                        error,
-                        &cancellation,
-                    )
-                    .await
-                }
-            }
+                Ok(transition) => transition,
+                Err(error) => failed("result_serialization_failed", error),
+            },
+        ),
+        // A cooperative stop is not a calculation failure: the stop or the
+        // cancellation that caused it ends the work.
+        Err(error) if error.is::<crate::engine::CalculationStopped>() => {
+            ctx.checkpoint().await?;
+            Err(error)
         }
-        Err(error) => {
-            fail_task(
-                &state,
-                task_id,
-                "temporal_calculation_failed",
-                error,
-                &cancellation,
-            )
-            .await
-        }
+        Err(error) => Ok(failed("temporal_calculation_failed", error)),
     }
 }
 
@@ -425,29 +332,8 @@ fn tool_result<T: Serialize>(text: &str, value: &T) -> anyhow::Result<CallToolRe
     Ok(result)
 }
 
-async fn fail_task(
-    state: &TimeApplication,
-    task_id: TaskId,
-    code: &str,
-    error: impl std::fmt::Display,
-    cancellation: &CancellationToken,
-) -> anyhow::Result<()> {
-    update_task(
-        state,
-        task_id,
-        TaskTransition::Failed(TaskFailure::new(code, error.to_string())),
-        cancellation,
-    )
-    .await
-}
-async fn update_task(
-    state: &TimeApplication,
-    task_id: TaskId,
-    transition: TaskTransition,
-    cancellation: &CancellationToken,
-) -> anyhow::Result<()> {
-    settlement::update(&state.tasks, task_id, transition, cancellation).await?;
-    Ok(())
+fn failed(code: &str, error: impl std::fmt::Display) -> TaskTransition {
+    TaskTransition::Failed(TaskFailure::new(code, error.to_string()))
 }
 
 /// The caller as a Task owner. A Task's surface is the Gateway profile the call arrived
