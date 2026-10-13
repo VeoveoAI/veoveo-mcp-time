@@ -70,6 +70,7 @@ pub(super) fn token_granting(
                 .map(|permission| permission.name())
                 .collect(),
             request_context: None,
+            acting_server: None,
             expires_at: Utc::now() + chrono::TimeDelta::minutes(5),
         })
         .unwrap()
