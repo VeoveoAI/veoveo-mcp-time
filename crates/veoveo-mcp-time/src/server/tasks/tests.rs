@@ -1,7 +1,7 @@
 use super::*;
 use std::time::Duration;
 use veoveo_platform_store::{Instance, PlatformStore};
-use veoveo_task_runtime::{TaskPayloadState, TaskRuntime, TaskStatus};
+use veoveo_task_runtime::{TaskPayloadState, TaskStatus};
 use veoveo_types::{
     AccessSubject, InvocationAuthority, InvocationProvenance, PolicyVersion, PrincipalId, TenantId,
     WorkContextId, WorkContextMembershipLevel, WorkContextOutputPolicy,
@@ -57,18 +57,7 @@ async fn running(runtime: &TaskRuntime) -> TaskSnapshot {
         .unwrap(),
     );
     let created = runtime
-        .create(CreateTask {
-            task_id: TaskId::new(),
-            owner: owner(),
-            server: slug(),
-            task_type: request.task_type(),
-            request: serde_json::to_value(request).unwrap(),
-            recovery_class: RecoveryClass::Resume,
-            idempotency_key: None,
-            ttl_ms: Some(TASK_TTL_MS),
-            poll_interval_ms: Some(TASK_POLL_INTERVAL_MS),
-            retention_pins: BTreeSet::new(),
-        })
+        .create(time_task(runtime, owner(), &request, BTreeSet::new()).unwrap())
         .await
         .unwrap()
         .snapshot;
@@ -380,18 +369,7 @@ async fn a_replica_runs_queued_time_tasks_to_completion() {
             .unwrap(),
         );
         let queued = creator
-            .create(CreateTask {
-                task_id: TaskId::new(),
-                owner: owner(),
-                server: slug(),
-                task_type: request.task_type(),
-                request: serde_json::to_value(request).unwrap(),
-                recovery_class: RecoveryClass::Resume,
-                idempotency_key: None,
-                ttl_ms: Some(TASK_TTL_MS),
-                poll_interval_ms: Some(TASK_POLL_INTERVAL_MS),
-                retention_pins: BTreeSet::new(),
-            })
+            .create(time_task(&creator, owner(), &request, BTreeSet::new()).unwrap())
             .await
             .unwrap()
             .snapshot;

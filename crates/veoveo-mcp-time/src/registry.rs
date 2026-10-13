@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 const AUTHORITY_LOAD_TIMEOUT: Duration = Duration::from_secs(30);
 

@@ -23,8 +23,10 @@ use uuid::Uuid;
 use veoveo_platform_store::{PlatformStore, PrincipalKind};
 use veoveo_types::Sha256Digest;
 
-struct AuthorityFiles {
-    root: tempfile::TempDir,
+/// Copied UTC tzdata and leap files that Time's registries and replicas load.
+pub(crate) struct AuthorityFiles {
+    /// Owns the files' directory, which dropping the fixture removes.
+    _root: tempfile::TempDir,
     tzdb: PathBuf,
     bootstrap_leaps: PathBuf,
     first_leaps: PathBuf,
@@ -33,7 +35,7 @@ struct AuthorityFiles {
 }
 
 impl AuthorityFiles {
-    async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
         let tzdb = root.path().join("tzdb");
         tokio::fs::create_dir_all(tzdb.join("Mission"))
@@ -72,7 +74,7 @@ impl AuthorityFiles {
         )
         .unwrap();
         Self {
-            root,
+            _root: root,
             tzdb,
             bootstrap_leaps,
             first_leaps,
@@ -87,6 +89,46 @@ impl AuthorityFiles {
             self.tzdb.clone(),
             self.bootstrap_leaps.clone(),
         )
+    }
+
+    /// One Time replica on `store` with its own process instance and authority cache, as
+    /// one process runs it. It starts no change watcher, due loop or Task consumer.
+    #[cfg(feature = "mcp")]
+    pub(crate) async fn replica(
+        &self,
+        store: &PlatformStore,
+    ) -> Arc<crate::state::TimeApplication> {
+        // The acquisition client uses rustls with ring, as the server installs it.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let catalog = TimeCatalog::new(store.pool().clone());
+        let acquisitions = crate::acquisition::AcquisitionService::new(
+            crate::acquisition::AcquisitionServiceConfig {
+                scratch_root: self.tzdb.with_file_name("scratch"),
+                release_root: self.tzdb.with_file_name("releases"),
+                zic_executable: self.tzdb.with_file_name("unavailable-zic"),
+                maximum_source_bytes: 1024,
+                maximum_expanded_bytes: 4096,
+                timeout: Duration::from_secs(1),
+            },
+            catalog.clone(),
+        )
+        .unwrap();
+        let slug = crate::test_database::slug();
+        let instance = veoveo_platform_store::Instance::start(store, &slug)
+            .await
+            .unwrap();
+        Arc::new(crate::state::TimeApplication {
+            store: store.clone(),
+            tasks: veoveo_task_runtime::TaskRuntime::new(store.clone(), slug, Arc::new(instance)),
+            catalog,
+            authorities: self.registry(),
+            clock: crate::clock::ClockMonitor::new(
+                crate::clock::ClockSource::System,
+                Duration::from_secs(1),
+            ),
+            acquisitions: Arc::new(acquisitions),
+            subscriptions: Arc::new(crate::changes::TenantSubscriptions::default()),
+        })
     }
 }
 

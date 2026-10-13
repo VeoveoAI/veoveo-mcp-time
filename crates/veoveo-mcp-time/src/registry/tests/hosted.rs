@@ -4,7 +4,6 @@ use veoveo_mcp_contract::hosting::{
     Hosted,
     testing::{self, TestGateway},
 };
-use veoveo_platform_store::Instance;
 pub(super) struct Fixture {
     pub gateway: TestGateway,
     pub state: Arc<crate::state::TimeApplication>,
@@ -13,41 +12,9 @@ pub(super) struct Fixture {
 }
 impl Fixture {
     pub async fn new() -> Self {
-        let _ = rustls::crypto::ring::default_provider().install_default();
         let db = TimeDb::new().await;
         let files = AuthorityFiles::new().await;
-        let catalog = TimeCatalog::new(db.a.pool().clone());
-        let acquisitions = crate::acquisition::AcquisitionService::new(
-            crate::acquisition::AcquisitionServiceConfig {
-                scratch_root: files.root.path().join("scratch"),
-                release_root: files.root.path().join("releases"),
-                zic_executable: files.root.path().join("unavailable-zic"),
-                maximum_source_bytes: 1024,
-                maximum_expanded_bytes: 4096,
-                timeout: Duration::from_secs(1),
-            },
-            catalog.clone(),
-        )
-        .unwrap();
-        let instance = Instance::start(&db.a, &crate::test_database::slug())
-            .await
-            .unwrap();
-        let state = Arc::new(crate::state::TimeApplication {
-            store: db.a.clone(),
-            tasks: veoveo_task_runtime::TaskRuntime::new(
-                db.a.clone(),
-                crate::test_database::slug(),
-                Arc::new(instance),
-            ),
-            catalog,
-            authorities: files.registry(),
-            clock: crate::clock::ClockMonitor::new(
-                crate::clock::ClockSource::System,
-                Duration::from_secs(1),
-            ),
-            acquisitions: Arc::new(acquisitions),
-            subscriptions: Arc::new(crate::changes::TenantSubscriptions::default()),
-        });
+        let state = files.replica(&db.a).await;
         let handler = state.clone();
         let gateway = TestGateway::new(
             testing::for_domain::<crate::mcp::TimeMcp>()

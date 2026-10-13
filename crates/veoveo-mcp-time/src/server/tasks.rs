@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use veoveo_mcp_contract::{GatewayInternalIdentity, PrincipalKind};
 use veoveo_task_runtime::{
-    CreateTask, RecoveryClass, TaskFailure, TaskOwner, TaskRetentionPin, TaskSnapshot,
+    CreateTask, RecoveryClass, TaskFailure, TaskOwner, TaskRetentionPin, TaskRuntime, TaskSnapshot,
     TaskTransition,
 };
 use veoveo_types::TaskId;
@@ -156,22 +156,35 @@ async fn create_time_task(
     request: TimeTaskRequest,
     retention_pins: BTreeSet<TaskRetentionPin>,
 ) -> anyhow::Result<TaskSnapshot> {
-    Ok(state
-        .tasks
-        .create(CreateTask {
-            task_id: TaskId::new(),
-            owner: runtime_owner(identity),
-            server: state.tasks.server().clone(),
-            task_type: request.task_type(),
-            request: serde_json::to_value(&request)?,
-            recovery_class: RecoveryClass::Resume,
-            idempotency_key: None,
-            ttl_ms: Some(TASK_TTL_MS),
-            poll_interval_ms: Some(TASK_POLL_INTERVAL_MS),
-            retention_pins,
-        })
-        .await?
-        .snapshot)
+    let task = time_task(
+        &state.tasks,
+        runtime_owner(identity),
+        &request,
+        retention_pins,
+    )?;
+    Ok(state.tasks.create(task).await?.snapshot)
+}
+
+/// A Time calculation as a durable Task. Its deterministic output lets a replica resume
+/// it after the instance that claimed it dies.
+fn time_task(
+    tasks: &TaskRuntime,
+    owner: TaskOwner,
+    request: &TimeTaskRequest,
+    retention_pins: BTreeSet<TaskRetentionPin>,
+) -> serde_json::Result<CreateTask> {
+    Ok(CreateTask {
+        task_id: TaskId::new(),
+        owner,
+        server: tasks.server().clone(),
+        task_type: request.task_type(),
+        request: serde_json::to_value(request)?,
+        recovery_class: RecoveryClass::Resume,
+        idempotency_key: None,
+        ttl_ms: Some(TASK_TTL_MS),
+        poll_interval_ms: Some(TASK_POLL_INTERVAL_MS),
+        retention_pins,
+    })
 }
 
 /// Run every Task this process's instance claims until `stop` is cancelled. A Task
