@@ -51,14 +51,17 @@ remaining limits.
 
 Time stores its catalog in the schema `time` of the installation's PostgreSQL 18
 database. `migrations/` in the crate defines the schema, and every statement is a
-`.sql` file that sqlx checks at compile time. Builds without a database use the
-committed `.sqlx` metadata. After changing a query or a migration, regenerate it
-against a database with the kernel migrations of the pinned veoveo-core and Time's
-migrations applied:
+`.sql` file that sqlx checks at compile time. `.cargo/config.toml` sets `SQLX_OFFLINE`,
+so every build uses the committed `.sqlx` metadata. After changing a query or a
+migration, regenerate it against a database with the kernel migrations of the pinned
+veoveo-core and Time's migrations applied:
 
 ```sh
-cargo sqlx prepare --workspace -- --all-targets --all-features
+CARGO_TARGET_DIR=<empty directory> cargo sqlx prepare --workspace -- --all-targets --all-features
 ```
+
+The metadata also covers the queries of the core crates, and prepare records only the
+crates it compiles, so it needs a target directory with no earlier build.
 
 The `check` stage of the `Dockerfile` builds that database and fails when the metadata
 is stale. Tests need the PostgreSQL 18 server programs on `PATH`; each test clones its

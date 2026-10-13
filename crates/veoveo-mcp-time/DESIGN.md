@@ -824,9 +824,10 @@ mutation drafts and validation. `PlatformStore` supplies the pool and platform
 identity; the connection logs in as the registration's own login. Every statement is a
 file in `src/persistence/queries/`, run through `query_file_as!`, `query_file!` or
 `query_file_scalar!`, which check it against the migrated schema at compile time.
-Builds without a database use the workspace's committed `.sqlx` metadata, which
-`cargo sqlx prepare --workspace` regenerates against a database with the kernel
-migrations and Time's migrations applied. Native fixture statements live in `src/tests/queries/`.
+`.cargo/config.toml` sets `SQLX_OFFLINE`, so every build reads the workspace's committed
+`.sqlx` metadata, which `cargo sqlx prepare --workspace` regenerates against a database
+with the kernel migrations and Time's migrations applied. Native fixture statements live
+in `src/tests/queries/`.
 
 Catalog calls retain source, release, acquisition, calendar, epoch and event ID types
 through the persistence interface and into the driver: the IDs, the persistence
