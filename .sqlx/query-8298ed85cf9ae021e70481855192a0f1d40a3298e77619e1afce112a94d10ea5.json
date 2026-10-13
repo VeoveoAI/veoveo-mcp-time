@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The plan of the production statement of the same name in src/persistence/queries.\n-- persistence/plans.rs checks that everything after this header is that statement.\nEXPLAIN (FORMAT JSON)\n-- The tenant's epoch versions after a cursor position. The order mixes directions, so\n-- no row comparison expresses the position; `epoch_key >= $2` lets the page index seek\n-- to the cursor's epoch, and the disjunction drops its versions already shown.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    epoch_key AS \"epoch_key: EpochId\",\n    epoch_version,\n    owner AS \"owner: PrincipalId\",\n    name,\n    tai_seconds_since_1970,\n    nanosecond,\n    body,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.epoch\nWHERE tenant = $1\n    AND epoch_key >= $2\n    AND (epoch_key > $2 OR epoch_version < $3)\nORDER BY epoch_key, epoch_version DESC\nLIMIT $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "QUERY PLAN",
+        "type_info": "Json",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8298ed85cf9ae021e70481855192a0f1d40a3298e77619e1afce112a94d10ea5"
+}

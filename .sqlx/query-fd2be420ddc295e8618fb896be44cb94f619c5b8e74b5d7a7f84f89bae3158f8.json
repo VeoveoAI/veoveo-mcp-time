@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The plan of the production statement of the same name in src/persistence/queries.\n-- persistence/plans.rs checks that everything after this header is that statement.\nEXPLAIN (FORMAT JSON)\n-- Calendar IDs that start with a prefix: the keys in [$2, $3), a range the page index seeks.\nSELECT DISTINCT calendar_key::text AS \"candidate!\"\nFROM time.calendar_version\nWHERE tenant = $1 AND calendar_key >= $2 AND calendar_key < $3\nORDER BY 1\nLIMIT $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "QUERY PLAN",
+        "type_info": "Json",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fd2be420ddc295e8618fb896be44cb94f619c5b8e74b5d7a7f84f89bae3158f8"
+}

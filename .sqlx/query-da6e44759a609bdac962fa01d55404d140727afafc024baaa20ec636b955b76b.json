@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The plan of the production statement of the same name in src/persistence/queries.\n-- persistence/plans.rs checks that everything after this header is that statement.\nEXPLAIN (FORMAT JSON)\n-- An owner's events after a cursor position, optionally in one state. The row comparison\n-- seeks the page index past the position; the state is a filter on the rows it reads.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    event_key AS \"event_key: EventId\",\n    owner AS \"owner: PrincipalId\",\n    name,\n    state AS \"state: TimeEventState\",\n    due_tai_seconds_since_1970,\n    due_nanosecond,\n    due,\n    idempotency_key,\n    body,\n    record_version,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.event\nWHERE tenant = $1\n    AND owner = $2\n    AND ($3::text IS NULL OR state = $3)\n    AND (due_tai_seconds_since_1970, due_nanosecond, event_key) > ($4, $5, $6)\nORDER BY due_tai_seconds_since_1970, due_nanosecond, event_key\nLIMIT $7\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "QUERY PLAN",
+        "type_info": "Json",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int8",
+        "Int4",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "da6e44759a609bdac962fa01d55404d140727afafc024baaa20ec636b955b76b"
+}

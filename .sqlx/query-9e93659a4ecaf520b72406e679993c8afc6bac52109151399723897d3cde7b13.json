@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The plan of the production statement of the same name in src/persistence/queries.\n-- persistence/plans.rs checks that everything after this header is that statement.\nEXPLAIN (FORMAT JSON)\n-- The tenant's acquired releases after a cursor position, seeking the primary key past it.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    release_key AS \"release_key: AuthorityReleaseId\",\n    owner AS \"owner: PrincipalId\",\n    source_key AS \"source_key: TimeSourceId\",\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    state AS \"state: TimeAuthorityReleaseState\",\n    version_label,\n    source_url,\n    source_digest,\n    artifact_path,\n    retrieved_at,\n    validated_at,\n    body,\n    record_version,\n    created_at,\n    updated_at,\n    tenant_key,\n    owner_key,\n    work_context\nFROM time.authority_release\nWHERE tenant = $1 AND release_key > $2\nORDER BY release_key\nLIMIT $3\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "QUERY PLAN",
+        "type_info": "Json",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9e93659a4ecaf520b72406e679993c8afc6bac52109151399723897d3cde7b13"
+}

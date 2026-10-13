@@ -103,3 +103,5 @@ fn nanosecond(value: SubsecondNanoseconds) -> i32 {
 
 #[cfg(test)]
 mod activation_tests;
+#[cfg(test)]
+mod plans;

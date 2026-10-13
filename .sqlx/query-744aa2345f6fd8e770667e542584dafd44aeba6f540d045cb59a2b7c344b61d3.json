@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The plan of the production statement of the same name in src/persistence/queries.\n-- persistence/plans.rs checks that everything after this header is that statement.\nEXPLAIN (FORMAT JSON)\n-- An owner's event IDs that start with a prefix: the keys in [$3, $4), a range the\n-- owner key index seeks.\nSELECT DISTINCT event_key::text AS \"candidate!\"\nFROM time.event\nWHERE tenant = $1 AND owner = $2 AND event_key >= $3 AND event_key < $4\nORDER BY 1\nLIMIT $5\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "QUERY PLAN",
+        "type_info": "Json",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "744aa2345f6fd8e770667e542584dafd44aeba6f540d045cb59a2b7c344b61d3"
+}

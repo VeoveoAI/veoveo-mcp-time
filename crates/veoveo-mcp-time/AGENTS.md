@@ -144,6 +144,11 @@ leap second assumptions.
   selection, event transition isolation, page boundaries, requested epoch batches,
   and bounded distinct prefix completion with `LIKE` metacharacters taken literally.
   `src/catalog/tests/admin_pages.rs` walks the source and acquisition pages.
+- `cargo test -p veoveo-mcp-time --lib persistence::plans` explains the next-page, ID
+  completion and due statements with sequential scans disabled and requires each to
+  seek its index. The `explain_*.sql` files in `src/tests/queries/` repeat production
+  statements verbatim, and a unit test fails when one drifts. Add a statement there when
+  a new query's cost grows with a tenant's rows.
 - `src/catalog/tests/metadata.rs` qualifies retained body/key agreement, the schema's
   refusal of corrupt columns, redacted diagnostics and immutable acquisition metadata.
   Corruption goes through `src/tests/queries/`. Preserve the lifecycle-column rules in

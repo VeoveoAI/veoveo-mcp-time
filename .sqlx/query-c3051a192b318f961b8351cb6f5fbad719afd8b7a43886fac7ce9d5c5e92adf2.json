@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Plan this transaction's statements without sequential scans, so each plan names the\n-- index that serves it even on a nearly empty table.\nSELECT set_config('enable_seqscan', 'off', true) AS \"enable_seqscan!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "enable_seqscan!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c3051a192b318f961b8351cb6f5fbad719afd8b7a43886fac7ce9d5c5e92adf2"
+}

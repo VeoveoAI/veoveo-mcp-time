@@ -1137,7 +1137,10 @@ URL/ID admission, SQL isolation and pagination, requested epoch batches and
 completion. Administration page cases walk five sources and four acquisitions two at a
 time, each record once in its order, and refuse a cursor from another listing.
 Completion cases treat `%`, `_` and other characters literally and match only prefixes.
-Retained-metadata cases corrupt bodies through fixture statements, verify
+Plan cases explain each next-page, ID completion and due statement under
+`enable_seqscan = off` and require an index condition on the cursor, prefix range or due
+instant. Their EXPLAIN files repeat the production statements verbatim, which a unit
+test checks. Retained-metadata cases corrupt bodies through fixture statements, verify
 read/collection rejection, check that the schema refuses corrupt columns, preserve
 lifecycle columns, and reject acquisition identity changes before writing. Isolated authority tests use separate connections to
 qualify retirement, competing pointer updates and exhaustion rollback followed by retry.
