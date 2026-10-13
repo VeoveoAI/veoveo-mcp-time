@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    (SELECT min(due) FROM time.event WHERE state = 'scheduled') AS next_due,\n    now() AS \"now!\"\n",
+  "query": "-- veoveo: all tenants (each process's due loop sleeps until the earliest scheduled event of any tenant)\nSELECT\n    (SELECT min(due) FROM time.event WHERE state = 'scheduled') AS next_due,\n    now() AS \"now!\"\n",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       null
     ]
   },
-  "hash": "083c23a7ad1dae638a2e8bc001102e118a825a906b28c9acd6cf31f744fda561"
+  "hash": "0de7a5a077cc89461b68564f248d17d520f48cdb0fbc9b38715ba341b261918c"
 }

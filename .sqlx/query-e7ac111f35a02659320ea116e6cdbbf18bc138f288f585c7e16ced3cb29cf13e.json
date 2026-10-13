@@ -1,0 +1,110 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The tenant's epoch versions after a cursor position. The order mixes directions, so no\n-- row comparison expresses the position. It splits into two seeks of the page index: the\n-- cursor's epoch below its version, then the epochs after it. Each branch reads at most\n-- one page, and every column is NOT NULL.\n(\n    SELECT\n        tenant AS \"tenant!: TenantId\",\n        epoch_key AS \"epoch_key!: EpochId\",\n        epoch_version AS \"epoch_version!\",\n        owner AS \"owner!: PrincipalId\",\n        name AS \"name!\",\n        tai_seconds_since_1970 AS \"tai_seconds_since_1970!\",\n        nanosecond AS \"nanosecond!\",\n        body AS \"body!\",\n        created_at AS \"created_at!\",\n        updated_at AS \"updated_at!\",\n        tenant_key AS \"tenant_key!\",\n        owner_key AS \"owner_key!\",\n        work_context AS \"work_context!\"\n    FROM time.epoch\n    WHERE tenant = $1 AND epoch_key = $2 AND epoch_version < $3\n    ORDER BY epoch_version DESC\n    LIMIT $4\n)\nUNION ALL\n(\n    SELECT\n        tenant,\n        epoch_key,\n        epoch_version,\n        owner,\n        name,\n        tai_seconds_since_1970,\n        nanosecond,\n        body,\n        created_at,\n        updated_at,\n        tenant_key,\n        owner_key,\n        work_context\n    FROM time.epoch\n    WHERE tenant = $1 AND epoch_key > $2\n    ORDER BY epoch_key, epoch_version DESC\n    LIMIT $4\n)\nORDER BY 2, 3 DESC\nLIMIT $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant!: TenantId",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "epoch_key!: EpochId",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "epoch_version!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "owner!: PrincipalId",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "tai_seconds_since_1970!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "nanosecond!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "body!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "tenant_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "owner_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "work_context!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e7ac111f35a02659320ea116e6cdbbf18bc138f288f585c7e16ced3cb29cf13e"
+}

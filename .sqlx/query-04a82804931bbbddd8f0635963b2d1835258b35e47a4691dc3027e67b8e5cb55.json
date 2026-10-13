@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The plan of the production statement of the same name in src/persistence/queries.\n-- persistence/plans.rs checks that everything after this header is that statement.\nEXPLAIN (FORMAT JSON)\n-- The tenant's calendar versions after a cursor position. The order mixes directions, so\n-- no row comparison expresses the position. It splits into two seeks of the page index:\n-- the cursor's calendar below its version, then the calendars after it. Each branch\n-- reads at most one page, and every column is NOT NULL.\n(\n    SELECT\n        tenant AS \"tenant!: TenantId\",\n        calendar_key AS \"calendar_key!: CalendarId\",\n        calendar_version AS \"calendar_version!\",\n        owner AS \"owner!: PrincipalId\",\n        name AS \"name!\",\n        zone_id AS \"zone_id!\",\n        state AS \"state!: TimeCalendarState\",\n        body AS \"body!\",\n        created_at AS \"created_at!\",\n        updated_at AS \"updated_at!\",\n        tenant_key AS \"tenant_key!\",\n        owner_key AS \"owner_key!\",\n        work_context AS \"work_context!\"\n    FROM time.calendar_version\n    WHERE tenant = $1 AND calendar_key = $2 AND calendar_version < $3\n    ORDER BY calendar_version DESC\n    LIMIT $4\n)\nUNION ALL\n(\n    SELECT\n        tenant,\n        calendar_key,\n        calendar_version,\n        owner,\n        name,\n        zone_id,\n        state,\n        body,\n        created_at,\n        updated_at,\n        tenant_key,\n        owner_key,\n        work_context\n    FROM time.calendar_version\n    WHERE tenant = $1 AND calendar_key > $2\n    ORDER BY calendar_key, calendar_version DESC\n    LIMIT $4\n)\nORDER BY 2, 3 DESC\nLIMIT $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "QUERY PLAN",
+        "type_info": "Json",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "04a82804931bbbddd8f0635963b2d1835258b35e47a4691dc3027e67b8e5cb55"
+}

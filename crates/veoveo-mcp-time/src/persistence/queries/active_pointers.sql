@@ -1,3 +1,4 @@
+-- The tenant's active pointers: at most one per family, and two families exist.
 SELECT
     tenant AS "tenant: TenantId",
     dataset_kind AS "dataset_kind: TimeDatasetKind",
@@ -9,3 +10,4 @@ SELECT
 FROM time.active_authority
 WHERE tenant = $1
 ORDER BY dataset_kind
+LIMIT 2

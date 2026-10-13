@@ -43,7 +43,7 @@ port         8800
 | TAI, UTC, TT, TDB, GPS, and Galileo system time | Typed projections from one integral TAI instant. The server records authority and uncertainty rather than treating scales as interchangeable strings. |
 | [NTPv4 RFC 5905](https://www.rfc-editor.org/rfc/rfc5905.html) and [Network Time Security RFC 8915](https://www.rfc-editor.org/rfc/rfc8915.html) | Approved node clocks may use NTP/NTS. Time MCP consumes a bounded `ntpd-rs` observation; it does not act as an NTP network endpoint. |
 | HTTPS | Registered IANA authority sources are acquired under fixed host, media, digest, size, and elapsed-time policy. |
-| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/435fc1a90d5761f6dca2af05f4cadde324b72428/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. |
+| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/435fc1a90d5761f6dca2af05f4cadde324b72428/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Its statements and schema follow that design's server schema rules, which a native conformance test checks. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. |
 
 Time JSON uses camelCase members and snake_case vocabulary; decoding rejects
 retired and mixed keys. Authority source is a closed tagged object: bootstrap
@@ -665,9 +665,9 @@ its 101-record lookahead, and indexes cover each order. Each collection has one
 statement for its first page and one for the pages after a cursor, so no predicate tests
 whether a cursor is present and PostgreSQL's cached generic plan seeks the index past the
 position. Calendars and epochs sort by key ascending and version descending, a mixed
-order that no row comparison expresses: the next-page statement bounds the key with
-`>=` the cursor's key, which the page index seeks, and filters the versions of that key
-already returned. Events sort by
+order that no row comparison expresses. Their next-page statement joins two seeks of
+the page index with `UNION ALL`, the cursor's key below its version and then the keys
+after it, each limited to one page. Events sort by
 TAI seconds, nanosecond, then event key ascending. These positions use immutable
 fields. Each page observes the records present at its read. Inserts before its position
 appear on a fresh walk.
@@ -831,6 +831,13 @@ file in `src/persistence/queries/`, run through `query_file_as!`, `query_file!` 
 with the kernel migrations and Time's migrations applied. Native fixture statements live
 in `src/tests/queries/`.
 
+`persistence::conformance` holds these statements and the `time` schema to core's server
+schema rules. Every statement binds the tenant, bounds its rows and reaches them through
+an index in a generic plan, and every table has a primary key, an index behind each
+foreign key and a comment stating its retention. The due loop's two statements read every
+tenant and say so in an exemption marker. Version completion marks its scan, because a
+decimal prefix of a version number is no range of a `bigint` index.
+
 Catalog calls retain source, release, acquisition, calendar, epoch and event ID types
 through the persistence interface and into the driver: the IDs, the persistence
 vocabularies and `TimeAcquisitionPhase` bind as `text` through their `postgres` hooks,
@@ -866,7 +873,8 @@ Vocabularies are `text` with a `CHECK` listing their spellings, and counters are
 the public document. Unique constraints admit one acquisition and one event per tenant,
 owner and idempotency key, and one release per source and digest. Records that keep
 their creator's provenance store the tenant key, owner key and Work Context beside
-their owner. Every table carries the `kernel.notify_change` row trigger.
+their owner. Every table carries the `kernel.notify_change` row trigger and a comment
+stating its retention: every row stays for the life of its tenant, and Time deletes none.
 
 Time records every timestamp at microsecond precision, the precision of `timestamptz`,
 so a JSON body and its columns name the same instant on every platform clock.
@@ -1143,7 +1151,10 @@ Completion cases treat `%`, `_` and other characters literally and match only pr
 Plan cases explain each next-page, ID completion and due statement under
 `enable_seqscan = off` and require an index condition on the cursor, prefix range or due
 instant. Their EXPLAIN files repeat the production statements verbatim, which a unit
-test checks. Retained-metadata cases corrupt bodies through fixture statements, verify
+test checks. The conformance case runs core's database conformance check over every
+statement under `src/persistence` and the migrated `time` schema, and fails on any
+violation or any exemption that no finding needs.
+Retained-metadata cases corrupt bodies through fixture statements, verify
 read/collection rejection, check that the schema refuses corrupt columns, preserve
 lifecycle columns, and reject acquisition identity changes before writing. Isolated authority tests use separate connections to
 qualify retirement, competing pointer updates and exhaustion rollback followed by retry.

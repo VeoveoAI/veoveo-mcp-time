@@ -1,5 +1,6 @@
 -- The releases the tenant's pointers select, when each is active and of the pointer's
--- family. A pointer without a row here references a release that is no longer active.
+-- family: at most one per family, and two families exist. A pointer without a row here
+-- references a release that is no longer active.
 SELECT
     r.tenant AS "tenant: TenantId",
     r.release_key AS "release_key: AuthorityReleaseId",
@@ -28,3 +29,4 @@ JOIN time.authority_release AS r
     AND r.state = 'active'
 WHERE p.tenant = $1
 ORDER BY p.dataset_kind
+LIMIT 2

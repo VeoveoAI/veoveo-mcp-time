@@ -151,6 +151,13 @@ leap second assumptions.
   seek its index. The `explain_*.sql` files in `src/tests/queries/` repeat production
   statements verbatim, and a unit test fails when one drifts. Add a statement there when
   a new query's cost grows with a tenant's rows.
+- `cargo test -p veoveo-mcp-time --lib persistence::conformance` runs core's database
+  conformance check over every statement under `src/persistence` and the `time` schema.
+  A statement binds its tenant, bounds its rows and reaches them through an index in a
+  generic plan, or it carries a `-- veoveo:` marker that states why it cannot. A table
+  needs a primary key, an index whose leading columns are each foreign key's, and a
+  `Retention:` comment, added in a new migration. Regenerate `.sqlx` before running it,
+  because the check reads the statements from that metadata.
 - `src/catalog/tests/metadata.rs` qualifies retained body/key agreement, the schema's
   refusal of corrupt columns, redacted diagnostics and immutable acquisition metadata.
   Corruption goes through `src/tests/queries/`. Preserve the lifecycle-column rules in

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The plan of the production statement of the same name in src/persistence/queries.\n-- persistence/plans.rs checks that everything after this header is that statement.\nEXPLAIN (FORMAT JSON)\n-- veoveo: all tenants (each process's due loop changes the passed events of every tenant, and the row trigger notifies each tenant's own subscribers)\n-- Moves at most $1 scheduled events whose instant has passed to due, the earliest first,\n-- so a backlog becomes several short statements. Replicas may run it concurrently: SKIP\n-- LOCKED gives each a different batch, and the state predicate changes each event once.\n-- The body follows the lifecycle columns.\nUPDATE time.event AS event\nSET\n    state = 'due',\n    body = jsonb_set(\n        jsonb_set(event.body, '{state}', '\"due\"'),\n        '{recordVersion}',\n        to_jsonb(event.record_version + 1)\n    ),\n    record_version = event.record_version + 1,\n    updated_at = now()\nFROM (\n    SELECT tenant, event_key\n    FROM time.event\n    WHERE state = 'scheduled' AND due <= now() AND record_version < 9223372036854775807\n    ORDER BY due\n    LIMIT $1\n    FOR UPDATE SKIP LOCKED\n) AS batch\nWHERE event.tenant = batch.tenant AND event.event_key = batch.event_key\nRETURNING event.tenant AS \"tenant: TenantId\", event.event_key AS \"event_key: EventId\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "QUERY PLAN",
+        "type_info": "Json",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b3577102f5351fed048e87494db6fd66f81dbb9b9ac13473ec13e590f4445772"
+}

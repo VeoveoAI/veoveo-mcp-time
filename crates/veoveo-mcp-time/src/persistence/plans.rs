@@ -77,9 +77,9 @@ fn nodes<'a>(node: &'a Value, found: &mut Vec<&'a Value>) {
     }
 }
 
-/// Fail unless the plan reads no table sequentially and an index scan of `relation`,
-/// through `index` when one is named, seeks with every one of `conditions`.
-fn seeks(plan: impl Into<Value>, relation: &str, index: Option<&str>, conditions: &[&str]) {
+/// Fail unless the plan reads no table sequentially and, for each set of `conditions`, an
+/// index scan of `relation`, through `index` when one is named, seeks with all of them.
+fn seeks(plan: impl Into<Value>, relation: &str, index: Option<&str>, conditions: &[&[&str]]) {
     let plan = plan.into();
     let mut found = Vec::new();
     nodes(&plan[0]["Plan"], &mut found);
@@ -87,16 +87,18 @@ fn seeks(plan: impl Into<Value>, relation: &str, index: Option<&str>, conditions
         found.iter().all(|node| node["Node Type"] != "Seq Scan"),
         "a sequential scan: {plan:#}"
     );
-    assert!(
-        found.iter().any(|node| {
-            node["Relation Name"] == relation
-                && index.is_none_or(|index| node["Index Name"] == index)
-                && node["Index Cond"]
-                    .as_str()
-                    .is_some_and(|cond| conditions.iter().all(|wanted| cond.contains(wanted)))
-        }),
-        "no index scan of {relation} seeks with {conditions:?}: {plan:#}"
-    );
+    for conditions in conditions {
+        assert!(
+            found.iter().any(|node| {
+                node["Relation Name"] == relation
+                    && index.is_none_or(|index| node["Index Name"] == index)
+                    && node["Index Cond"]
+                        .as_str()
+                        .is_some_and(|cond| conditions.iter().all(|wanted| cond.contains(wanted)))
+            }),
+            "no index scan of {relation} seeks with {conditions:?}: {plan:#}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -130,7 +132,7 @@ async fn paging_completion_and_due_statements_seek_their_indexes() {
         .fetch_one(&mut *plans)
         .await
         .unwrap();
-        seeks(plan, "source", None, &["source_key >"]);
+        seeks(plan, "source", None, &[&["source_key >"]]);
 
         let plan = sqlx::query_file_scalar!(
             "src/tests/queries/explain_acquisition_page_after.sql",
@@ -141,7 +143,7 @@ async fn paging_completion_and_due_statements_seek_their_indexes() {
         .fetch_one(&mut *plans)
         .await
         .unwrap();
-        seeks(plan, "acquisition", None, &["acquisition_key <"]);
+        seeks(plan, "acquisition", None, &[&["acquisition_key <"]]);
 
         let plan = sqlx::query_file_scalar!(
             "src/tests/queries/explain_release_page_after.sql",
@@ -152,9 +154,10 @@ async fn paging_completion_and_due_statements_seek_their_indexes() {
         .fetch_one(&mut *plans)
         .await
         .unwrap();
-        seeks(plan, "authority_release", None, &["release_key >"]);
+        seeks(plan, "authority_release", None, &[&["release_key >"]]);
 
-        // The mixed-direction order still seeks to the cursor's calendar and epoch.
+        // The mixed-direction order seeks the cursor's calendar below its version, then
+        // the calendars after it, and the same for epochs.
         let plan = sqlx::query_file_scalar!(
             "src/tests/queries/explain_calendar_page_after.sql",
             tenant as TenantId,
@@ -165,7 +168,15 @@ async fn paging_completion_and_due_statements_seek_their_indexes() {
         .fetch_one(&mut *plans)
         .await
         .unwrap();
-        seeks(plan, "calendar_version", None, &["calendar_key >="]);
+        seeks(
+            plan,
+            "calendar_version",
+            None,
+            &[
+                &["calendar_key =", "calendar_version <"],
+                &["calendar_key >"],
+            ],
+        );
 
         let plan = sqlx::query_file_scalar!(
             "src/tests/queries/explain_epoch_page_after.sql",
@@ -177,7 +188,12 @@ async fn paging_completion_and_due_statements_seek_their_indexes() {
         .fetch_one(&mut *plans)
         .await
         .unwrap();
-        seeks(plan, "epoch", None, &["epoch_key >="]);
+        seeks(
+            plan,
+            "epoch",
+            None,
+            &[&["epoch_key =", "epoch_version <"], &["epoch_key >"]],
+        );
 
         let plan = sqlx::query_file_scalar!(
             "src/tests/queries/explain_event_page_after.sql",
@@ -196,7 +212,7 @@ async fn paging_completion_and_due_statements_seek_their_indexes() {
             plan,
             "event",
             Some("event_page"),
-            &["ROW(due_tai_seconds_since_1970, due_nanosecond, event_key) >"],
+            &[&["ROW(due_tai_seconds_since_1970, due_nanosecond, event_key) >"]],
         );
 
         let plan = sqlx::query_file_scalar!(
@@ -213,7 +229,7 @@ async fn paging_completion_and_due_statements_seek_their_indexes() {
             plan,
             "calendar_version",
             None,
-            &["calendar_key >=", "calendar_key <"],
+            &[&["calendar_key >=", "calendar_key <"]],
         );
 
         let plan = sqlx::query_file_scalar!(
@@ -231,7 +247,7 @@ async fn paging_completion_and_due_statements_seek_their_indexes() {
             plan,
             "event",
             Some("event_owner_key"),
-            &["owner =", "event_key >=", "event_key <"],
+            &[&["owner =", "event_key >=", "event_key <"]],
         );
 
         let plan =
@@ -243,7 +259,7 @@ async fn paging_completion_and_due_statements_seek_their_indexes() {
             plan,
             "event",
             Some("event_scheduled_due"),
-            &["due <= now()"],
+            &[&["due <= now()"]],
         );
         plans.rollback().await.unwrap();
     })

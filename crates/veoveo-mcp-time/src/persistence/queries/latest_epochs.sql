@@ -1,3 +1,4 @@
+-- The latest version of each requested epoch. The caller requests at most 100 keys.
 SELECT DISTINCT ON (epoch_key)
     tenant AS "tenant: TenantId",
     epoch_key AS "epoch_key: EpochId",
@@ -15,3 +16,4 @@ SELECT DISTINCT ON (epoch_key)
 FROM time.epoch
 WHERE tenant = $1 AND epoch_key = ANY($2)
 ORDER BY epoch_key, epoch_version DESC
+LIMIT 100

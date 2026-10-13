@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- veoveo: scan (a decimal prefix of a version number is no range of the bigint index, and without a selected epoch the filter reads every epoch version of the tenant)\n-- Version numbers of any of the tenant's epochs whose decimal form starts with $2.\nSELECT DISTINCT epoch_version::text AS \"candidate!\"\nFROM time.epoch\nWHERE tenant = $1 AND starts_with(epoch_version::text, $2)\nORDER BY 1\nLIMIT $3\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "candidate!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9835f6d08f22554accd580c72f1d7825c3eb2248b495f046b7eba86ec4a574b6"
+}

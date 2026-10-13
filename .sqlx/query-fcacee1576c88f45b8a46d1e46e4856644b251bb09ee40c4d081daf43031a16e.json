@@ -1,0 +1,110 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The tenant's calendar versions after a cursor position. The order mixes directions, so\n-- no row comparison expresses the position. It splits into two seeks of the page index:\n-- the cursor's calendar below its version, then the calendars after it. Each branch\n-- reads at most one page, and every column is NOT NULL.\n(\n    SELECT\n        tenant AS \"tenant!: TenantId\",\n        calendar_key AS \"calendar_key!: CalendarId\",\n        calendar_version AS \"calendar_version!\",\n        owner AS \"owner!: PrincipalId\",\n        name AS \"name!\",\n        zone_id AS \"zone_id!\",\n        state AS \"state!: TimeCalendarState\",\n        body AS \"body!\",\n        created_at AS \"created_at!\",\n        updated_at AS \"updated_at!\",\n        tenant_key AS \"tenant_key!\",\n        owner_key AS \"owner_key!\",\n        work_context AS \"work_context!\"\n    FROM time.calendar_version\n    WHERE tenant = $1 AND calendar_key = $2 AND calendar_version < $3\n    ORDER BY calendar_version DESC\n    LIMIT $4\n)\nUNION ALL\n(\n    SELECT\n        tenant,\n        calendar_key,\n        calendar_version,\n        owner,\n        name,\n        zone_id,\n        state,\n        body,\n        created_at,\n        updated_at,\n        tenant_key,\n        owner_key,\n        work_context\n    FROM time.calendar_version\n    WHERE tenant = $1 AND calendar_key > $2\n    ORDER BY calendar_key, calendar_version DESC\n    LIMIT $4\n)\nORDER BY 2, 3 DESC\nLIMIT $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant!: TenantId",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "calendar_key!: CalendarId",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "calendar_version!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "owner!: PrincipalId",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "zone_id!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "state!: TimeCalendarState",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "body!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "tenant_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "owner_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "work_context!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "fcacee1576c88f45b8a46d1e46e4856644b251bb09ee40c4d081daf43031a16e"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    tenant AS \"tenant: TenantId\",\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    release_key AS \"release_key: AuthorityReleaseId\",\n    previous_release_key AS \"previous_release_key: AuthorityReleaseId\",\n    activated_by AS \"activated_by: PrincipalId\",\n    activated_at,\n    record_version\nFROM time.active_authority\nWHERE tenant = $1\nORDER BY dataset_kind\nFOR UPDATE\n",
+  "query": "-- The tenant's active pointers: at most one per family, and two families exist.\nSELECT\n    tenant AS \"tenant: TenantId\",\n    dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    release_key AS \"release_key: AuthorityReleaseId\",\n    previous_release_key AS \"previous_release_key: AuthorityReleaseId\",\n    activated_by AS \"activated_by: PrincipalId\",\n    activated_at,\n    record_version\nFROM time.active_authority\nWHERE tenant = $1\nORDER BY dataset_kind\nLIMIT 2\n",
   "describe": {
     "columns": [
       {
@@ -96,5 +96,5 @@
       false
     ]
   },
-  "hash": "ba2bad84617c3fb79a7b3a88c8fd3d0eb542f71a0b8fe61d7434745f588a0017"
+  "hash": "56aabc94104073aa52af1a4b2a19ca17e443bb0c183cfbdd6ef521b46ceaac92"
 }

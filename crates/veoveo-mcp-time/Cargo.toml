@@ -142,7 +142,7 @@ veoveo-platform-store = { workspace = true, optional = true }
 veoveo-task-runtime = { workspace = true, optional = true }
 
 [dev-dependencies]
-veoveo-test-fixtures = { workspace = true, features = ["store", "tool-inputs"] }
+veoveo-test-fixtures = { workspace = true, features = ["store", "tool-inputs", "database-conformance"] }
 veoveo-oauth-client.workspace = true
 veoveo-mcp-contract = { workspace = true, features = ["runtime", "testing"] }
 veoveo-gateway-contract.workspace = true

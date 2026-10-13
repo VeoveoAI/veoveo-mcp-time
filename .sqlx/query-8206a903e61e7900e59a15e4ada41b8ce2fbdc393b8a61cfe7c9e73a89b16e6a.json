@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "-- The releases the tenant's pointers select, when each is active and of the pointer's\n-- family. A pointer without a row here references a release that is no longer active.\nSELECT\n    r.tenant AS \"tenant: TenantId\",\n    r.release_key AS \"release_key: AuthorityReleaseId\",\n    r.owner AS \"owner: PrincipalId\",\n    r.source_key AS \"source_key: TimeSourceId\",\n    r.dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    r.state AS \"state: TimeAuthorityReleaseState\",\n    r.version_label,\n    r.source_url,\n    r.source_digest,\n    r.artifact_path,\n    r.retrieved_at,\n    r.validated_at,\n    r.body,\n    r.record_version,\n    r.created_at,\n    r.updated_at,\n    r.tenant_key,\n    r.owner_key,\n    r.work_context\nFROM time.active_authority AS p\nJOIN time.authority_release AS r\n    ON r.tenant = p.tenant\n    AND r.dataset_kind = p.dataset_kind\n    AND r.release_key = p.release_key\n    AND r.state = 'active'\nWHERE p.tenant = $1\nORDER BY p.dataset_kind\n",
+  "query": "-- The releases the tenant's pointers select, when each is active and of the pointer's\n-- family: at most one per family, and two families exist. A pointer without a row here\n-- references a release that is no longer active.\nSELECT\n    r.tenant AS \"tenant: TenantId\",\n    r.release_key AS \"release_key: AuthorityReleaseId\",\n    r.owner AS \"owner: PrincipalId\",\n    r.source_key AS \"source_key: TimeSourceId\",\n    r.dataset_kind AS \"dataset_kind: TimeDatasetKind\",\n    r.state AS \"state: TimeAuthorityReleaseState\",\n    r.version_label,\n    r.source_url,\n    r.source_digest,\n    r.artifact_path,\n    r.retrieved_at,\n    r.validated_at,\n    r.body,\n    r.record_version,\n    r.created_at,\n    r.updated_at,\n    r.tenant_key,\n    r.owner_key,\n    r.work_context\nFROM time.active_authority AS p\nJOIN time.authority_release AS r\n    ON r.tenant = p.tenant\n    AND r.dataset_kind = p.dataset_kind\n    AND r.release_key = p.release_key\n    AND r.state = 'active'\nWHERE p.tenant = $1\nORDER BY p.dataset_kind\nLIMIT 2\n",
   "describe": {
     "columns": [
       {
@@ -240,5 +240,5 @@
       false
     ]
   },
-  "hash": "915988bf68ab6530974bbfc5f56e59d8a55045a1dc080f8765f62eb662963581"
+  "hash": "8206a903e61e7900e59a15e4ada41b8ce2fbdc393b8a61cfe7c9e73a89b16e6a"
 }

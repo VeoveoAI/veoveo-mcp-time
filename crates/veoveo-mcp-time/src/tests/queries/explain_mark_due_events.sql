@@ -1,6 +1,7 @@
 -- The plan of the production statement of the same name in src/persistence/queries.
 -- persistence/plans.rs checks that everything after this header is that statement.
 EXPLAIN (FORMAT JSON)
+-- veoveo: all tenants (each process's due loop changes the passed events of every tenant, and the row trigger notifies each tenant's own subscribers)
 -- Moves at most $1 scheduled events whose instant has passed to due, the earliest first,
 -- so a backlog becomes several short statements. Replicas may run it concurrently: SKIP
 -- LOCKED gives each a different batch, and the state predicate changes each event once.
