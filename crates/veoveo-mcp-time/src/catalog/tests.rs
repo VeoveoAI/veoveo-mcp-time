@@ -6,13 +6,12 @@ use crate::catalog::TimeCompletion;
 use crate::persistence::{TimeEpochDraft, TimeEventState as StoredEventState, TimePersistence};
 use crate::{
     AuthorityBinding, AuthorityReleaseId, CalendarId, Epoch, EpochId, Event, EventId, EventState,
-    OperationalCalendar, TimeInstant,
+    TimeInstant,
     catalog::{TimeAccessContext, TimeCatalog},
 };
 use veoveo_platform_store::{PlatformStore, PrincipalKind};
 
 mod admin_pages;
-mod knowledge;
 mod metadata;
 mod numeric;
 mod precision;

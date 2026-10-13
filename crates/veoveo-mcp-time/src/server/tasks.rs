@@ -11,10 +11,10 @@ use futures::StreamExt;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
-use veoveo_mcp_contract::{GatewayInternalIdentity, PrincipalKind};
+use veoveo_sdk_rust::{GatewayInternalIdentity, PrincipalKind};
 use veoveo_task_runtime::{
     CreateTask, RecoveryClass, TaskFailure, TaskOwner, TaskRetentionPin, TaskRuntime, TaskSnapshot,
-    TaskTransition,
+    TaskSurface, TaskTransition,
 };
 use veoveo_types::TaskId;
 
@@ -56,14 +56,14 @@ impl TimeTaskExtension {
     }
 }
 
-impl veoveo_task_runtime::DurableTaskService for TimeTaskExtension {
+impl veoveo_sdk_rust::durable_tasks::DurableTaskService for TimeTaskExtension {
     type Caller = AuthenticatedCaller;
 
     fn authenticate(
         &self,
         context: &rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<Self::Caller, rmcp::ErrorData> {
-        let identity = veoveo_mcp_contract::hosting::gateway_identity(context)?;
+        let identity = veoveo_sdk_rust::hosting::gateway_identity(context)?;
         Ok(AuthenticatedCaller { identity })
     }
 
@@ -91,12 +91,12 @@ impl veoveo_task_runtime::DurableTaskService for TimeTaskExtension {
                 }
                 None => return Ok(None),
             };
-        let retention_pins = veoveo_task_runtime::retention_pins(request.meta.as_ref())?;
+        let retention_pins = veoveo_sdk_rust::durable_tasks::retention_pins(request.meta.as_ref())?;
         let snapshot = create_time_task(&self.state, &caller.identity, task, retention_pins)
             .await
             .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
         Ok(Some(rmcp::model::CreateTaskResult::new(
-            veoveo_task_runtime::task_seed(&snapshot),
+            veoveo_sdk_rust::durable_tasks::task_seed(&snapshot),
         )))
     }
 
@@ -105,8 +105,12 @@ impl veoveo_task_runtime::DurableTaskService for TimeTaskExtension {
         caller: &Self::Caller,
         request: rmcp::model::GetTaskParams,
     ) -> Result<rmcp::model::GetTaskResult, rmcp::ErrorData> {
-        veoveo_task_runtime::get_durable_task(
-            &self.state.tasks.for_owner(&runtime_owner(&caller.identity)),
+        veoveo_sdk_rust::durable_tasks::get_durable_task(
+            &self.state.tasks,
+            &self
+                .state
+                .tasks
+                .for_owner(&runtime_owner(&caller.identity)?),
             request,
         )
         .await
@@ -117,8 +121,11 @@ impl veoveo_task_runtime::DurableTaskService for TimeTaskExtension {
         caller: &Self::Caller,
         request: rmcp::model::UpdateTaskParams,
     ) -> Result<(), rmcp::ErrorData> {
-        veoveo_task_runtime::update_durable_task(
-            &self.state.tasks.for_owner(&runtime_owner(&caller.identity)),
+        veoveo_sdk_rust::durable_tasks::update_durable_task(
+            &self
+                .state
+                .tasks
+                .for_owner(&runtime_owner(&caller.identity)?),
             request,
         )
         .await
@@ -129,8 +136,11 @@ impl veoveo_task_runtime::DurableTaskService for TimeTaskExtension {
         caller: &Self::Caller,
         task_id: String,
     ) -> Result<(), rmcp::ErrorData> {
-        veoveo_task_runtime::cancel_durable_task(
-            &self.state.tasks.for_owner(&runtime_owner(&caller.identity)),
+        veoveo_sdk_rust::durable_tasks::cancel_durable_task(
+            &self
+                .state
+                .tasks
+                .for_owner(&runtime_owner(&caller.identity)?),
             task_id,
         )
         .await
@@ -140,9 +150,13 @@ impl veoveo_task_runtime::DurableTaskService for TimeTaskExtension {
         &self,
         caller: &Self::Caller,
         task_ids: Vec<String>,
-    ) -> Result<veoveo_task_runtime::DurableTaskSubscription, rmcp::ErrorData> {
-        veoveo_task_runtime::subscribe_durable_tasks(
-            &self.state.tasks.for_owner(&runtime_owner(&caller.identity)),
+    ) -> Result<veoveo_sdk_rust::durable_tasks::DurableTaskSubscription, rmcp::ErrorData> {
+        veoveo_sdk_rust::durable_tasks::subscribe_durable_tasks(
+            &self.state.tasks,
+            &self
+                .state
+                .tasks
+                .for_owner(&runtime_owner(&caller.identity)?),
             task_ids,
         )
         .await
@@ -158,7 +172,7 @@ async fn create_time_task(
 ) -> anyhow::Result<TaskSnapshot> {
     let task = time_task(
         &state.tasks,
-        runtime_owner(identity),
+        runtime_owner(identity)?,
         &request,
         retention_pins,
     )?;
@@ -360,8 +374,10 @@ async fn run_time_task_inner(
     }
     match result {
         Ok(result) => {
-            match veoveo_task_runtime::mcp_task_completion("Temporal calculation completed", result)
-            {
+            match veoveo_sdk_rust::durable_tasks::mcp_task_completion(
+                "Temporal calculation completed",
+                result,
+            ) {
                 Ok(transition) => update_task(&state, task_id, transition, &cancellation).await,
                 Err(error) => {
                     fail_task(
@@ -434,8 +450,13 @@ async fn update_task(
     Ok(())
 }
 
-fn runtime_owner(identity: &GatewayInternalIdentity) -> TaskOwner {
-    TaskOwner {
+/// The caller as a Task owner. A Task's surface is the Gateway profile the call arrived
+/// on, so the caller reads it back only through that profile.
+fn runtime_owner(identity: &GatewayInternalIdentity) -> Result<TaskOwner, rmcp::ErrorData> {
+    let surface = TaskSurface::parse(identity.profile.as_str()).map_err(|_| {
+        rmcp::ErrorData::invalid_request("the Gateway profile is not a Task surface", None)
+    })?;
+    Ok(TaskOwner {
         principal_key: identity.actor.id.clone(),
         principal_kind: match identity.actor.kind {
             PrincipalKind::User => veoveo_task_runtime::PrincipalKind::User,
@@ -443,9 +464,9 @@ fn runtime_owner(identity: &GatewayInternalIdentity) -> TaskOwner {
         },
         issuer: identity.actor.issuer.clone(),
         subject: identity.actor.subject.clone(),
-        profile: identity.profile.clone(),
+        surface,
         tenant_key: identity.actor.tenant.clone(),
         data_labels: identity.actor.data_labels.clone(),
         authority: identity.authority.clone(),
-    }
+    })
 }

@@ -9,13 +9,14 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use veoveo_mcp_contract::{
+use veoveo_sdk_rust::durable_tasks::DurableTasks;
+use veoveo_sdk_rust::registration::client::Registration;
+use veoveo_sdk_rust::{
     PublicDeployment, TelemetryGuard,
     hosting::{Hosted, HostedServer},
     init_server_telemetry,
 };
-use veoveo_mcp_ext_registration::client::Registration;
-use veoveo_task_runtime::{DurableTasks, TaskRuntime, TaskRuntimeConfig};
+use veoveo_task_runtime::{TaskRuntime, TaskRuntimeConfig};
 
 use crate::{
     acquisition::{AcquisitionService, AcquisitionServiceConfig},

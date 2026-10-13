@@ -9,7 +9,7 @@ use rmcp::{
     service::RequestContext,
     tool, tool_router,
 };
-use veoveo_mcp_contract::hosting::structured_result;
+use veoveo_sdk_rust::hosting::structured_result;
 
 use super::{
     TimeMcp, internal,

@@ -2,8 +2,8 @@
 //! same value in MCP Discover, so both have one source.
 use std::sync::OnceLock;
 
-use veoveo_mcp_contract::{PublicDeployment, server_contract::McpServerContract};
-use veoveo_mcp_ext_registration::{RegistrationDeclaration, ServerEndpoint, ServerVersion};
+use veoveo_sdk_rust::registration::{RegistrationDeclaration, ServerEndpoint, ServerVersion};
+use veoveo_sdk_rust::{PublicDeployment, server_contract::McpServerContract};
 
 use super::setup::TimeContract;
 

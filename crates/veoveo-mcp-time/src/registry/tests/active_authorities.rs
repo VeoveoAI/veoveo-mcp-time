@@ -4,7 +4,7 @@ use super::*;
 
 /// Calls `tool` through the hosted router and returns its structured content.
 async fn call(
-    gateway: &veoveo_mcp_contract::hosting::testing::TestGateway,
+    gateway: &veoveo_sdk_rust::hosting::testing::TestGateway,
     token: &str,
     tool: &str,
     arguments: serde_json::Value,

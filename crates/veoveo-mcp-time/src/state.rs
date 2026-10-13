@@ -1,8 +1,8 @@
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use veoveo_mcp_contract::{GatewayInternalIdentity, PrincipalKind};
 use veoveo_platform_store::{PlatformStore, PrincipalKind as StorePrincipalKind};
+use veoveo_sdk_rust::{GatewayInternalIdentity, PrincipalKind};
 use veoveo_task_runtime::{TaskOwner, TaskRuntime};
 
 use crate::{

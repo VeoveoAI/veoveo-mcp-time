@@ -23,7 +23,6 @@ mod completion;
 mod drafts;
 mod due;
 mod events;
-mod provenance;
 mod records;
 mod validation;
 

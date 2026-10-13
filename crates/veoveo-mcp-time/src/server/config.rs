@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use secrecy::SecretString;
-use veoveo_mcp_contract::{PublicDeployment, parse_allowed_host_authority};
+use veoveo_sdk_rust::{PublicDeployment, parse_allowed_host_authority};
 
 /// Every flag has the matching `VEOVEO_` environment variable. The Gateway issues the
 /// database user and the access-token trust when Time registers, so neither is

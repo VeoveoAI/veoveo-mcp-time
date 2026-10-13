@@ -6,7 +6,7 @@ use crate::{
 };
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use veoveo_mcp_contract::ResourceUpdate;
+use veoveo_sdk_rust::ResourceUpdate;
 
 #[tokio::test]
 async fn future_cancelled_and_overdue_events_reach_due_through_the_due_loop() {

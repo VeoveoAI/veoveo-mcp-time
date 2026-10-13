@@ -132,11 +132,6 @@
       "note": "installed Discover and list readiness qualification is pending"
     },
     {
-      "id": "C32",
-      "status": "pending",
-      "note": "typed docs and five domain collections are implemented; source-policy, provenance, URI and paging checks pass natively; installed K01–K08 qualification and event change/restart probes remain open"
-    },
-    {
       "id": "C33",
       "status": "pending",
       "note": "Owner naming producers, consumers and installed qualification are pending."

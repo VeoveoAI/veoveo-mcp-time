@@ -2,7 +2,7 @@
 use super::hosted::token;
 use super::*;
 use serde_json::json;
-use veoveo_test_fixtures::tool_inputs as input_fixture;
+use veoveo_sdk_rust_fixture::tool_inputs as input_fixture;
 
 fn retired_members(wire: &serde_json::Value) -> Vec<serde_json::Value> {
     fn collect(value: &serde_json::Value, path: &str, keys: &mut Vec<(String, String)>) {

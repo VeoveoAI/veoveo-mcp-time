@@ -4,8 +4,8 @@ use super::*;
 use crate::changes::{ChangeWatcher, TenantSubscriptions, channel};
 use futures::StreamExt;
 use tokio::sync::Notify;
-use veoveo_mcp_contract::ResourceUpdate;
 use veoveo_platform_store::{ChangeOperation, ChangeSignal, ChangeStream};
+use veoveo_sdk_rust::ResourceUpdate;
 
 const WAIT: Duration = Duration::from_secs(10);
 

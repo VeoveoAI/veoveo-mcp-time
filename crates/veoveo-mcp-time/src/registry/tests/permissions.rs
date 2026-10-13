@@ -4,7 +4,7 @@ use super::hosted::{Fixture, token_granting};
 use super::*;
 use crate::contract::TimePermission::{self, *};
 use serde_json::json;
-use veoveo_mcp_contract::hosting::testing;
+use veoveo_sdk_rust::hosting::testing;
 
 const TENANT: &str = "tenant-a";
 

@@ -36,7 +36,7 @@ fn owner() -> TaskOwner {
         principal_kind: veoveo_task_runtime::PrincipalKind::User,
         issuer: "https://issuer.integration.example".parse().unwrap(),
         subject: "integration-subject".parse().unwrap(),
-        profile: "integration-profile".parse().unwrap(),
+        surface: "integration-profile".parse().unwrap(),
         tenant_key: Some("integration-tenant".parse().unwrap()),
         data_labels: BTreeSet::from(["internal".parse().unwrap()]),
         authority: authority(),

@@ -1,7 +1,7 @@
 //! Registration with the Gateway: Time's key, its declarations, and the client that
 //! removes the registration when Time stops.
 use anyhow::{Context, Result};
-use veoveo_mcp_ext_registration::{
+use veoveo_sdk_rust::registration::{
     ClientMetadata, RegistrationDeclaration,
     client::{KeyDirectory, Registration, RegistrationClient},
 };

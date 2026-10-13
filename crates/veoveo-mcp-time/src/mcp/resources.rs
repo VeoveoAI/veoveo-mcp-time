@@ -3,13 +3,10 @@ use super::{
     requirements::{Target, require},
 };
 use crate::contract::{ConvertTimeRequest, ResolveTimeRequest, TimeResource};
-use crate::contract::{
-    TimeKnowledgeCollection as Collection, TimeResourceEntry as Entry, TimeResourcePage as Page,
-};
+use crate::contract::{TimeResourceEntry as Entry, TimeResourcePage as Page};
 use rmcp::{ErrorData as McpError, RoleServer, model::ReadResourceResult, service::RequestContext};
 use serde_json::json;
-use veoveo_mcp_contract::hosting::{json_read, served_by_host};
-use veoveo_types::ResourceAddress;
+use veoveo_sdk_rust::hosting::{json_read, served_by_host};
 
 impl TimeMcp {
     /// Reads one admitted address. The host serves documents and the contract.
@@ -127,14 +124,20 @@ impl TimeMcp {
                 )
             }
             TimeResource::AuthorityRelease(id) => {
-                let member = self
+                let release = self
                     .state
                     .catalog
-                    .observed_release(&scope, id)
+                    .release(&scope, id)
                     .await
                     .map_err(internal)?
                     .ok_or_else(|| not_found("authority release"))?;
-                observed_resource(&resource, member, context)
+                let reference = self
+                    .state
+                    .catalog
+                    .authority_reference(&scope, &release)
+                    .await
+                    .map_err(internal)?;
+                json_read(uri, &reference)
             }
             TimeResource::BootstrapAuthority(id) => {
                 let reference = self
@@ -142,22 +145,7 @@ impl TimeMcp {
                     .authorities
                     .bootstrap_reference(id)
                     .ok_or_else(|| not_found("bootstrap authority"))?;
-                let descriptor = Collection::BootstrapAuthorities.descriptor();
-                let text = serde_json::to_string(&reference).map_err(internal)?;
-                let observation = veoveo_mcp_ext_knowledge::docs::observation(
-                    &descriptor,
-                    veoveo_mcp_ext_knowledge::content_digest(&text),
-                    chrono::Utc::now(),
-                );
-                veoveo_mcp_ext_knowledge::server::member_result(
-                    &resource.to_uri().map_err(invalid_params)?,
-                    "application/json",
-                    text,
-                    observation,
-                    &descriptor,
-                    Some(&context.meta),
-                )
-                .map_err(internal)
+                json_read(uri, &reference)
             }
             TimeResource::Zone(zone_id) => {
                 let engine = self.state.engine(&scope).await.map_err(internal)?;
@@ -183,26 +171,26 @@ impl TimeMcp {
                     &json!({"zoneId": zone_id, "tzdbReleaseId": engine.authority().binding().tzdb_release_id(), "current": projection.zoned.into_iter().next()}),
                 )
             }
-            TimeResource::Calendar { id, version } => {
-                let member = self
+            TimeResource::Calendar { id, version } => json_read(
+                uri,
+                &self
                     .state
                     .catalog
-                    .observed_calendar(&scope, id, *version)
+                    .calendar(&scope, id, *version)
                     .await
                     .map_err(internal)?
-                    .ok_or_else(|| not_found("calendar version"))?;
-                observed_resource(&resource, member, context)
-            }
-            TimeResource::EpochVersion { id, version } => {
-                let member = self
+                    .ok_or_else(|| not_found("calendar version"))?,
+            ),
+            TimeResource::EpochVersion { id, version } => json_read(
+                uri,
+                &self
                     .state
                     .catalog
-                    .observed_epoch(&scope, id, *version)
+                    .epoch_version(&scope, id, *version)
                     .await
                     .map_err(internal)?
-                    .ok_or_else(|| not_found("epoch version"))?;
-                observed_resource(&resource, member, context)
-            }
+                    .ok_or_else(|| not_found("epoch version"))?,
+            ),
             TimeResource::Epoch(id) => json_read(
                 uri,
                 &self
@@ -213,16 +201,16 @@ impl TimeMcp {
                     .map_err(internal)?
                     .ok_or_else(|| not_found("epoch"))?,
             ),
-            TimeResource::Event(id) => {
-                let member = self
+            TimeResource::Event(id) => json_read(
+                uri,
+                &self
                     .state
                     .catalog
-                    .observed_event(&scope, id)
+                    .event(&scope, id)
                     .await
                     .map_err(internal)?
-                    .ok_or_else(|| not_found("event"))?;
-                observed_resource(&resource, member, context)
-            }
+                    .ok_or_else(|| not_found("event"))?,
+            ),
             TimeResource::ClockQuality => {
                 json_read(uri, &self.state.clock.quality().await.map_err(internal)?)
             }
@@ -265,22 +253,4 @@ impl TimeMcp {
             }
         }
     }
-}
-
-fn observed_resource<T: serde::Serialize>(
-    resource: &TimeResource,
-    member: crate::catalog::knowledge::ObservedTime<T>,
-    context: &RequestContext<RoleServer>,
-) -> Result<ReadResourceResult, McpError> {
-    let collection = member.collection();
-    let (text, observation) = member.document().map_err(internal)?;
-    veoveo_mcp_ext_knowledge::server::member_result(
-        &resource.to_uri().map_err(invalid_params)?,
-        "application/json",
-        text,
-        observation,
-        &collection.descriptor(),
-        Some(&context.meta),
-    )
-    .map_err(internal)
 }

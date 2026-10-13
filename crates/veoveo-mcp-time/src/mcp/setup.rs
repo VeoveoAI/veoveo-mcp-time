@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use rmcp::model::{Resource, ResourceTemplate, ServerCapabilities, ServerConfig};
-use veoveo_mcp_contract::{
+use veoveo_sdk_rust::{
     ServerSlug,
     docs::ServerDocs,
     server_contract::{
@@ -131,7 +131,7 @@ fn server_info() -> ServerConfig {
         rmcp::model::JsonObject::new(),
     );
     if let Some(registration) = super::declarations::REGISTRATION.get() {
-        veoveo_mcp_ext_registration::mcp::advertise(
+        veoveo_sdk_rust::registration::mcp::advertise(
             &mut capabilities,
             registration,
             &super::requirements::AUTHORIZATION,
@@ -152,18 +152,10 @@ fn template(
 ) -> Result<McpResourceTemplate, McpSetupError> {
     let template = ResourceTemplateUri::new(uri).map_err(|_| McpSetupError::InvalidTemplate)?;
     McpResourceTemplate::new(template, |uri| {
-        let collection = crate::TimeKnowledgeCollection::for_template(uri);
-        let mut descriptor = ResourceTemplate::new(uri, title)
+        ResourceTemplate::new(uri, title)
             .with_title(title)
             .with_description(description)
-            .with_mime_type(mime);
-        if let Some(collection) = collection {
-            veoveo_mcp_ext_knowledge::server::attach_collection(
-                &mut descriptor,
-                &collection.descriptor(),
-            );
-        }
-        descriptor
+            .with_mime_type(mime)
     })
 }
 

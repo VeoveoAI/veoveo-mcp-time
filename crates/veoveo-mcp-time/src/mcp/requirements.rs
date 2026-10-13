@@ -4,15 +4,16 @@
 use std::sync::LazyLock;
 
 use rmcp::{ErrorData as McpError, RoleServer, service::RequestContext};
-use veoveo_mcp_contract::{GatewayInternalIdentity, hosting::gateway_identity};
-use veoveo_mcp_ext_registration::{
+use veoveo_sdk_rust::registration::{
     AuthorizationBuilder, AuthorizationDeclaration, DeclarationError, RequirementTarget,
 };
-use veoveo_types::{LocalToolName, PermissionName, PromptName, ResourceTemplateUri, ResourceUri};
+use veoveo_sdk_rust::{GatewayInternalIdentity, hosting::gateway_identity};
+use veoveo_sdk_rust::{LocalToolName, PromptName};
+use veoveo_types::{PermissionName, ResourceTemplateUri, ResourceUri};
 
 use super::setup::TimeContract;
 use crate::{contract::TimePermission, prompts::TimePrompt, uris};
-use veoveo_mcp_contract::server_contract::McpServerContract;
+use veoveo_sdk_rust::server_contract::McpServerContract;
 
 use TimePermission::*;
 
@@ -298,6 +299,6 @@ mod tests {
     #[test]
     fn tool_annotations_agree_with_the_declaration() {
         let tools = super::super::TimeMcp::tools().list_all();
-        veoveo_mcp_ext_registration::mcp::check_tool_annotations(&AUTHORIZATION, &tools).unwrap();
+        veoveo_sdk_rust::registration::mcp::check_tool_annotations(&AUTHORIZATION, &tools).unwrap();
     }
 }

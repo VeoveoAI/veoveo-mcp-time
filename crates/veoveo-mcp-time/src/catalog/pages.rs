@@ -1,13 +1,13 @@
 use super::{
     TimeAccessContext, TimeCatalog, acquisition_from_record, calendar_from_record,
-    epoch_from_record, event_from_record, source_from_record,
+    epoch_from_record, event_from_record, release_from_record, source_from_record,
 };
 use crate::contract::EventState;
 use crate::{
     contract::{
-        AcquisitionCursor, AdminPage, AdminPageLimit, CalendarCursor, CollectionPage, Epoch,
-        EpochCursor, EpochId, Event, EventCursor, OperationalCalendar, SourceCursor,
-        TimeAcquisition, TimeSource, TimeVersion,
+        AcquisitionCursor, AdminPage, AdminPageLimit, AuthorityCursor, AuthorityRelease,
+        CalendarCursor, CollectionPage, Epoch, EpochCursor, EpochId, Event, EventCursor,
+        OperationalCalendar, SourceCursor, TimeAcquisition, TimeSource, TimeVersion,
     },
     index,
 };
@@ -112,6 +112,21 @@ impl TimeCatalog {
                 ))
             },
             event_from_record,
+        )
+    }
+    pub async fn releases_page(
+        &self,
+        scope: &TimeAccessContext,
+        after: Option<&AuthorityCursor>,
+    ) -> Result<CollectionPage<AuthorityRelease, AuthorityCursor>> {
+        let rows = self
+            .persistence
+            .time_authority_releases_page(scope.identity.tenant_id, after, 101)
+            .await?;
+        index::page(
+            rows,
+            |row| Ok(AuthorityCursor::new(&row.release_key)),
+            release_from_record,
         )
     }
     pub async fn epochs_for_keys(

@@ -1,6 +1,6 @@
 //! Existing hosted Time authority fixture shared by owner HTTP controls.
 use super::*;
-use veoveo_mcp_contract::hosting::{
+use veoveo_sdk_rust::hosting::{
     Hosted,
     testing::{self, TestGateway},
 };
@@ -20,7 +20,7 @@ impl Fixture {
             testing::for_domain::<crate::mcp::TimeMcp>()
                 .handler(move || {
                     Hosted::new(crate::mcp::TimeMcp::new(handler.clone())).with_tasks(
-                        veoveo_task_runtime::DurableTasks::with_listener(
+                        veoveo_sdk_rust::durable_tasks::DurableTasks::with_listener(
                             crate::server::tasks::TimeTaskExtension::new(handler.clone()),
                             crate::mcp::TimeSubscriptions::new(handler.clone()),
                         ),
@@ -56,25 +56,22 @@ pub(super) fn token_granting(
     let mut authority = testing::authority();
     authority.tenant = tenant.parse().unwrap();
     let trust = testing::access_token_trust();
-    veoveo_mcp_contract::GatewayInternalTokenIssuer::new(
-        trust.issuer.clone(),
-        testing::signing_key(),
-    )
-    .unwrap()
-    .issue(veoveo_mcp_contract::ForwardedRequest {
-        profile: "operations".parse().unwrap(),
-        server: "time".parse().unwrap(),
-        audience: trust.resource.clone(),
-        client: testing::TEST_CLIENT.parse().unwrap(),
-        actor: principal,
-        authority,
-        permissions: permissions
-            .into_iter()
-            .map(|permission| permission.name())
-            .collect(),
-        request_context: None,
-        expires_at: Utc::now() + chrono::TimeDelta::minutes(5),
-    })
-    .unwrap()
-    .bearer_token
+    veoveo_sdk_rust::GatewayInternalTokenIssuer::new(trust.issuer.clone(), testing::signing_key())
+        .unwrap()
+        .issue(veoveo_sdk_rust::ForwardedRequest {
+            profile: "operations".parse().unwrap(),
+            server: "time".parse().unwrap(),
+            audience: trust.resource.clone(),
+            client: testing::TEST_CLIENT.parse().unwrap(),
+            actor: principal,
+            authority,
+            permissions: permissions
+                .into_iter()
+                .map(|permission| permission.name())
+                .collect(),
+            request_context: None,
+            expires_at: Utc::now() + chrono::TimeDelta::minutes(5),
+        })
+        .unwrap()
+        .bearer_token
 }

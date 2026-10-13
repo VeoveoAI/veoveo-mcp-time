@@ -262,7 +262,6 @@ Contract: https://veoveo.ai/contracts/hosted-mcp
 - C29: met
 - C30: met — the endpoint is stateless; durable and domain state never derives authority from a protocol connection
 - C31: pending — installed Discover and list readiness qualification is pending
-- C32: pending — typed docs and five domain collections are implemented; source-policy, provenance, URI and paging checks pass natively; installed K01–K08 qualification and event change/restart probes remain open
 - C33: pending — Owner naming producers, consumers and installed qualification are pending.
 <!-- veoveo:contract-compliance:end -->
 

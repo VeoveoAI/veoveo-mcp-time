@@ -1,7 +1,6 @@
 mod activation;
 pub(crate) use activation::ActivationDraft;
 mod clock;
-pub mod knowledge;
 mod pages;
 mod records;
 
@@ -402,6 +401,19 @@ impl TimeCatalog {
             .time_calendar_version(scope.identity.tenant_id, id, version)
             .await?
             .map(calendar_from_record)
+            .transpose()
+    }
+
+    pub async fn epoch_version(
+        &self,
+        scope: &TimeAccessContext,
+        id: &crate::contract::EpochId,
+        version: crate::contract::TimeVersion,
+    ) -> Result<Option<Epoch>> {
+        self.persistence
+            .time_epoch(scope.identity.tenant_id, id, version)
+            .await?
+            .map(epoch_from_record)
             .transpose()
     }
 
