@@ -1,9 +1,9 @@
 # Time MCP Server — Agent Manual
 
 Delta over the repository root `AGENTS.md`. The normative server contract is the
-[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/25d9ea53ba5f7479a26af361a70f368a3be1b8da/crates/veoveo-sdk-rust/DESIGN.md) in
+[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/72bef59b9d62fe2872843fcb505be6bd758256ff/crates/veoveo-sdk-rust/DESIGN.md) in
 `veoveo-sdk-rust`, and registration follows its
-[server registration protocol](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/25d9ea53ba5f7479a26af361a70f368a3be1b8da/crates/veoveo-sdk-rust/src/registration/DESIGN.md).
+[server registration protocol](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/72bef59b9d62fe2872843fcb505be6bd758256ff/crates/veoveo-sdk-rust/src/registration/DESIGN.md).
 
 ## Purpose
 
@@ -101,9 +101,10 @@ leap second assumptions.
   SDK's `TaskWorker`, on two process instances on separate pools. The SDK qualifies the
   worker's settlement seams; these tests qualify Time's checkpoints. A queued Task is
   claimed by a replica that did not create it. `server::tasks::tests::recovery` stalls a
-  calculation behind a lock on the authority pointers. When the first replica loses its
-  instance lock as a crash would, the kernel reaper requeues the Task, the first replica
-  settles and reclaims nothing, and the second completes it with the result the engine
+  calculation behind a lock on the authority pointers. When the replica's instance lock
+  connection ends and the kernel reaper removes its instance meanwhile, the Task returns
+  to the queue, the replica stops the worker that ran under the reaped instance, claims
+  the Task again under a new instance and completes it with the result the engine
   expands directly. When the first replica's process stops instead, its calculation
   publishes nothing, invents no cancellation and is finished by the second replica after
   recovery. A cancellation requested on another replica settles the Task as cancelled at
