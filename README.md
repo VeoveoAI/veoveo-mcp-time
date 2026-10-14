@@ -100,13 +100,16 @@ which binds that provider to the Gateway endpoint and allows PostgreSQL on
 
 OpenShell pins every policy-listed executable path to the SHA-256 it first observes and
 denies the path once the file changes. Time therefore runs from a content-addressed copy
-under `/sandbox/run`, so each build gets a fresh path:
+under `/sandbox/run`, so each build gets a fresh path. The served binary builds into its
+own target directory, `/sandbox/target-serve`, apart from `target/`, where the gate and
+acceptance builds enable test-only dependency features, so a test build is never
+installed:
 
 ```sh
 openshell sandbox exec vv-mcp-time -- bash -lc 'cd /sandbox/src \
-  && cargo build --locked --bin veoveo-mcp-time \
-  && bin=/sandbox/run/veoveo-mcp-time-$(sha256sum target/debug/veoveo-mcp-time | cut -c1-16) \
-  && install -D -m 0755 target/debug/veoveo-mcp-time "$bin" \
+  && cargo build --locked --target-dir /sandbox/target-serve --bin veoveo-mcp-time \
+  && bin=/sandbox/run/veoveo-mcp-time-$(sha256sum /sandbox/target-serve/debug/veoveo-mcp-time | cut -c1-16) \
+  && install -D -m 0755 /sandbox/target-serve/debug/veoveo-mcp-time "$bin" \
   && VEOVEO_PUBLIC_BASE_URL=http://host.openshell.internal:8800 \
      VEOVEO_GATEWAY_ISSUER=http://host.openshell.internal:8080 \
      VEOVEO_KEY_DIRECTORY=/sandbox/time/keys \
