@@ -27,8 +27,8 @@ leap second assumptions.
 - Time registers with the Gateway before serving and takes its access-token trust and
   database login from the registration. Do not add static trust, JWKS or database
   credentials to configuration. The registration's HTTP client also refreshes the
-  forwarded-token keys from the issuer's RFC 8414 metadata, which the OpenShell policy
-  lets Time's binary read. `RegistrationClient::maintain` deletes the
+  forwarded-token keys from the issuer's RFC 8414 metadata, which Time reads through
+  the installation's edge. `RegistrationClient::maintain` deletes the
   registration after serving ends; the live process instance keeps it, so do not add
   renewal or update calls.
 - Owns the `time://` URI scheme. Identity: slug `time`, MCP `/time/mcp`,

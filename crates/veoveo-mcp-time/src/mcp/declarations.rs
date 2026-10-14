@@ -32,11 +32,11 @@ mod tests {
 
     #[test]
     fn the_registered_endpoint_is_the_mounted_mcp_url() {
-        let deployment = PublicDeployment::new("http://host.openshell.internal:8800").unwrap();
+        let deployment = PublicDeployment::new("http://vv-mcp-time.internal:8800").unwrap();
         let registration = registration(&deployment).unwrap();
         assert_eq!(
             registration.endpoint.url().as_str(),
-            "http://host.openshell.internal:8800/time/mcp"
+            "http://vv-mcp-time.internal:8800/time/mcp"
         );
         assert_eq!(registration.slug.as_str(), "time");
         assert_eq!(registration.uri_scheme.as_str(), "time");

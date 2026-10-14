@@ -19,7 +19,7 @@ pub(super) struct Args {
     /// The Gateway's RFC 8414 issuer; registration discovers its endpoint from there.
     #[arg(long, env = "VEOVEO_GATEWAY_ISSUER")]
     pub gateway_issuer: url::Url,
-    /// The installation's registration secret, or the placeholder OpenShell substitutes.
+    /// The installation's registration secret, or the placeholder the installation's edge replaces.
     #[arg(
         long,
         env = "VEOVEO_REGISTRATION_SECRET",
@@ -119,7 +119,7 @@ fn parse_allowed_host(value: &str) -> Result<String, String> {
     let value = value.trim();
     parse_allowed_host_authority(value)
         .map(|_| value.to_owned())
-        .ok_or_else(|| "expected a host authority such as host.openshell.internal:8800".to_owned())
+        .ok_or_else(|| "expected a host authority such as vv-mcp-time.internal:8800".to_owned())
 }
 
 #[cfg(test)]
@@ -157,8 +157,8 @@ mod tests {
 
     #[test]
     fn allowed_hosts_accept_host_authorities_only() {
-        let parsed = args(&["--allowed-host", "host.openshell.internal:8800"]).unwrap();
-        assert_eq!(parsed.allowed_hosts, ["host.openshell.internal:8800"]);
+        let parsed = args(&["--allowed-host", "vv-mcp-time.internal:8800"]).unwrap();
+        assert_eq!(parsed.allowed_hosts, ["vv-mcp-time.internal:8800"]);
         assert!(args(&["--allowed-host", "two hosts"]).is_err());
     }
 }

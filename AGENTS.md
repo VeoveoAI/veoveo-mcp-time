@@ -2,7 +2,7 @@
 
 These rules apply to veoveo-mcp-time.
 
-- Use upstream runtimes such as OpenShell and PostgreSQL unmodified. Adapt through
+- Use upstream runtimes such as PostgreSQL unmodified. Adapt through
   supported configuration.
 - Every SQL statement is a `.sql` file run through sqlx's checked `query_file*!`
   macros. Regenerate `.sqlx` with `cargo sqlx prepare` after changing a query or a
