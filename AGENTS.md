@@ -7,6 +7,10 @@ These rules apply to veoveo-mcp-time.
 - Every SQL statement is a `.sql` file run through sqlx's checked `query_file*!`
   macros. Regenerate `.sqlx` with `cargo sqlx prepare` after changing a query or a
   migration; never edit an applied migration.
+- SQL names only the `time` schema. Core state, such as Tasks, process instances, usage
+  and audit, comes only through the SDK and core's runtime API, and a missing API is
+  reported to its owner rather than worked around in SQL. `tests/sql_confinement.rs`
+  checks every query, migration and test query with the SDK's `assert_sql_confined`.
 - Prefer strong types: typed structs, enums and domain identifiers over raw strings and
   JSON wherever the shape is known.
 - Keep test logic in Rust and tool behavior in each tool's own configuration. Do not add
