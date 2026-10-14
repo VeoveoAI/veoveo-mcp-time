@@ -432,44 +432,61 @@ async fn administration_is_admitted_for_admins_and_refused_to_members() -> Resul
 async fn an_event_reaches_due_with_a_notification() -> Result<()> {
     let installation = Installation::from_env()?;
     let member = installation.connect(MEMBER).await?;
-    let due = later(&now(&member).await?, 10)?;
-    let created = create_event(&member, "Acceptance event", due).await?;
-    ensure!(
-        created.state == EventState::Scheduled,
-        "a new event is not Scheduled"
-    );
-    // The event's own resource is read only after an update names it, and only that
-    // event changes it. The subscription opens with one update while the event is
-    // still Scheduled, so Due can only follow a pushed change.
-    let mut listener = watch_event(&member, &created).await?;
-    tokio::time::timeout(Duration::from_secs(60), async {
-        next_event_update(&mut listener, &created).await?;
-        let opened = event(&member, &created).await?;
+    // Due can be pushed only to a subscription that opened while the event was still
+    // Scheduled. When the subscription opens on a Due event, the host took longer than
+    // the lead to open it, which proves nothing either way, so the test tries again
+    // with three times the lead.
+    const LEADS: [i64; 3] = [10, 30, 90];
+    for lead in LEADS {
+        let due = later(&now(&member).await?, lead)?;
+        let created = create_event(&member, "Acceptance event", due).await?;
         ensure!(
-            opened.state == EventState::Scheduled,
-            "the subscription opened on a {:?} event, so no change was pushed",
-            opened.state
+            created.state == EventState::Scheduled,
+            "a new event is not Scheduled"
         );
-        loop {
+        // The event's own resource is read only after an update names it, and only that
+        // event changes it.
+        let mut listener = watch_event(&member, &created).await?;
+        let opened = tokio::time::timeout(Duration::from_secs(30), async {
             next_event_update(&mut listener, &created).await?;
-            let current = event(&member, &created).await?;
-            match current.state {
-                EventState::Scheduled => {}
-                EventState::Due => {
-                    ensure!(
-                        current.record_version > opened.record_version,
-                        "the Due event kept version {:?}",
-                        current.record_version
-                    );
-                    return Ok::<_, anyhow::Error>(());
-                }
-                EventState::Cancelled => bail!("the event was cancelled"),
+            event(&member, &created).await
+        })
+        .await
+        .context("the event subscription did not open within 30 seconds")??;
+        match opened.state {
+            EventState::Scheduled => {}
+            EventState::Due => {
+                eprintln!("the subscription opened after a {lead} s lead; trying a longer one");
+                continue;
             }
+            EventState::Cancelled => bail!("a new event read Cancelled"),
         }
-    })
-    .await
-    .context("the Gateway pushed no update of the event's Due state within 60 seconds")??;
-    Ok(())
+        let wait = Duration::from_secs(u64::try_from(lead)? + 60);
+        tokio::time::timeout(wait, async {
+            loop {
+                next_event_update(&mut listener, &created).await?;
+                let current = event(&member, &created).await?;
+                match current.state {
+                    EventState::Scheduled => {}
+                    EventState::Due => {
+                        ensure!(
+                            current.record_version > opened.record_version,
+                            "the Due event kept version {:?}",
+                            current.record_version
+                        );
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    EventState::Cancelled => bail!("the event was cancelled"),
+                }
+            }
+        })
+        .await
+        .with_context(|| {
+            format!("the Gateway pushed no update of the event's Due state within {wait:?}")
+        })??;
+        return Ok(());
+    }
+    bail!("every event was Due before its subscription opened, with leads of {LEADS:?} seconds")
 }
 
 #[tokio::test]
@@ -477,10 +494,11 @@ async fn an_event_reaches_due_with_a_notification() -> Result<()> {
 async fn a_reconnected_caller_reconciles_current_state() -> Result<()> {
     let installation = Installation::from_env()?;
     let member = installation.connect(MEMBER).await?;
-    let due = later(&now(&member).await?, 3)?;
+    // The event is due a day ahead, so only the cancellation below changes it.
+    let due = later(&now(&member).await?, 86_400)?;
     let created = create_event(&member, "Acceptance reconnect", due).await?;
-    // A subscriber sees the event Scheduled, then disconnects before it is due, so
-    // the event changes while no session watches it.
+    // A subscriber sees the event Scheduled, then disconnects. The event then changes
+    // while no session watches it.
     let mut listener = watch_event(&member, &created).await?;
     let scheduled = tokio::time::timeout(Duration::from_secs(30), async {
         next_event_update(&mut listener, &created).await?;
@@ -495,7 +513,29 @@ async fn a_reconnected_caller_reconciles_current_state() -> Result<()> {
     );
     drop(listener);
     member.cancel().await?;
-    tokio::time::sleep(Duration::from_secs(8)).await;
+    // Another session without a subscription cancels the event. Its result is the
+    // changed event, so the change is complete before the caller reconnects.
+    let other = installation.connect(MEMBER).await?;
+    let cancelled: Event = serde_json::from_value(
+        call(
+            &other,
+            "cancel_event",
+            json!({
+                "eventId": scheduled.event_id,
+                "expectedRecordVersion": scheduled.record_version,
+            }),
+        )
+        .await?,
+    )
+    .context("cancel_event returned no event")?;
+    ensure!(
+        cancelled.state == EventState::Cancelled
+            && cancelled.record_version > scheduled.record_version,
+        "cancel_event returned a {:?} event at version {:?}",
+        cancelled.state,
+        cancelled.record_version
+    );
+    other.cancel().await?;
     // The new session's subscription opens with an update naming the event. Reading
     // after it returns the current state, which no update delivered while disconnected.
     let member = installation.connect(MEMBER).await?;
@@ -507,8 +547,8 @@ async fn a_reconnected_caller_reconciles_current_state() -> Result<()> {
     .await
     .context("the reconnected subscription did not open within 30 seconds")??;
     ensure!(
-        current.state == EventState::Due && current.record_version > scheduled.record_version,
-        "the event read after reconnecting is {:?} at version {:?}",
+        current == cancelled,
+        "the event read after reconnecting is {:?} at version {:?}, not the cancelled event",
         current.state,
         current.record_version
     );

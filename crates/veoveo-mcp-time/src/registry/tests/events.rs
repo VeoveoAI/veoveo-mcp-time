@@ -28,10 +28,18 @@ async fn future_cancelled_and_overdue_events_reach_due_through_the_due_loop() {
             .into_instant();
         let hub = state.subscriptions.hub(owner.identity.tenant_id);
         let mut updates = hub.listen();
+        // Events 0 and 2 become due, event 1 is cancelled before its due time, and event 3
+        // falls due after event 1. A pass that moves event 3 has passed event 1's due time,
+        // so event 3 reading Due shows the loop left the cancelled event alone.
         let mut events = Vec::new();
-        for (index, offset) in [1_000_000_000i128, 1_500_000_000, -1_000_000_000]
-            .into_iter()
-            .enumerate()
+        for (index, offset) in [
+            1_000_000_000i128,
+            1_500_000_000,
+            -1_000_000_000,
+            2_000_000_000,
+        ]
+        .into_iter()
+        .enumerate()
         {
             let due = TimeInstant::from_total_nanoseconds(
                 now.total_nanoseconds() + offset,
@@ -106,7 +114,7 @@ async fn future_cancelled_and_overdue_events_reach_due_through_the_due_loop() {
         // A subscriber rereads what an update names. The watcher's reconciliation names
         // everything, which covers the overdue event that changed before it subscribed.
         let mut due_ids = std::collections::BTreeSet::new();
-        while due_ids.len() != 2 {
+        while due_ids.len() != 3 {
             let reread = match updates.recv().await.unwrap() {
                 ResourceUpdate::Reconcile => true,
                 ResourceUpdate::Uri(uri) => {
@@ -119,7 +127,7 @@ async fn future_cancelled_and_overdue_events_reach_due_through_the_due_loop() {
             if !reread {
                 continue;
             }
-            for event in [&events[0], &events[2]] {
+            for event in [&events[0], &events[2], &events[3]] {
                 let current = state
                     .catalog
                     .event(&owner, &event.event_id)
@@ -137,7 +145,7 @@ async fn future_cancelled_and_overdue_events_reach_due_through_the_due_loop() {
                 }
             }
         }
-        tokio::time::sleep(Duration::from_millis(1550)).await;
+        // Event 3 is Due, so a pass ran after event 1's due time and kept it cancelled.
         assert_eq!(
             state
                 .catalog

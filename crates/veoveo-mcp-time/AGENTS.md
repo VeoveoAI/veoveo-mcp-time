@@ -268,6 +268,9 @@ Contract: https://veoveo.ai/contracts/hosted-mcp
 `a_reconnected_caller_reconciles_current_state` in `tests/acceptance.rs` qualify future
 events through the Gateway. The caller creates an event ten seconds ahead and subscribes
 to its own resource. The subscription's opening update reads Scheduled, and the event
-must read Due after a later update. A subscriber that disconnects while its event is
-Scheduled reconnects after the event is due. Its new subscription opens with an update
-that leads to a read of the current Due state at an advanced version.
+must read Due after a later update. When the subscription opens on a Due event, the
+host was slower than the lead, so the test repeats with leads of 30 and then 90
+seconds. A subscriber that disconnects while its event is Scheduled reconnects after
+another session cancelled the event. Its new subscription opens with an update that
+leads to a read of exactly the cancelled event. These tests wait on observed states and
+updates, each bounded by a timeout, and never on a fixed sleep.
