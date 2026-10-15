@@ -1,3 +1,19 @@
+//! The compiler refuses this use of `AuthorityBinding`:
+//! ```compile_fail
+//! use veoveo_mcp_time::{AuthorityBinding, AuthorityReleaseId};
+//! fn cannot_replace_one_family(binding: &mut AuthorityBinding, id: AuthorityReleaseId) {
+//!     binding.tzdb_release_id = id;
+//! }
+//! ```
+//!
+//! The compiler refuses this use of `TimeAuthorityReference`:
+//! ```compile_fail
+//! use veoveo_mcp_time::{TimeAuthorityReference, AuthorityReleaseId};
+//! fn cannot_relabel(reference: &mut TimeAuthorityReference, id: AuthorityReleaseId) {
+//!     reference.release_id = id;
+//! }
+//! ```
+
 use std::{error::Error, fmt};
 
 use schemars::JsonSchema;
@@ -33,12 +49,6 @@ impl fmt::Display for TimeAuthorityError {
 impl Error for TimeAuthorityError {}
 
 /// Distinct release identities used to interpret an instant.
-/// ```compile_fail
-/// use veoveo_mcp_time::{AuthorityBinding, AuthorityReleaseId};
-/// fn cannot_replace_one_family(binding: &mut AuthorityBinding, id: AuthorityReleaseId) {
-///     binding.tzdb_release_id = id;
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "BindingWire", into = "BindingWire")]
 pub struct AuthorityBinding(veoveo_types::Checked<BindingWire>);
@@ -108,12 +118,6 @@ pub enum TimeAuthoritySource {
 }
 
 /// A release reference whose wire identity is derived from its URI.
-/// ```compile_fail
-/// use veoveo_mcp_time::{TimeAuthorityReference, AuthorityReleaseId};
-/// fn cannot_relabel(reference: &mut TimeAuthorityReference, id: AuthorityReleaseId) {
-///     reference.release_id = id;
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "ReferenceWire", into = "ReferenceWire")]
 #[serde(rename_all = "camelCase")]

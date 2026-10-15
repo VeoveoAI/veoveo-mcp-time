@@ -1,3 +1,16 @@
+//! The compiler refuses this use of `TimeSourceValue`:
+//! ```compile_fail
+//! use veoveo_mcp_time::TimeSource;
+//! fn cannot_clear_version(source: &mut TimeSource) { source.record_version = 0; }
+//! ```
+//!
+//! The compiler refuses this use of `NewTimeSourceValue`:
+//! ```compile_fail
+//! use veoveo_mcp_time::{NewTimeSource, TimeSource};
+//! fn create(source: NewTimeSource) {}
+//! fn cannot_recreate(existing: TimeSource) { create(existing); }
+//! ```
+
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -130,10 +143,6 @@ pub enum AuthorityReleaseState {
 }
 
 /// Persisted metadata always carries a positive version.
-/// ```compile_fail
-/// use veoveo_mcp_time::TimeSource;
-/// fn cannot_clear_version(source: &mut TimeSource) { source.record_version = 0; }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[schemars(rename = "TimeSource")]
 #[serde(rename_all = "camelCase")]
@@ -149,11 +158,6 @@ pub struct TimeSourceValue {
 }
 
 /// Source-creation input retains the published zero-version wire field.
-/// ```compile_fail
-/// use veoveo_mcp_time::{NewTimeSource, TimeSource};
-/// fn create(source: NewTimeSource) {}
-/// fn cannot_recreate(existing: TimeSource) { create(existing); }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[schemars(rename = "NewTimeSource")]
 #[serde(rename_all = "camelCase")]

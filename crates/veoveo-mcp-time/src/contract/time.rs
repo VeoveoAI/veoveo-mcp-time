@@ -95,7 +95,10 @@ pub struct ResolveTimeRequest {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct ConvertTimeRequest {
+    /// The instant to convert: the `instant` of a `resolve_time` result, passed unchanged
+    /// with its authority.
     pub instant: TimeInstant,
+    /// IANA time zones to project the instant into, such as `Asia/Tokyo`.
     #[serde(default)]
     pub zone_ids: Vec<String>,
     #[serde(default)]

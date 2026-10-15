@@ -1,3 +1,11 @@
+//! The compiler refuses this use of `TimeWindow`:
+//! ```compile_fail
+//! use veoveo_mcp_time::{TimeInstant, TimeWindow};
+//! fn cannot_invert(window: &mut TimeWindow, end: TimeInstant) {
+//!     window.end = end;
+//! }
+//! ```
+
 use std::{cmp::Reverse, error::Error, fmt};
 
 use schemars::JsonSchema;
@@ -23,12 +31,6 @@ impl fmt::Display for TimeWindowError {
 impl Error for TimeWindowError {}
 
 /// A nonempty half-open interval whose bounds use one authority pair.
-/// ```compile_fail
-/// use veoveo_mcp_time::{TimeInstant, TimeWindow};
-/// fn cannot_invert(window: &mut TimeWindow, end: TimeInstant) {
-///     window.end = end;
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "WindowWire", into = "WindowWire")]
 pub struct TimeWindow(veoveo_types::Checked<WindowWire>);

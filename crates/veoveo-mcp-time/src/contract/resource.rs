@@ -1,4 +1,10 @@
 //! Domain-owned resource routes, independent of hosted MCP and persistence.
+//!
+//! The compiler refuses this use of `TimeResource`:
+//! ```compile_fail
+//! use veoveo_mcp_time::contract::{CalendarCursor, TimeResource};
+//! fn wrong_page(cursor: CalendarCursor) { let _ = TimeResource::Events { cursor: Some(cursor) }; }
+//! ```
 use std::{borrow::Cow, error::Error, fmt};
 
 use veoveo_types::{ResourceFieldCodec, ResourceRouteError, ResourceTailCodec, ResourceUriError};
@@ -58,10 +64,6 @@ impl From<ResourceUriError> for TimeResourceError {
 }
 
 /// A usable resource carries only the IDs and cursor of its own family.
-/// ```compile_fail
-/// use veoveo_mcp_time::contract::{CalendarCursor, TimeResource};
-/// fn wrong_page(cursor: CalendarCursor) { let _ = TimeResource::Events { cursor: Some(cursor) }; }
-/// ```
 #[veoveo_types::resource_address(routes(TimeResourceErrorAddresses), schema = derived, wire, parse = borrowed, display)]
 pub enum TimeResource {
     #[resource(template = "time://docs")]

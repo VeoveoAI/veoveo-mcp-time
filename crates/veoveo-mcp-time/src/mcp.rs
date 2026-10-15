@@ -514,6 +514,42 @@ mod tests {
     fn tool_input_schemas_use_the_canonical_profile() {
         assert!(!TimeMcp::tools().list_all().is_empty());
     }
+
+    /// Schemars copies a type's doc comment into its schema description, which a model
+    /// reads. Doc tests belong in module documentation, outside any description.
+    #[test]
+    fn schema_descriptions_carry_no_code_blocks() {
+        fn walk(value: &serde_json::Value, path: &str, found: &mut Vec<String>) {
+            match value {
+                serde_json::Value::Object(object) => {
+                    if let Some(serde_json::Value::String(text)) = object.get("description")
+                        && text.contains("```")
+                    {
+                        found.push(path.to_owned());
+                    }
+                    for (key, child) in object {
+                        walk(child, &format!("{path}/{key}"), found);
+                    }
+                }
+                serde_json::Value::Array(items) => {
+                    for (index, child) in items.iter().enumerate() {
+                        walk(child, &format!("{path}/{index}"), found);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for tool in TimeMcp::tools().list_all() {
+            let input = serde_json::Value::Object((*tool.input_schema).clone());
+            walk(&input, &format!("{}/input", tool.name), &mut found);
+            if let Some(output) = &tool.output_schema {
+                let output = serde_json::Value::Object((**output).clone());
+                walk(&output, &format!("{}/output", tool.name), &mut found);
+            }
+        }
+        assert!(found.is_empty(), "{found:#?}");
+    }
 }
 
 #[cfg(test)]

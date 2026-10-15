@@ -200,8 +200,13 @@ pub enum EventState {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateEventRequest {
+    /// The event's name, at most 256 bytes.
     pub name: String,
+    /// When the event falls due: the `instant` of a `resolve_time` result, passed
+    /// unchanged with its authority.
     pub due: TimeInstant,
+    /// A key the caller chooses. A repeated request with the same key returns the event
+    /// the first request created.
     pub idempotency_key: String,
 }
 

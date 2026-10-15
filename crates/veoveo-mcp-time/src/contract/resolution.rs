@@ -1,3 +1,19 @@
+//! The compiler refuses this use of `ResolveTimeOutput`:
+//! ```compile_fail
+//! use veoveo_mcp_time::{ResolveTimeOutput, TimeInstant};
+//! fn cannot_relabel(output: &mut ResolveTimeOutput, instant: TimeInstant) {
+//!     output.instant = instant;
+//! }
+//! ```
+//!
+//! The compiler refuses this use of `ResolveTimeOutput`:
+//! ```compile_fail
+//! use veoveo_mcp_time::{ResolveTimeOutput, EffectiveTimeAuthority};
+//! fn cannot_replace_provenance(output: &mut ResolveTimeOutput, authority: EffectiveTimeAuthority) {
+//!     output.effective_authority = authority;
+//! }
+//! ```
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -24,18 +40,6 @@ pub struct TimeProjectionValue {
 
 /// A resolved instant with matching release metadata and its engine projections.
 /// Construction checks authority agreement; the engine owns projection calculations.
-/// ```compile_fail
-/// use veoveo_mcp_time::{ResolveTimeOutput, TimeInstant};
-/// fn cannot_relabel(output: &mut ResolveTimeOutput, instant: TimeInstant) {
-///     output.instant = instant;
-/// }
-/// ```
-/// ```compile_fail
-/// use veoveo_mcp_time::{ResolveTimeOutput, EffectiveTimeAuthority};
-/// fn cannot_replace_provenance(output: &mut ResolveTimeOutput, authority: EffectiveTimeAuthority) {
-///     output.effective_authority = authority;
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "ResolutionWire", into = "ResolutionWire")]
 pub struct ResolveTimeOutput(veoveo_types::Checked<ResolutionWire>);

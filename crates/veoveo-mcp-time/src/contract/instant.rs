@@ -78,6 +78,8 @@ impl JsonSchema for SubsecondNanoseconds {
     }
 }
 
+/// An instant as TAI seconds and nanoseconds, bound to the timezone and leap-second
+/// releases that interpreted it. `resolve_time` returns one as its `instant`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]

@@ -1,5 +1,11 @@
 //! Collection-specific current cursor envelopes for resource collections and
 //! administration listings; only changed event positions use v2.
+//!
+//! The compiler refuses this use of `SourceCursor`:
+//! ```compile_fail
+//! use veoveo_mcp_time::{SourceCursor, TimeAcquisitionId};
+//! SourceCursor::new(&TimeAcquisitionId::parse("time-acquisition-example").unwrap());
+//! ```
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -306,10 +312,6 @@ impl CursorCollection for SourceCollection {
 }
 
 /// The position after the last source of a `list_sources` page.
-/// ```compile_fail
-/// use veoveo_mcp_time::{SourceCursor, TimeAcquisitionId};
-/// SourceCursor::new(&TimeAcquisitionId::parse("time-acquisition-example").unwrap());
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
 pub struct SourceCursor {

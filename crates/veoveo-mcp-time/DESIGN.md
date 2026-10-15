@@ -1096,6 +1096,10 @@ Examples of agent requests include:
 
 ## Verification
 
+A unit test walks every tool's input and output schema and fails on a description
+that holds a code block. Schemars copies a type's doc comment into its description, so
+compile-fail examples live in module documentation.
+
 `tests/acceptance.rs` qualifies Time through a live local installation and the Gateway:
 discovery, tool calls, a schedule Task, future events with resource notifications and
 reconciliation after a reconnect, and administration refused to a member and admitted
