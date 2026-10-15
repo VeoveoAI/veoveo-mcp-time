@@ -5,7 +5,7 @@
 //! The rules govern the statements Time runs, which all live under `src/persistence`.
 //! The native fixture statements in `src/tests/queries` corrupt rows and inspect
 //! sessions on purpose, and the EXPLAIN copies there repeat production statements.
-use veoveo_test_fixtures::database::Conformance;
+use veoveo_fixtures::database::Conformance;
 
 #[tokio::test]
 async fn queries_and_schema_follow_the_database_rules() {

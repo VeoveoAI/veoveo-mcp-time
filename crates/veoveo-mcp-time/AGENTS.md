@@ -135,7 +135,7 @@ leap second assumptions.
   transaction advisory lock, which covers absent pointers, then locks the pointers and
   preflight releases with `FOR UPDATE`. Preserve full snapshot comparison and the typed
   `ActivationConflict` outcomes. Runtime library tests use `test_database::TimeDb`:
-  `veoveo-test-fixtures`' PostgreSQL cluster, Time's migrations applied as
+  `veoveo-fixtures`' PostgreSQL cluster, Time's migrations applied as
   `server_time` and two pools logged in as registration logins. Run them with the
   PostgreSQL 18 programs on `PATH`.
 - `docker build --target check .` runs the gate, and the `runtime` stage builds the

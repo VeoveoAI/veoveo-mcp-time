@@ -1,8 +1,8 @@
 //! A fresh database per test with the kernel migrations and Time's own, two pools
 //! connected as Time's server logins, as two replicas would be, and the corruption
 //! queries that tests use to bypass catalog admission.
+use veoveo_fixtures::store::TestDb;
 use veoveo_store::{PlatformStore, TenantId};
-use veoveo_test_fixtures::store::TestDb;
 use veoveo_types::ServerSlug;
 
 use crate::contract::{
