@@ -25,9 +25,11 @@ use rmcp::{
 };
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
-use veoveo_mcp_time::{ConvertTimeOutput, Event, EventState, ExpandScheduleOutput, TimeScale};
-use veoveo_oauth_client::{ClientAssertionKeyId, ClientAssertionSigner};
-use veoveo_types::OAuthClientId;
+use veoveo_mcp_time::{
+    ConvertTimeOutput, Event, EventState, ExpandScheduleOutput, ScheduledEvent, TimeScale,
+};
+use veoveo_sdk_rust::client::{BearerSource as _, ClientCredentialsBearer, caller_signer};
+use veoveo_types::{OAuthClientId, ScopeName};
 
 const MEMBER: &str = "acceptance-member";
 const ADMIN: &str = "acceptance-admin";
@@ -68,45 +70,20 @@ impl Installation {
         Ok(self.gateway.join("/mcp/local")?)
     }
 
-    /// An RFC 6749 client-credentials token, authenticated with an RFC 7523 assertion.
+    /// The caller's client-credentials token for the profile, through the SDK's bearer,
+    /// which discovers the token endpoint from the profile's metadata.
     async fn token(&self, caller: &str) -> Result<String> {
-        let jwks: Value = serde_json::from_slice(&std::fs::read(
-            self.keys.join(format!("{caller}.jwks.json")),
-        )?)?;
-        let kid = jwks["keys"][0]["kid"]
-            .as_str()
-            .context("caller key identifier")?;
-        let pem = std::fs::read(self.keys.join(format!("{caller}.pem")))?;
-        let signer = ClientAssertionSigner::from_rsa_pem(ClientAssertionKeyId::parse(kid)?, &pem)?;
-        let endpoint = self.gateway.join("/oauth/token")?;
-        let assertion = signer.assertion(&OAuthClientId::parse(caller)?, &endpoint)?;
-        let body = url::form_urlencoded::Serializer::new(String::new())
-            .append_pair("grant_type", "client_credentials")
-            .append_pair("client_id", caller)
-            .append_pair(
-                "client_assertion_type",
-                "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-            )
-            .append_pair("client_assertion", assertion.expose_secret())
-            .append_pair("resource", self.mcp()?.as_str())
-            .append_pair("scope", "mcp")
-            .finish();
-        let response = reqwest::Client::new()
-            .post(endpoint)
-            .header(
-                reqwest::header::CONTENT_TYPE,
-                "application/x-www-form-urlencoded",
-            )
-            .body(body)
-            .send()
-            .await?;
-        let status = response.status();
-        ensure!(status.is_success(), "token endpoint answered {status}");
-        let token: Value = response.json().await?;
-        Ok(token["access_token"]
-            .as_str()
-            .context("access_token")?
-            .to_owned())
+        let caller = OAuthClientId::parse(caller)?;
+        let signer = caller_signer(&self.keys, &caller)?;
+        let bearer = ClientCredentialsBearer::discover(
+            &self.mcp()?,
+            caller,
+            signer,
+            ScopeName::parse("mcp")?,
+            reqwest::Client::new(),
+        )
+        .await?;
+        Ok(bearer.caller_bearer().await?.expose().to_owned())
     }
 
     async fn connect(&self, caller: &str) -> Result<Client> {
@@ -180,7 +157,7 @@ fn later(instant: &Value, seconds: i64) -> Result<Value> {
     Ok(later)
 }
 
-async fn create_event(client: &Client, name: &str, due: Value) -> Result<Event> {
+async fn create_event(client: &Client, name: &str, due: Value) -> Result<ScheduledEvent> {
     let created = call(
         client,
         "create_event",
@@ -190,18 +167,19 @@ async fn create_event(client: &Client, name: &str, due: Value) -> Result<Event> 
     Ok(serde_json::from_value(created)?)
 }
 
-fn event_uri(event: &Event) -> String {
-    format!("time://events/{}", event.event_id)
+/// The address `create_event` returned as the event's `resultUri`.
+fn event_uri(event: &ScheduledEvent) -> String {
+    event.result_uri.to_string()
 }
 
-async fn event(client: &Client, event: &Event) -> Result<Event> {
+async fn event(client: &Client, event: &ScheduledEvent) -> Result<Event> {
     Ok(serde_json::from_value(
         read(client, &event_uri(event)).await?,
     )?)
 }
 
 /// Subscribe to one event's own resource; the Gateway must accept it unchanged.
-async fn watch_event(client: &Client, event: &Event) -> Result<Subscription> {
+async fn watch_event(client: &Client, event: &ScheduledEvent) -> Result<Subscription> {
     let filter = SubscriptionFilter::builder()
         .resource_subscriptions([event_uri(event)])
         .build();
@@ -214,7 +192,7 @@ async fn watch_event(client: &Client, event: &Event) -> Result<Subscription> {
 }
 
 /// The next update naming the watched event; it carries no state, so the caller reads it.
-async fn next_event_update(listener: &mut Subscription, event: &Event) -> Result<()> {
+async fn next_event_update(listener: &mut Subscription, event: &ScheduledEvent) -> Result<()> {
     let uri = event_uri(event);
     loop {
         let notification = listener

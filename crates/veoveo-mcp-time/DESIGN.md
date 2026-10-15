@@ -513,7 +513,7 @@ the effective policy and measured quality, including holdover age.
 | `evaluate_windows` | `time.schedules.expand` | direct | normalized interval set |
 | `expand_schedule` | `time.schedules.expand` | Task API required | bounded calendar occurrences |
 | `validate_timeline` | `time.timelines.validate` | Task API required | constraint verdict and violations |
-| `create_event` | `time.events.write` | direct | owner-scoped event |
+| `create_event` | `time.events.write` | direct | owner-scoped event, with its address as `resultUri` |
 | `cancel_event` | `time.events.write` | direct | cancelled event version |
 
 Every successful tool result contains typed structured content. Tool annotations state
@@ -718,7 +718,9 @@ disconnected.
 ## Events
 
 Events are owner-scoped durable records. Creation validates an authority-bound due
-instant and uses a principal-scoped idempotency key. The row stores the instant's TAI
+instant and uses a principal-scoped idempotency key. `create_event` takes the due
+instant from a `resolve_time` result and returns the event as its product: the record,
+`resultUri` `time://events/{event_id}`, and one resource link to that address. The row stores the instant's TAI
 coordinates and `due`, the earliest UTC microsecond that does not precede it under the
 active authority; an instant inside a positive leap second becomes due at the start of
 the next second. Cancellation updates the record under optimistic concurrency.

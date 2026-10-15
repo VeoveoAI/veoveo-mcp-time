@@ -3858,7 +3858,6 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "veoveo-oauth-client",
  "veoveo-platform-store",
  "veoveo-sdk-rust",
  "veoveo-sdk-rust-fixture",
@@ -3909,7 +3908,7 @@ dependencies = [
 [[package]]
 name = "veoveo-sdk-rust"
 version = "0.1.0"
-source = "git+https://github.com/VeoveoAI/veoveo-sdk-rust?rev=f6b5f588265d5fe79da4aec5acea8a93adb6bbe3#f6b5f588265d5fe79da4aec5acea8a93adb6bbe3"
+source = "git+https://github.com/VeoveoAI/veoveo-sdk-rust?rev=f45db6f855bcb155dfa37e7beff6cc98ad91da10#f45db6f855bcb155dfa37e7beff6cc98ad91da10"
 dependencies = [
  "anyhow",
  "aws-lc-rs",
@@ -3918,6 +3917,7 @@ dependencies = [
  "chrono",
  "futures",
  "hex",
+ "jsonschema",
  "jsonwebtoken",
  "opentelemetry",
  "opentelemetry-appender-tracing",
@@ -3946,6 +3946,7 @@ dependencies = [
  "url",
  "uuid",
  "veoveo-audit-contract",
+ "veoveo-oauth-client",
  "veoveo-platform-store",
  "veoveo-task-runtime",
  "veoveo-types",
@@ -3956,7 +3957,7 @@ dependencies = [
 [[package]]
 name = "veoveo-sdk-rust-fixture"
 version = "0.1.0"
-source = "git+https://github.com/VeoveoAI/veoveo-sdk-rust?rev=f6b5f588265d5fe79da4aec5acea8a93adb6bbe3#f6b5f588265d5fe79da4aec5acea8a93adb6bbe3"
+source = "git+https://github.com/VeoveoAI/veoveo-sdk-rust?rev=f45db6f855bcb155dfa37e7beff6cc98ad91da10#f45db6f855bcb155dfa37e7beff6cc98ad91da10"
 dependencies = [
  "anyhow",
  "aws-lc-rs",

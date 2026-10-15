@@ -16,11 +16,12 @@ use uuid::Uuid;
 use veoveo_sdk_rust::{
     docs::ServerDocs,
     hosting::{
-        DomainAddress, DomainRead, DomainServer, Listing, completion, rank_completions,
-        structured_result, unknown_prompt,
+        DomainAddress, DomainRead, DomainServer, Listing, completion, product_result,
+        rank_completions, structured_result, unknown_prompt,
     },
     server_contract::McpServerSetup,
 };
+use veoveo_types::ResourceAddress as _;
 
 use crate::{
     clock::assess_clock,
@@ -28,8 +29,8 @@ use crate::{
         AssessClockRequest, CancelEventRequest, ClockAssessment, ClockQualityPolicy,
         ConvertTimeOutput, ConvertTimeRequest, CreateEventRequest, EvaluateWindowsOutput,
         EvaluateWindowsRequest, Event, EventId, EventState, ExpandScheduleOutput,
-        ExpandScheduleRequest, ResolveTimeOutput, ResolveTimeRequest, ValidateTimelineOutput,
-        ValidateTimelineRequest,
+        ExpandScheduleRequest, ResolveTimeOutput, ResolveTimeRequest, ScheduledEvent,
+        ValidateTimelineOutput, ValidateTimelineRequest,
     },
     prompts::TimePrompt,
     state::TimeApplication,
@@ -216,7 +217,7 @@ impl TimeMcp {
     #[tool(
         title = "Create event",
         description = "Create an event at a resolved time instant. Subscribers receive a resource update when it becomes due. Only its owner can change it.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<Event>(),
+        output_schema = rmcp::handler::server::tool::schema_for_type::<ScheduledEvent>(),
         annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
     )]
     async fn create_event(
@@ -257,7 +258,13 @@ impl TimeMcp {
             .create_event(&scope, event, due, request.idempotency_key)
             .await
             .map_err(internal)?;
-        structured_result(format!("scheduled {}", event.event_id), &event)
+        let scheduled = ScheduledEvent::from(event);
+        let uri = scheduled.result_uri.to_uri().map_err(internal)?;
+        product_result(
+            "Event scheduled.",
+            Resource::new(uri.as_str(), scheduled.name.clone()),
+            &scheduled,
+        )
     }
 
     #[tool(

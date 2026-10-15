@@ -210,6 +210,33 @@ pub struct CreateEventRequest {
     pub idempotency_key: String,
 }
 
+/// The event `create_event` scheduled, with the address it stays readable at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
+pub struct ScheduledEvent {
+    /// `time://events/{event_id}`, where the event stays readable.
+    pub result_uri: super::TimeResource,
+    pub event_id: EventId,
+    pub name: String,
+    pub due: TimeInstant,
+    pub state: EventState,
+    pub record_version: super::TimeVersion,
+}
+
+impl From<Event> for ScheduledEvent {
+    fn from(event: Event) -> Self {
+        Self {
+            result_uri: super::TimeResource::Event(event.event_id.clone()),
+            event_id: event.event_id,
+            name: event.name,
+            due: event.due,
+            state: event.state,
+            record_version: event.record_version,
+        }
+    }
+}
+
 /// Cancellation requires the version of an existing event.
 /// ```compile_fail
 /// use veoveo_mcp_time::{CancelEventRequest, EventId, TimeWriteGuard};
