@@ -17,8 +17,8 @@ veoveo-task-runtime = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "
 veoveo-test-fixtures = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "c0c8254f4a1f532a7c8bb5123639d9997700b105" }
 veoveo-types = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "c0c8254f4a1f532a7c8bb5123639d9997700b105" }
 # veoveo-sdk-rust, pinned to one revision for the SDK library and its test fixture.
-veoveo-sdk-rust = { git = "https://github.com/VeoveoAI/veoveo-sdk-rust", rev = "8ac87451ca25fe0f6f8b956c67cb072022078f55", default-features = false }
-veoveo-sdk-rust-fixture = { git = "https://github.com/VeoveoAI/veoveo-sdk-rust", rev = "8ac87451ca25fe0f6f8b956c67cb072022078f55" }
+veoveo-sdk-rust = { git = "https://github.com/VeoveoAI/veoveo-sdk-rust", rev = "e8b2dcc88985f29fc82f5b5c634d24f3142577c5", default-features = false }
+veoveo-sdk-rust-fixture = { git = "https://github.com/VeoveoAI/veoveo-sdk-rust", rev = "e8b2dcc88985f29fc82f5b5c634d24f3142577c5" }
 
 anyhow = "=1.0.104"
 axum = "0.8.9"
@@ -29,7 +29,7 @@ futures = "0.3.34"
 iri-string = { version = "=0.7.14", default-features = false, features = ["std"] }
 hex = "=0.4.3"
 hifitime = { version = "4.3.1", default-features = false, features = ["std"] }
-jsonschema = "=0.51.0"
+jsonschema = "=0.58.6"
 jiff = { version = "0.2.35", features = ["tz-system"] }
 rangemap = "1.8.0"
 reqwest = { version = "=0.13.5", default-features = false }
