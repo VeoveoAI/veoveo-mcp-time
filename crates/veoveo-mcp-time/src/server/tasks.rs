@@ -13,7 +13,7 @@ use veoveo_sdk_rust::{
     GatewayInternalIdentity, PrincipalKind,
     durable_tasks::{TaskContext, TaskWorker},
 };
-use veoveo_task_runtime::{
+use veoveo_task::{
     CreateTask, RecoveryClass, TaskFailure, TaskOwner, TaskRetentionPin, TaskRuntime, TaskSnapshot,
     TaskSurface, TaskTransition,
 };
@@ -345,8 +345,8 @@ fn runtime_owner(identity: &GatewayInternalIdentity) -> Result<TaskOwner, rmcp::
     Ok(TaskOwner {
         principal_key: identity.actor.id.clone(),
         principal_kind: match identity.actor.kind {
-            PrincipalKind::User => veoveo_task_runtime::PrincipalKind::User,
-            PrincipalKind::Service => veoveo_task_runtime::PrincipalKind::Service,
+            PrincipalKind::User => veoveo_task::PrincipalKind::User,
+            PrincipalKind::Service => veoveo_task::PrincipalKind::Service,
         },
         issuer: identity.actor.issuer.clone(),
         subject: identity.actor.subject.clone(),

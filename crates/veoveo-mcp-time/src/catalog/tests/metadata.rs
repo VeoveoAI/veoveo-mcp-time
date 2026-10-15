@@ -7,7 +7,7 @@ use crate::{
 use chrono::Utc;
 use serde_json::json;
 use std::time::Duration;
-use veoveo_platform_store::{PlatformStore, TenantId};
+use veoveo_store::{PlatformStore, TenantId};
 
 fn corrupt(
     original: &serde_json::Value,

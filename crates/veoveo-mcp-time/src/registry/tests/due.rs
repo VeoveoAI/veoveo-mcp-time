@@ -6,7 +6,7 @@ use futures::StreamExt;
 use std::collections::BTreeSet;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use veoveo_platform_store::{ChangeOperation, ChangeSignal, ChangeStream};
+use veoveo_store::{ChangeOperation, ChangeSignal, ChangeStream};
 
 const WAIT: Duration = Duration::from_secs(10);
 

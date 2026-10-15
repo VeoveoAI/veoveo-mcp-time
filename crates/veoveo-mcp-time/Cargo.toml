@@ -89,8 +89,8 @@ runtime = [
     "dep:url",
     "dep:uuid",
     "veoveo-sdk-rust/server",
-    "dep:veoveo-platform-store",
-    "dep:veoveo-task-runtime",
+    "dep:veoveo-store",
+    "dep:veoveo-task",
 ]
 mcp = [
     "runtime",
@@ -132,8 +132,8 @@ thiserror = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
-veoveo-platform-store = { workspace = true, optional = true }
-veoveo-task-runtime = { workspace = true, optional = true }
+veoveo-store = { workspace = true, optional = true }
+veoveo-task = { workspace = true, optional = true }
 
 [dev-dependencies]
 veoveo-test-fixtures = { workspace = true, features = ["store", "database-conformance"] }

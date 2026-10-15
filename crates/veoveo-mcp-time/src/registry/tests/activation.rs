@@ -4,7 +4,7 @@ use crate::persistence::{
     TimeDatasetKind, TimePersistence,
 };
 use std::time::Duration;
-use veoveo_platform_store::{PrincipalId, TenantId};
+use veoveo_store::{PrincipalId, TenantId};
 
 async fn prepare(
     registry: &AuthorityRegistry,

@@ -9,7 +9,7 @@ use crate::contract::{
 };
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use veoveo_platform_store::{PlatformIdentity, PrincipalId, TenantId};
+use veoveo_store::{PlatformIdentity, PrincipalId, TenantId};
 use veoveo_types::Sha256Digest;
 
 mod acquisitions;

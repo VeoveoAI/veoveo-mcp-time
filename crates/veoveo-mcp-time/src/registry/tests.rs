@@ -19,7 +19,7 @@ use crate::test_database::{Row, TimeDb, body, rejected_by_schema, set_body};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
-use veoveo_platform_store::{PlatformStore, PrincipalKind};
+use veoveo_store::{PlatformStore, PrincipalKind};
 use veoveo_types::Sha256Digest;
 
 /// Copied UTC tzdata and leap files that Time's registries and replicas load.
@@ -113,12 +113,10 @@ impl AuthorityFiles {
         )
         .unwrap();
         let slug = crate::test_database::slug();
-        let instance = veoveo_platform_store::Instance::start(store, &slug)
-            .await
-            .unwrap();
+        let instance = veoveo_store::Instance::start(store, &slug).await.unwrap();
         Arc::new(crate::state::TimeApplication {
             store: store.clone(),
-            tasks: veoveo_task_runtime::TaskRuntime::new(store.clone(), slug, Arc::new(instance)),
+            tasks: veoveo_task::TaskRuntime::new(store.clone(), slug, Arc::new(instance)),
             catalog,
             authorities: self.registry(),
             clock: crate::clock::ClockMonitor::new(
@@ -277,7 +275,7 @@ async fn set_staged_release(
 ) {
     sqlx::query_file_scalar!(
         "src/tests/queries/set_acquisition_columns.sql",
-        scope.identity.tenant_id as veoveo_platform_store::TenantId,
+        scope.identity.tenant_id as veoveo_store::TenantId,
         &acquisition.acquisition_id as &TimeAcquisitionId,
         acquisition.phase as crate::TimeAcquisitionPhase,
         staged.map(AuthorityReleaseId::as_str),
@@ -411,7 +409,7 @@ async fn replicas_load_persisted_authority_before_serving_and_validate_cache_reu
         // The active release cannot disappear from under its pointer.
         let error = sqlx::query_file_scalar!(
             "src/tests/queries/delete_release.sql",
-            tenant as veoveo_platform_store::TenantId,
+            tenant as veoveo_store::TenantId,
             &first.release_id as &AuthorityReleaseId,
         )
         .fetch_optional(db.a.pool())

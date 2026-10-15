@@ -7,7 +7,7 @@
 //! with those values; a production statement whose predicates never depend on a missing
 //! cursor has the same index conditions in its cached generic plan.
 use serde_json::Value;
-use veoveo_platform_store::{PrincipalId, PrincipalKind, TenantId};
+use veoveo_store::{PrincipalId, PrincipalKind, TenantId};
 
 use crate::test_database::TimeDb;
 

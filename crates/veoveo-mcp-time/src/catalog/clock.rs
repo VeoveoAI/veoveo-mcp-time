@@ -2,7 +2,7 @@ use super::{TimeAccessContext, TimeCatalog};
 use crate::persistence::{TimeClockPolicyDraft, TimeClockPolicyRecord};
 use crate::{ClockPolicyField, ClockQualityPolicy, TimeVersion, TimeWriteGuard};
 use anyhow::Result;
-use veoveo_platform_store::TenantId;
+use veoveo_store::TenantId;
 
 impl TimeCatalog {
     pub async fn clock_policy(

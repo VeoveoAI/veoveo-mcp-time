@@ -3,8 +3,8 @@ mod recovery;
 use super::*;
 use futures::StreamExt;
 use std::time::Duration;
-use veoveo_platform_store::{Instance, PlatformStore};
-use veoveo_task_runtime::TaskStatus;
+use veoveo_store::{Instance, PlatformStore};
+use veoveo_task::TaskStatus;
 use veoveo_types::{
     AccessSubject, InvocationAuthority, InvocationProvenance, PolicyVersion, PrincipalId, TenantId,
     WorkContextId, WorkContextMembershipLevel, WorkContextOutputPolicy,
@@ -34,7 +34,7 @@ fn authority() -> InvocationAuthority {
 fn owner() -> TaskOwner {
     TaskOwner {
         principal_key: "integration-principal".parse().unwrap(),
-        principal_kind: veoveo_task_runtime::PrincipalKind::User,
+        principal_kind: veoveo_task::PrincipalKind::User,
         issuer: "https://issuer.integration.example".parse().unwrap(),
         subject: "integration-subject".parse().unwrap(),
         surface: "integration-profile".parse().unwrap(),

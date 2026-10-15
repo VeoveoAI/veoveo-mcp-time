@@ -16,7 +16,7 @@ use veoveo_sdk_rust::{
     hosting::{Hosted, HostedServer},
     init_server_telemetry,
 };
-use veoveo_task_runtime::{TaskRuntime, TaskRuntimeConfig};
+use veoveo_task::{TaskRuntime, TaskRuntimeConfig};
 
 use crate::{
     acquisition::{AcquisitionService, AcquisitionServiceConfig},

@@ -72,7 +72,7 @@ leap second assumptions.
   Their immutable resource IDs must change with the bytes, never with a process
   restart or path. `server/bootstrap.rs` owns construction and qualification.
 - `expand_schedule` and `validate_timeline` run only through the SDK's MCP Tasks
-  adapter over core's `veoveo-task-runtime`; a direct call returns an instruction
+  adapter over core's `veoveo-task`; a direct call returns an instruction
   to use the task form. Creating a Task only queues it; `server::tasks::work`
   consumes the runtime's claim stream and runs what this instance claims. Recovery
   of a dead instance's Tasks is the kernel's; do not add leases, heartbeats or a

@@ -6,7 +6,7 @@ use crate::{
     test_database::{Row, TimeDb, rejected_by_schema, set_record_version},
 };
 use std::time::Duration;
-use veoveo_platform_store::{PlatformStore, TenantId};
+use veoveo_store::{PlatformStore, TenantId};
 
 fn policy(stratum: u8) -> ClockQualityPolicy {
     ClockQualityPolicy::builder()

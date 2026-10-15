@@ -6,7 +6,7 @@ use crate::{
 };
 use std::time::Duration;
 use uuid::Uuid;
-use veoveo_platform_store::{PlatformStore, PrincipalKind};
+use veoveo_store::{PlatformStore, PrincipalKind};
 
 /// A named change that corrupts one stored row.
 type Corruption<'a, Record> = (&'a str, Box<dyn Fn(&mut Record) + 'a>);

@@ -9,7 +9,7 @@ use crate::{
     TimeInstant,
     catalog::{TimeAccessContext, TimeCatalog},
 };
-use veoveo_platform_store::{PlatformStore, PrincipalKind};
+use veoveo_store::{PlatformStore, PrincipalKind};
 
 mod admin_pages;
 mod metadata;

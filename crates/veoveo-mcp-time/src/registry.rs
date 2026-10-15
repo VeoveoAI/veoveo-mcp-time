@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use tokio::sync::RwLock;
-use veoveo_platform_store::TenantId;
+use veoveo_store::TenantId;
 
 use crate::{
     authority::{AuthorityContext, LeapSecondTable},

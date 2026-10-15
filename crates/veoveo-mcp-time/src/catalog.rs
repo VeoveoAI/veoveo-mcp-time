@@ -41,7 +41,7 @@ use crate::persistence::{
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use veoveo_platform_store::PlatformIdentity;
+use veoveo_store::PlatformIdentity;
 
 use crate::contract::{
     AuthorityRelease, AuthorityReleaseState, CalendarId, Epoch, Event, EventId, EventState,

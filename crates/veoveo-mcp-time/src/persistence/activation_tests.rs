@@ -1,7 +1,7 @@
 use super::{activation::ActivationConflict, *};
 use crate::test_database::{Row, TimeDb, set_record_version};
 use uuid::Uuid;
-use veoveo_platform_store::PrincipalKind;
+use veoveo_store::PrincipalKind;
 
 #[tokio::test]
 async fn time_authority_activation_retires_the_previous_release_atomically() {

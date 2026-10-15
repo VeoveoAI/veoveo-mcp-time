@@ -91,9 +91,9 @@ async fn retained_digests_carry_provenance_idempotency_and_reject_corruption() {
             .unwrap();
         let error = sqlx::query_file_scalar!(
             "src/tests/queries/set_release_columns.sql",
-            tenant as veoveo_platform_store::TenantId,
+            tenant as veoveo_store::TenantId,
             &release.release_id as &AuthorityReleaseId,
-            tenant as veoveo_platform_store::TenantId,
+            tenant as veoveo_store::TenantId,
             record.dataset_kind as crate::persistence::TimeDatasetKind,
             &release.release_id as &AuthorityReleaseId,
             record.state as crate::persistence::TimeAuthorityReleaseState,
@@ -122,7 +122,7 @@ async fn retained_digests_carry_provenance_idempotency_and_reject_corruption() {
         );
         let error = sqlx::query_file_scalar!(
             "src/tests/queries/set_acquisition_columns.sql",
-            tenant as veoveo_platform_store::TenantId,
+            tenant as veoveo_store::TenantId,
             &created.acquisition_id as &TimeAcquisitionId,
             created.phase as crate::TimeAcquisitionPhase,
             None::<&str>,

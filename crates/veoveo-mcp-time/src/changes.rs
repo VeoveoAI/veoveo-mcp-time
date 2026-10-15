@@ -8,8 +8,8 @@ use std::{
 
 use futures::StreamExt;
 use tokio::sync::Notify;
-use veoveo_platform_store::{Change, ChangeSignal, ChangeStream, Channel, ServerSchema, TenantId};
 use veoveo_sdk_rust::SubscriptionHub;
+use veoveo_store::{Change, ChangeSignal, ChangeStream, Channel, ServerSchema, TenantId};
 use veoveo_types::ServerSlug;
 
 use crate::{
@@ -230,8 +230,8 @@ mod tests {
     #[tokio::test]
     async fn tenant_hubs_live_while_a_listener_holds_them() {
         let subscriptions = TenantSubscriptions::default();
-        let tenant = veoveo_platform_store::deterministic_tenant_id("hub").unwrap();
-        let other = veoveo_platform_store::deterministic_tenant_id("other").unwrap();
+        let tenant = veoveo_store::deterministic_tenant_id("hub").unwrap();
+        let other = veoveo_store::deterministic_tenant_id("other").unwrap();
         let hub = subscriptions.hub(tenant);
         assert!(Arc::ptr_eq(&hub, &subscriptions.hub(tenant)));
         let mut updates = hub.listen();
