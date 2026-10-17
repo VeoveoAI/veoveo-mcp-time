@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use rmcp::model::{Resource, ResourceTemplate, ServerCapabilities, ServerConfig};
-use veoveo_sdk_rust::{
+use veoveo_hub_sdk::{
     ServerSlug,
     docs::ServerDocs,
     server_contract::{
@@ -131,7 +131,7 @@ fn server_info() -> ServerConfig {
         rmcp::model::JsonObject::new(),
     );
     if let Some(registration) = super::declarations::REGISTRATION.get() {
-        veoveo_sdk_rust::registration::mcp::advertise(
+        veoveo_hub_sdk::registration::mcp::advertise(
             &mut capabilities,
             registration,
             &super::requirements::AUTHORIZATION,

@@ -9,9 +9,9 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use veoveo_sdk_rust::durable_tasks::DurableTasks;
-use veoveo_sdk_rust::registration::client::Registration;
-use veoveo_sdk_rust::{
+use veoveo_hub_sdk::durable_tasks::DurableTasks;
+use veoveo_hub_sdk::registration::client::Registration;
+use veoveo_hub_sdk::{
     PublicDeployment, TelemetryGuard,
     hosting::{Hosted, HostedServer},
     init_server_telemetry,
@@ -66,7 +66,7 @@ pub async fn run() -> Result<()> {
 
 /// Connect with the registration's database login, migrate Time's schema and serve until
 /// SIGTERM or Ctrl-C, or until the process instance loses its lock. `http` refreshes the
-/// Gateway's token keys from its issuer metadata.
+/// Hub's token keys from its issuer metadata.
 async fn serve(
     args: &Args,
     public_deployment: &PublicDeployment,
@@ -75,7 +75,7 @@ async fn serve(
 ) -> Result<()> {
     let grant = registration
         .database()
-        .context("the Gateway issued no database login for Time")?;
+        .context("the Hub issued no database login for Time")?;
     // The runtime opens the pool for the registration's login and starts this process's
     // instance, which owns the Tasks it claims.
     let tasks = TaskRuntime::connect(

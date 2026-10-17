@@ -13,7 +13,7 @@ use rmcp::{
     tool_router,
 };
 use uuid::Uuid;
-use veoveo_sdk_rust::{
+use veoveo_hub_sdk::{
     docs::ServerDocs,
     hosting::{
         DomainAddress, DomainRead, DomainServer, Listing, completion, product_result,
@@ -52,7 +52,7 @@ pub(crate) use subscriptions::TimeSubscriptions;
 /// surface: `time://docs`, `time://docs/{doc_id}`, `time://contract`, and the
 /// host's `admin/docs` routes (contract C18-C21).
 pub(crate) static SERVER_DOCS: LazyLock<ServerDocs> =
-    LazyLock::new(|| veoveo_sdk_rust::server_docs!("time"));
+    LazyLock::new(|| veoveo_hub_sdk::server_docs!("time"));
 
 #[derive(Clone)]
 pub struct TimeMcp {
@@ -482,7 +482,7 @@ mod tests {
                     .matches_uri(&address.to_uri().unwrap())
             );
         }
-        let conventions = veoveo_sdk_rust::ServerResourceUris::new(
+        let conventions = veoveo_hub_sdk::ServerResourceUris::new(
             veoveo_types::ResourceScheme::parse("time").expect("declared resource scheme"),
         );
         assert_eq!(uris::DOCS_URI, conventions.docs_root_uri());
@@ -561,7 +561,7 @@ mod tests {
 
 #[cfg(test)]
 mod well_known_tests {
-    use veoveo_sdk_rust::docs::{ComplianceStatus, ContractId, DOC_ID_AGENTS, DOC_ID_DESIGN};
+    use veoveo_hub_sdk::docs::{ComplianceStatus, ContractId, DOC_ID_AGENTS, DOC_ID_DESIGN};
 
     use super::SERVER_DOCS;
 
@@ -579,7 +579,7 @@ mod well_known_tests {
 
     #[test]
     fn contract_declaration_resolves_from_the_embedded_manual() {
-        let declaration = veoveo_sdk_rust::docs::ContractDeclaration::from_docs(&SERVER_DOCS);
+        let declaration = veoveo_hub_sdk::docs::ContractDeclaration::from_docs(&SERVER_DOCS);
         assert_eq!(declaration.server().as_str(), "time");
         assert_eq!(declaration.contract(), ContractId::HostedMcp);
         for id in ["C18", "C19", "C20", "C21"] {
@@ -596,7 +596,7 @@ mod well_known_tests {
 
     #[test]
     fn contract_declaration_defers_runtime_surface_to_discover() {
-        let declaration = veoveo_sdk_rust::docs::ContractDeclaration::from_docs(&SERVER_DOCS);
+        let declaration = veoveo_hub_sdk::docs::ContractDeclaration::from_docs(&SERVER_DOCS);
         let json = serde_json::to_value(declaration).unwrap();
         assert!(json.get("capabilities").is_none());
     }

@@ -6,7 +6,7 @@ use crate::contract::{ConvertTimeRequest, ResolveTimeRequest, TimeResource};
 use crate::contract::{TimeResourceEntry as Entry, TimeResourcePage as Page};
 use rmcp::{ErrorData as McpError, RoleServer, model::ReadResourceResult, service::RequestContext};
 use serde_json::json;
-use veoveo_sdk_rust::hosting::{json_read, served_by_host};
+use veoveo_hub_sdk::hosting::{json_read, served_by_host};
 
 impl TimeMcp {
     /// Reads one admitted address. The host serves documents and the contract.

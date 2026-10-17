@@ -8,10 +8,10 @@ use rmcp::{
     model::SubscriptionFilter,
     service::{RequestContext, SubscriptionContext},
 };
-use veoveo_sdk_rust::durable_tasks::{
+use veoveo_hub_sdk::durable_tasks::{
     DurableListener, DurableTaskService, listen_durable_subscriptions,
 };
-use veoveo_sdk_rust::hosting::requested_addresses;
+use veoveo_hub_sdk::hosting::requested_addresses;
 
 use super::{
     internal,
@@ -36,7 +36,7 @@ impl TimeSubscriptions {
         &self,
         addresses: Vec<TimeResource>,
         context: &RequestContext<rmcp::RoleServer>,
-    ) -> Result<Option<Arc<veoveo_sdk_rust::SubscriptionHub>>, McpError> {
+    ) -> Result<Option<Arc<veoveo_hub_sdk::SubscriptionHub>>, McpError> {
         if addresses.is_empty() {
             return Ok(None);
         }
@@ -47,7 +47,7 @@ impl TimeSubscriptions {
                 None,
             ));
         }
-        let identity = veoveo_sdk_rust::hosting::gateway_identity(context)?;
+        let identity = veoveo_hub_sdk::hosting::hub_identity(context)?;
         for address in &addresses {
             authorize(&identity, Target::Resource(&address.to_string()))?;
         }
@@ -61,7 +61,7 @@ impl<S: DurableTaskService> DurableListener<S> for TimeSubscriptions {
         &self,
         requested: &SubscriptionFilter,
     ) -> Option<SubscriptionFilter> {
-        veoveo_sdk_rust::accepted_subscription_filter(requested)
+        veoveo_hub_sdk::accepted_subscription_filter(requested)
     }
 
     async fn listen(&self, service: &S, context: SubscriptionContext) -> Result<(), McpError> {

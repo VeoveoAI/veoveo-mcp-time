@@ -2,7 +2,7 @@
 use super::hosted::token;
 use super::*;
 use serde_json::json;
-use veoveo_sdk_rust_fixture::tool_inputs as input_fixture;
+use veoveo_hub_sdk_fixture::tool_inputs as input_fixture;
 
 fn retired_members(wire: &serde_json::Value) -> Vec<serde_json::Value> {
     fn collect(value: &serde_json::Value, path: &str, keys: &mut Vec<(String, String)>) {
@@ -55,9 +55,9 @@ fn retired_members(wire: &serde_json::Value) -> Vec<serde_json::Value> {
 async fn unknown_tool_arguments_complete_before_time_resolution() {
     tokio::time::timeout(Duration::from_secs(120), async {
         let fixture = super::hosted::Fixture::new().await;
-        let gateway = &fixture.gateway;
+        let hub = &fixture.hub;
         let state = &fixture.state;
-        let discover = gateway.rpc("server/discover", json!({})).await;
+        let discover = hub.rpc("server/discover", json!({})).await;
         assert!(discover.get("error").is_none(), "{discover}");
         // Real authenticated HTTP captures remain snake_case while owner JSON is camelCase.
         let owner_token = token("tenant-a");
@@ -85,7 +85,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
         }
         .build()
         .unwrap();
-        let (_, created) = gateway
+        let (_, created) = hub
             .rpc_with(
                 "tools/call",
                 json!({"name": "create_calendar", "arguments": create}),
@@ -123,7 +123,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
             ),
             (uri, token("tenant-b"), false),
         ] {
-            let (_, read) = gateway
+            let (_, read) = hub
                 .rpc_with("resources/read", json!({"uri": uri}), Some(&bearer))
                 .await;
             assert_eq!(read.get("error").is_none(), readable, "{uri}: {read}");
@@ -135,7 +135,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                 );
             }
         }
-        let (_, clock) = gateway
+        let (_, clock) = hub
             .rpc_with(
                 "resources/read",
                 json!({"uri":"time://clock/current"}),
@@ -165,7 +165,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                 assert!(serde_json::from_value::<ClockCurrent>(bad).is_err());
             }
         }
-        let listed = gateway.rpc("prompts/list", json!({})).await;
+        let listed = hub.rpc("prompts/list", json!({})).await;
         assert!(listed.get("error").is_none(), "{listed}");
         for (name, arguments, argument, retired) in [
             (
@@ -201,7 +201,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                     .iter()
                     .any(|value| value["name"] == retired)
             );
-            let result = gateway
+            let result = hub
                 .rpc("prompts/get", json!({"name":name,"arguments":arguments}))
                 .await;
             assert!(result.get("error").is_none(), "{result}");
@@ -212,7 +212,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                 if !mixed {
                     bad.as_object_mut().unwrap().remove(argument);
                 }
-                let refused = gateway
+                let refused = hub
                     .rpc("prompts/get", json!({"name":name,"arguments":bad}))
                     .await;
                 assert_eq!(refused["error"]["code"], -32602, "{refused}");
@@ -222,7 +222,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
             json!({"expression":{"format":"rfc3339","value":"2026-01-01T00:00:00Z"}});
         let _: ResolveTimeRequest = serde_json::from_value(arguments.clone()).unwrap();
         arguments["undeclared"] = true.into();
-        let body = gateway
+        let body = hub
             .rpc(
                 "tools/call",
                 json!({"name":"resolve_time","arguments":arguments}),
@@ -259,7 +259,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                 _ => panic!("unexpected fixture tool"),
             }
             for arguments in retired_members(&case.arguments) {
-                let body = gateway
+                let body = hub
                     .rpc(
                         "tools/call",
                         json!({"name":case.tool,"arguments":arguments}),
@@ -281,7 +281,7 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                 .into_iter()
                 .chain(case.invalid_values())
             {
-                let body = gateway
+                let body = hub
                     .rpc(
                         "tools/call",
                         json!({"name":case.tool,"arguments":arguments}),

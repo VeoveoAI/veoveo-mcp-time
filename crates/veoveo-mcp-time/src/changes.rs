@@ -8,7 +8,7 @@ use std::{
 
 use futures::StreamExt;
 use tokio::sync::Notify;
-use veoveo_sdk_rust::SubscriptionHub;
+use veoveo_hub_sdk::SubscriptionHub;
 use veoveo_store::{Change, ChangeSignal, ChangeStream, Channel, ServerSchema, TenantId};
 use veoveo_types::ServerSlug;
 
@@ -238,8 +238,8 @@ mod tests {
         subscriptions.notify(other, uris::EVENTS_URI).await;
         subscriptions.notify(tenant, uris::EPOCHS_URI).await;
         match updates.recv().await.unwrap() {
-            veoveo_sdk_rust::ResourceUpdate::Uri(uri) => assert_eq!(uri, uris::EPOCHS_URI),
-            veoveo_sdk_rust::ResourceUpdate::Reconcile => panic!("expected one URI"),
+            veoveo_hub_sdk::ResourceUpdate::Uri(uri) => assert_eq!(uri, uris::EPOCHS_URI),
+            veoveo_hub_sdk::ResourceUpdate::Reconcile => panic!("expected one URI"),
         }
         drop(updates);
         drop(hub);

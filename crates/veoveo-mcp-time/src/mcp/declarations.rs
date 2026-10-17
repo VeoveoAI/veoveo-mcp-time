@@ -1,9 +1,9 @@
-//! Time's registration declaration. Time registers it with the Gateway and advertises the
+//! Time's registration declaration. Time registers it with the Hub and advertises the
 //! same value in MCP Discover, so both have one source.
 use std::sync::OnceLock;
 
-use veoveo_sdk_rust::registration::{RegistrationDeclaration, ServerEndpoint, ServerVersion};
-use veoveo_sdk_rust::{PublicDeployment, server_contract::McpServerContract};
+use veoveo_hub_sdk::registration::{RegistrationDeclaration, ServerEndpoint, ServerVersion};
+use veoveo_hub_sdk::{PublicDeployment, server_contract::McpServerContract};
 
 use super::setup::TimeContract;
 
@@ -11,7 +11,7 @@ use super::setup::TimeContract;
 /// MCP setup is built; until then Discover advertises no declarations.
 pub(crate) static REGISTRATION: OnceLock<RegistrationDeclaration> = OnceLock::new();
 
-/// Time's identity and the URL where the Gateway reaches its MCP endpoint:
+/// Time's identity and the URL where the Hub reaches its MCP endpoint:
 /// `{public_base_url}/time/mcp`.
 pub(crate) fn registration(
     deployment: &PublicDeployment,

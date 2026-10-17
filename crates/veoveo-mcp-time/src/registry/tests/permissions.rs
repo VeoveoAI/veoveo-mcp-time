@@ -1,10 +1,10 @@
 //! Each handler admits exactly the permission Time's requirement table names, from the
-//! permissions the Gateway forwards in its access token.
+//! permissions the Hub forwards in its access token.
 use super::hosted::{Fixture, token_granting};
 use super::*;
 use crate::contract::TimePermission::{self, *};
 use serde_json::json;
-use veoveo_sdk_rust::hosting::testing;
+use veoveo_hub_sdk::hosting::testing;
 
 const TENANT: &str = "tenant-a";
 
@@ -25,11 +25,7 @@ async fn rpc(
     params: serde_json::Value,
 ) -> serde_json::Value {
     let token = token_granting(TENANT, grants.iter().copied());
-    fixture
-        .gateway
-        .rpc_with(method, params, Some(&token))
-        .await
-        .1
+    fixture.hub.rpc_with(method, params, Some(&token)).await.1
 }
 
 /// Calls `tool` as an MCP Task from a client that declares the Tasks extension.
@@ -43,7 +39,7 @@ async fn task(fixture: &Fixture, grants: &[TimePermission], tool: &str) -> serde
             "arguments": {},
             "_meta": {
                 "io.modelcontextprotocol/protocolVersion": testing::TEST_PROTOCOL_VERSION,
-                "io.modelcontextprotocol/clientInfo": {"name": "test-gateway", "version": "1"},
+                "io.modelcontextprotocol/clientInfo": {"name": "test-hub", "version": "1"},
                 "io.modelcontextprotocol/clientCapabilities": {
                     "extensions": {"io.modelcontextprotocol/tasks": {}}
                 }
@@ -51,7 +47,7 @@ async fn task(fixture: &Fixture, grants: &[TimePermission], tool: &str) -> serde
         }
     });
     let request = fixture
-        .gateway
+        .hub
         .request("/mcp")
         .method("POST")
         .header("accept", "application/json, text/event-stream")
@@ -65,7 +61,7 @@ async fn task(fixture: &Fixture, grants: &[TimePermission], tool: &str) -> serde
         )
         .body(axum::body::Body::from(body.to_string()))
         .unwrap();
-    let (_, text) = fixture.gateway.send(request).await;
+    let (_, text) = fixture.hub.send(request).await;
     serde_json::from_str(&text).unwrap()
 }
 

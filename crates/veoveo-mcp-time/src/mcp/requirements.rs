@@ -1,19 +1,19 @@
 //! The one table that says which permission each of Time's targets requires. It
-//! builds the `ai.veoveo/authorization` declaration the Gateway evaluates, and every
-//! handler checks the same declaration against the permissions the Gateway granted.
+//! builds the `ai.veoveo/authorization` declaration the Hub evaluates, and every
+//! handler checks the same declaration against the permissions the Hub granted.
 use std::sync::LazyLock;
 
 use rmcp::{ErrorData as McpError, RoleServer, service::RequestContext};
-use veoveo_sdk_rust::registration::{
+use veoveo_hub_sdk::registration::{
     AuthorizationBuilder, AuthorizationDeclaration, DeclarationError, RequirementTarget,
 };
-use veoveo_sdk_rust::{GatewayInternalIdentity, hosting::gateway_identity};
-use veoveo_sdk_rust::{LocalToolName, PromptName};
+use veoveo_hub_sdk::{HubInternalIdentity, hosting::hub_identity};
+use veoveo_hub_sdk::{LocalToolName, PromptName};
 use veoveo_types::{PermissionName, ResourceTemplateUri, ResourceUri};
 
 use super::setup::TimeContract;
 use crate::{contract::TimePermission, prompts::TimePrompt, uris};
-use veoveo_sdk_rust::server_contract::McpServerContract;
+use veoveo_hub_sdk::server_contract::McpServerContract;
 
 use TimePermission::*;
 
@@ -94,7 +94,7 @@ pub(crate) const PROMPTS: TimePermission = AuthoritiesRead;
 /// Listing resources and completing arguments read Time's catalogs.
 pub(crate) const SERVER: TimePermission = AuthoritiesRead;
 
-/// Time's authorization declaration, checked against its namespace as the Gateway
+/// Time's authorization declaration, checked against its namespace as the Hub
 /// checks it.
 pub(crate) static AUTHORIZATION: LazyLock<AuthorizationDeclaration> =
     LazyLock::new(|| declaration().expect("Time's requirement table forms a valid declaration"));
@@ -140,31 +140,31 @@ pub(crate) enum Target<'a> {
     Prompt(&'a str),
 }
 
-/// The verified Gateway identity, when it grants the permission `target` requires.
+/// The verified Hub identity, when it grants the permission `target` requires.
 pub(crate) fn require(
     context: &RequestContext<RoleServer>,
     target: Target<'_>,
-) -> Result<GatewayInternalIdentity, McpError> {
-    let identity = gateway_identity(context)?;
+) -> Result<HubInternalIdentity, McpError> {
+    let identity = hub_identity(context)?;
     authorize(&identity, target)?;
     Ok(identity)
 }
 
-/// The verified Gateway identity, when it grants `permission` for a server-wide
+/// The verified Hub identity, when it grants `permission` for a server-wide
 /// operation that names no single target.
 pub(crate) fn require_permission(
     context: &RequestContext<RoleServer>,
     permission: TimePermission,
-) -> Result<GatewayInternalIdentity, McpError> {
-    let identity = gateway_identity(context)?;
+) -> Result<HubInternalIdentity, McpError> {
+    let identity = hub_identity(context)?;
     granted(&identity, &permission.name())?;
     Ok(identity)
 }
 
-/// Check the permission `target` requires against the Gateway's grants. A target the
+/// Check the permission `target` requires against the Hub's grants. A target the
 /// declaration omits is denied.
 pub(crate) fn authorize(
-    identity: &GatewayInternalIdentity,
+    identity: &HubInternalIdentity,
     target: Target<'_>,
 ) -> Result<(), McpError> {
     granted(identity, &required(target)?)
@@ -202,10 +202,7 @@ pub(crate) fn required(target: Target<'_>) -> Result<PermissionName, McpError> {
         .ok_or_else(undeclared)
 }
 
-fn granted(
-    identity: &GatewayInternalIdentity,
-    permission: &PermissionName,
-) -> Result<(), McpError> {
+fn granted(identity: &HubInternalIdentity, permission: &PermissionName) -> Result<(), McpError> {
     identity.grants(permission).then_some(()).ok_or_else(|| {
         McpError::invalid_request(
             format!(
@@ -299,6 +296,6 @@ mod tests {
     #[test]
     fn tool_annotations_agree_with_the_declaration() {
         let tools = super::super::TimeMcp::tools().list_all();
-        veoveo_sdk_rust::registration::mcp::check_tool_annotations(&AUTHORIZATION, &tools).unwrap();
+        veoveo_hub_sdk::registration::mcp::check_tool_annotations(&AUTHORIZATION, &tools).unwrap();
     }
 }

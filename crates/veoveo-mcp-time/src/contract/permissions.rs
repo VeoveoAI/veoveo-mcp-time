@@ -1,7 +1,7 @@
 //! Time's permissions. Each names one action on one resource type, with one access
-//! kind and its risks; installation roles grant them and the Gateway forwards the
+//! kind and its risks; installation roles grant them and the Hub forwards the
 //! granted ones with every request.
-use veoveo_sdk_rust::registration::{Access, PermissionDefinition, Risk};
+use veoveo_hub_sdk::registration::{Access, PermissionDefinition, Risk};
 use veoveo_types::{PermissionName, Vocabulary};
 
 /// ```compile_fail

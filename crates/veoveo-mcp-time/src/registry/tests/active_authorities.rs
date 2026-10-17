@@ -4,12 +4,12 @@ use super::*;
 
 /// Calls `tool` through the hosted router and returns its structured content.
 async fn call(
-    gateway: &veoveo_sdk_rust::hosting::testing::TestGateway,
+    hub: &veoveo_hub_sdk::hosting::testing::TestHub,
     token: &str,
     tool: &str,
     arguments: serde_json::Value,
 ) -> serde_json::Value {
-    let (_, body) = gateway
+    let (_, body) = hub
         .rpc_with(
             "tools/call",
             serde_json::json!({"name": tool, "arguments": arguments}),
@@ -24,19 +24,14 @@ async fn call(
 async fn operator_reads_pointer_guard_for_next_activation() {
     tokio::time::timeout(Duration::from_secs(90), async {
         let fixture = Fixture::new().await;
-        let (gateway, state, files, db) = (
-            &fixture.gateway,
-            &fixture.state,
-            &fixture.files,
-            &fixture.db,
-        );
+        let (hub, state, files, db) = (&fixture.hub, &fixture.state, &fixture.files, &fixture.db);
         let owner_token = token("tenant-a");
         // The operator reads the actual pointer guard, rather than the release's
         // independently advancing record version, for the next activation.
         let empty: AdminPage<crate::ActiveAuthoritySelection, crate::NoCursor> =
             serde_json::from_value(
                 call(
-                    gateway,
+                    hub,
                     &owner_token,
                     "list_active_authorities",
                     serde_json::json!({}),
@@ -61,7 +56,7 @@ async fn operator_reads_pointer_guard_for_next_activation() {
                 expected_active_pointer_version: guard,
             };
             call(
-                gateway,
+                hub,
                 &owner_token,
                 "activate_release",
                 serde_json::to_value(&activation).unwrap(),
@@ -70,7 +65,7 @@ async fn operator_reads_pointer_guard_for_next_activation() {
             let selected: AdminPage<crate::ActiveAuthoritySelection, crate::NoCursor> =
                 serde_json::from_value(
                     call(
-                        gateway,
+                        hub,
                         &owner_token,
                         "list_active_authorities",
                         serde_json::json!({}),
@@ -88,7 +83,7 @@ async fn operator_reads_pointer_guard_for_next_activation() {
         let other: AdminPage<crate::ActiveAuthoritySelection, crate::NoCursor> =
             serde_json::from_value(
                 call(
-                    gateway,
+                    hub,
                     &token("tenant-b"),
                     "list_active_authorities",
                     serde_json::json!({}),

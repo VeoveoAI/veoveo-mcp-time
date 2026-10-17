@@ -9,8 +9,8 @@ use veoveo_types::TaskTypeDefinition;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
-use veoveo_sdk_rust::{
-    GatewayInternalIdentity, PrincipalKind,
+use veoveo_hub_sdk::{
+    HubInternalIdentity, PrincipalKind,
     durable_tasks::{TaskContext, TaskWorker},
 };
 use veoveo_task::{
@@ -35,7 +35,7 @@ pub(crate) struct TimeTaskExtension {
 
 #[derive(Clone)]
 pub(crate) struct AuthenticatedCaller {
-    identity: GatewayInternalIdentity,
+    identity: HubInternalIdentity,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,14 +57,14 @@ impl TimeTaskExtension {
     }
 }
 
-impl veoveo_sdk_rust::durable_tasks::DurableTaskService for TimeTaskExtension {
+impl veoveo_hub_sdk::durable_tasks::DurableTaskService for TimeTaskExtension {
     type Caller = AuthenticatedCaller;
 
     fn authenticate(
         &self,
         context: &rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<Self::Caller, rmcp::ErrorData> {
-        let identity = veoveo_sdk_rust::hosting::gateway_identity(context)?;
+        let identity = veoveo_hub_sdk::hosting::hub_identity(context)?;
         Ok(AuthenticatedCaller { identity })
     }
 
@@ -92,12 +92,12 @@ impl veoveo_sdk_rust::durable_tasks::DurableTaskService for TimeTaskExtension {
                 }
                 None => return Ok(None),
             };
-        let retention_pins = veoveo_sdk_rust::durable_tasks::retention_pins(request.meta.as_ref())?;
+        let retention_pins = veoveo_hub_sdk::durable_tasks::retention_pins(request.meta.as_ref())?;
         let snapshot = create_time_task(&self.state, &caller.identity, task, retention_pins)
             .await
             .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
         Ok(Some(rmcp::model::CreateTaskResult::new(
-            veoveo_sdk_rust::durable_tasks::task_seed(&snapshot),
+            veoveo_hub_sdk::durable_tasks::task_seed(&snapshot),
         )))
     }
 
@@ -106,7 +106,7 @@ impl veoveo_sdk_rust::durable_tasks::DurableTaskService for TimeTaskExtension {
         caller: &Self::Caller,
         request: rmcp::model::GetTaskParams,
     ) -> Result<rmcp::model::GetTaskResult, rmcp::ErrorData> {
-        veoveo_sdk_rust::durable_tasks::get_durable_task(
+        veoveo_hub_sdk::durable_tasks::get_durable_task(
             &self.state.tasks,
             &self
                 .state
@@ -122,7 +122,7 @@ impl veoveo_sdk_rust::durable_tasks::DurableTaskService for TimeTaskExtension {
         caller: &Self::Caller,
         request: rmcp::model::UpdateTaskParams,
     ) -> Result<(), rmcp::ErrorData> {
-        veoveo_sdk_rust::durable_tasks::update_durable_task(
+        veoveo_hub_sdk::durable_tasks::update_durable_task(
             &self
                 .state
                 .tasks
@@ -137,7 +137,7 @@ impl veoveo_sdk_rust::durable_tasks::DurableTaskService for TimeTaskExtension {
         caller: &Self::Caller,
         task_id: String,
     ) -> Result<(), rmcp::ErrorData> {
-        veoveo_sdk_rust::durable_tasks::cancel_durable_task(
+        veoveo_hub_sdk::durable_tasks::cancel_durable_task(
             &self
                 .state
                 .tasks
@@ -151,8 +151,8 @@ impl veoveo_sdk_rust::durable_tasks::DurableTaskService for TimeTaskExtension {
         &self,
         caller: &Self::Caller,
         task_ids: Vec<String>,
-    ) -> Result<veoveo_sdk_rust::durable_tasks::DurableTaskSubscription, rmcp::ErrorData> {
-        veoveo_sdk_rust::durable_tasks::subscribe_durable_tasks(
+    ) -> Result<veoveo_hub_sdk::durable_tasks::DurableTaskSubscription, rmcp::ErrorData> {
+        veoveo_hub_sdk::durable_tasks::subscribe_durable_tasks(
             &self.state.tasks,
             &self
                 .state
@@ -167,7 +167,7 @@ impl veoveo_sdk_rust::durable_tasks::DurableTaskService for TimeTaskExtension {
 /// Queue a Task. A replica's work stream claims and runs it.
 async fn create_time_task(
     state: &TimeApplication,
-    identity: &GatewayInternalIdentity,
+    identity: &HubInternalIdentity,
     request: TimeTaskRequest,
     retention_pins: BTreeSet<TaskRetentionPin>,
 ) -> anyhow::Result<TaskSnapshot> {
@@ -293,7 +293,7 @@ async fn calculate(
         .await;
     match result {
         Ok(result) => Ok(
-            match veoveo_sdk_rust::durable_tasks::mcp_task_completion(
+            match veoveo_hub_sdk::durable_tasks::mcp_task_completion(
                 "Temporal calculation completed",
                 result,
             ) {
@@ -336,11 +336,11 @@ fn failed(code: &str, error: impl std::fmt::Display) -> TaskTransition {
     TaskTransition::Failed(TaskFailure::new(code, error.to_string()))
 }
 
-/// The caller as a Task owner. A Task's surface is the Gateway profile the call arrived
+/// The caller as a Task owner. A Task's surface is the Hub profile the call arrived
 /// on, so the caller reads it back only through that profile.
-fn runtime_owner(identity: &GatewayInternalIdentity) -> Result<TaskOwner, rmcp::ErrorData> {
+fn runtime_owner(identity: &HubInternalIdentity) -> Result<TaskOwner, rmcp::ErrorData> {
     let surface = TaskSurface::parse(identity.profile.as_str()).map_err(|_| {
-        rmcp::ErrorData::invalid_request("the Gateway profile is not a Task surface", None)
+        rmcp::ErrorData::invalid_request("the Hub profile is not a Task surface", None)
     })?;
     Ok(TaskOwner {
         principal_key: identity.actor.id.clone(),

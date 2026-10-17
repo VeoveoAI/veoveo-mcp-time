@@ -1,9 +1,9 @@
 # Time MCP Server — Agent Manual
 
 Delta over the repository root `AGENTS.md`. The normative server contract is the
-[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-sdk-rust/DESIGN.md) in
-`veoveo-sdk-rust`, and registration follows its
-[server registration protocol](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-sdk-rust/src/registration/DESIGN.md).
+[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-hub-sdk/DESIGN.md) in
+`veoveo-hub-sdk`, and registration follows its
+[server registration protocol](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-hub-sdk/src/registration/DESIGN.md).
 
 ## Purpose
 
@@ -15,7 +15,7 @@ leap second assumptions.
 
 ## Invariants
 
-- The server is hosted through `veoveo_sdk_rust::hosting`: `TimeMcp` implements
+- The server is hosted through `veoveo_hub_sdk::hosting`: `TimeMcp` implements
   `DomainServer` and `TimeSubscriptions` implements `ResourceSubscriptions`. Tenant
   administration is MCP tools in `src/mcp/administration.rs`, joined to the domain
   tools by `TimeMcp::tools()`. `/readyz` at the listener root reports ready while the
@@ -23,8 +23,8 @@ leap second assumptions.
 - `src/mcp/requirements.rs` is the only source of permission requirements. A new tool,
   fixed resource, template or prompt gets its row there, and its handler checks
   through `require` or `authorize`. The table builds the registration and Discover
-  declaration, so the Gateway and Time evaluate the same requirements.
-- Time registers with the Gateway before serving and takes its access-token trust and
+  declaration, so the Hub and Time evaluate the same requirements.
+- Time registers with the Hub before serving and takes its access-token trust and
   database login from the registration. Do not add static trust, JWKS or database
   credentials to configuration. The registration's HTTP client also refreshes the
   forwarded-token keys from the issuer's RFC 8414 metadata, which Time reads through
@@ -266,7 +266,7 @@ Contract: https://veoveo.ai/contracts/hosted-mcp
 
 `an_event_reaches_due_with_a_notification` and
 `a_reconnected_caller_reconciles_current_state` in `tests/acceptance.rs` qualify future
-events through the Gateway. The caller creates an event ten seconds ahead and subscribes
+events through the Hub. The caller creates an event ten seconds ahead and subscribes
 to its own resource. The subscription's opening update reads Scheduled, and the event
 must read Due after a later update. When the subscription opens on a Due event, the
 host was slower than the lead, so the test repeats with leads of 30 and then 90

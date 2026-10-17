@@ -4,13 +4,13 @@ veoveo-mcp-time is the Veoveo Time MCP server: authority-bound time resolution, 
 
 The server lives in `crates/veoveo-mcp-time`. Its [design](crates/veoveo-mcp-time/DESIGN.md)
 and [agent manual](crates/veoveo-mcp-time/AGENTS.md) describe the domain, tools, Tasks,
-storage and authorization. It serves MCP through `veoveo-sdk-rust` and stores its
+storage and authorization. It serves MCP through `veoveo-hub-sdk` and stores its
 state through `veoveo-core`, with each repository's crates pinned to one revision in
 the workspace manifest.
 
 ## Permissions
 
-Time registers nine permissions with the Gateway and checks them again on every request.
+Time registers nine permissions with the Hub and checks them again on every request.
 The administrative ones carry the `administer` risk, so only roles that allow it grant them.
 
 | Permission | Grants |
@@ -31,8 +31,8 @@ Every flag has a matching `VEOVEO_` environment variable.
 
 | Variable | Meaning |
 |---|---|
-| `VEOVEO_PUBLIC_BASE_URL` | Origin where the Gateway reaches Time. Time serves MCP at `{origin}/time/mcp` and registers that URL. |
-| `VEOVEO_GATEWAY_ISSUER` | The Gateway's issuer URL. Time reads its registration endpoint from the issuer's RFC 8414 metadata. |
+| `VEOVEO_PUBLIC_BASE_URL` | Origin where the Hub reaches Time. Time serves MCP at `{origin}/time/mcp` and registers that URL. |
+| `VEOVEO_HUB_ISSUER` | The Hub's issuer URL. Time reads its registration endpoint from the issuer's RFC 8414 metadata. |
 | `VEOVEO_REGISTRATION_SECRET` | The installation's registration secret, or the placeholder the installation's edge replaces with it. |
 | `VEOVEO_KEY_DIRECTORY` | Directory holding Time's registration key; default `/var/lib/veoveo/time/keys`. |
 | `VEOVEO_ACQUISITION_SCRATCH_DIRECTORY` | Acquisition workspace; default `/var/lib/veoveo/time/acquisitions`. |
@@ -92,8 +92,8 @@ the installation's directory.
 
 ### Running Time in the environment
 
-Time runs inside `vv-mcp-time` on port 8800 and registers with the Gateway at
-`http://vv-gateway.internal:8080`. The environment holds a placeholder for
+Time runs inside `vv-mcp-time` on port 8800 and registers with the Hub at
+`http://vv-hub.internal:8080`. The environment holds a placeholder for
 `VEOVEO_REGISTRATION_SECRET`, which the installation's edge replaces with the secret on
 the registration request, and it reaches PostgreSQL at `vv-postgres.internal:5432`. The
 served binary builds into its own target directory, `/sandbox/target-serve`, apart from
@@ -104,7 +104,7 @@ a test build is never served:
 docker compose exec vv-mcp-time bash -lc 'cd /sandbox/src \
   && cargo build --locked --target-dir /sandbox/target-serve --bin veoveo-mcp-time \
   && VEOVEO_PUBLIC_BASE_URL=http://vv-mcp-time.internal:8800 \
-     VEOVEO_GATEWAY_ISSUER=http://vv-gateway.internal:8080 \
+     VEOVEO_HUB_ISSUER=http://vv-hub.internal:8080 \
      VEOVEO_KEY_DIRECTORY=/sandbox/time/keys \
      VEOVEO_ACQUISITION_SCRATCH_DIRECTORY=/sandbox/time/acquisitions \
      VEOVEO_RELEASE_DIRECTORY=/sandbox/time/releases \
@@ -112,12 +112,12 @@ docker compose exec vv-mcp-time bash -lc 'cd /sandbox/src \
 ```
 
 The command keeps running in its terminal. Time registers before it listens, and the
-Gateway reaches it as `http://vv-mcp-time.internal:8800/time/mcp`. Time removes its
+Hub reaches it as `http://vv-mcp-time.internal:8800/time/mcp`. Time removes its
 registration when it receives SIGTERM or Ctrl-C.
 
 ## Acceptance
 
-`tests/acceptance.rs` calls Time through the Gateway as the installation's
+`tests/acceptance.rs` calls Time through the Hub as the installation's
 `acceptance-member` and `acceptance-admin` callers: discovery and tool calls, a refused
 unauthenticated request and an undeclared tool, administration refused to the member
 and admitted for the admin, a schedule Task whose completion and result arrive as a
@@ -129,7 +129,7 @@ keys copied to `/sandbox/acceptance`, run them:
 
 ```sh
 docker compose exec vv-mcp-time bash -lc 'cd /sandbox/src \
-  && VEOVEO_ACCEPTANCE_GATEWAY=http://vv-gateway.internal:8080 \
+  && VEOVEO_ACCEPTANCE_HUB=http://vv-hub.internal:8080 \
      VEOVEO_ACCEPTANCE_KEY_DIRECTORY=/sandbox/acceptance \
      cargo nextest run --test acceptance --run-ignored only'
 ```

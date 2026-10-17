@@ -1,8 +1,8 @@
-//! Acceptance through a running local installation: Time registered with the Gateway and
-//! called through the Gateway by the installation's member and admin callers.
+//! Acceptance through a running local installation: Time registered with the Hub and
+//! called through the Hub by the installation's member and admin callers.
 //!
 //! The tests need a running installation, so they are ignored by default. Inside the
-//! Time environment, set `VEOVEO_ACCEPTANCE_GATEWAY` to the Gateway origin and
+//! Time environment, set `VEOVEO_ACCEPTANCE_HUB` to the Hub origin and
 //! `VEOVEO_ACCEPTANCE_KEY_DIRECTORY` to the directory holding the callers' keys, then
 //! run `cargo nextest run --test acceptance --run-ignored only`.
 //!
@@ -25,10 +25,10 @@ use rmcp::{
 };
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
+use veoveo_hub_sdk::client::{BearerSource as _, ClientCredentialsBearer, caller_signer};
 use veoveo_mcp_time::{
     ConvertTimeOutput, Event, EventState, ExpandScheduleOutput, ScheduledEvent, TimeScale,
 };
-use veoveo_sdk_rust::client::{BearerSource as _, ClientCredentialsBearer, caller_signer};
 use veoveo_types::{OAuthClientId, ScopeName};
 
 const MEMBER: &str = "acceptance-member";
@@ -48,7 +48,7 @@ impl ClientHandler for Caller {
 type Client = RunningService<RoleClient, Caller>;
 
 struct Installation {
-    gateway: url::Url,
+    hub: url::Url,
     keys: PathBuf,
 }
 
@@ -56,18 +56,18 @@ impl Installation {
     fn from_env() -> Result<Self> {
         // reqwest is built without a TLS provider; Time uses rustls with ring.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let gateway = std::env::var("VEOVEO_ACCEPTANCE_GATEWAY")
-            .context("VEOVEO_ACCEPTANCE_GATEWAY names the Gateway origin")?;
+        let hub = std::env::var("VEOVEO_ACCEPTANCE_HUB")
+            .context("VEOVEO_ACCEPTANCE_HUB names the Hub origin")?;
         let keys = std::env::var("VEOVEO_ACCEPTANCE_KEY_DIRECTORY")
             .context("VEOVEO_ACCEPTANCE_KEY_DIRECTORY names the callers' key directory")?;
         Ok(Self {
-            gateway: url::Url::parse(&gateway)?,
+            hub: url::Url::parse(&hub)?,
             keys: PathBuf::from(keys),
         })
     }
 
     fn mcp(&self) -> Result<url::Url> {
-        Ok(self.gateway.join("/mcp/local")?)
+        Ok(self.hub.join("/mcp/local")?)
     }
 
     /// The caller's client-credentials token for the profile, through the SDK's bearer,
@@ -178,7 +178,7 @@ async fn event(client: &Client, event: &ScheduledEvent) -> Result<Event> {
     )?)
 }
 
-/// Subscribe to one event's own resource; the Gateway must accept it unchanged.
+/// Subscribe to one event's own resource; the Hub must accept it unchanged.
 async fn watch_event(client: &Client, event: &ScheduledEvent) -> Result<Subscription> {
     let filter = SubscriptionFilter::builder()
         .resource_subscriptions([event_uri(event)])
@@ -186,7 +186,7 @@ async fn watch_event(client: &Client, event: &ScheduledEvent) -> Result<Subscrip
     let listener = client.listen(filter.clone()).await?;
     ensure!(
         listener.acknowledged() == &filter,
-        "the Gateway did not acknowledge the event subscription"
+        "the Hub did not acknowledge the event subscription"
     );
     Ok(listener)
 }
@@ -210,7 +210,7 @@ async fn next_event_update(listener: &mut Subscription, event: &ScheduledEvent) 
     }
 }
 
-/// The Gateway refuses a tool call with a protocol error or a tool error result. A
+/// The Hub refuses a tool call with a protocol error or a tool error result. A
 /// transport failure proves no refusal.
 async fn refused(client: &Client, name: &str) -> Result<()> {
     match client.call_tool(tool(name, json!({}))?).await {
@@ -223,7 +223,7 @@ async fn refused(client: &Client, name: &str) -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a running local installation"]
-async fn member_discovers_and_calls_time_through_the_gateway() -> Result<()> {
+async fn member_discovers_and_calls_time_through_the_hub() -> Result<()> {
     let installation = Installation::from_env()?;
     let member = installation.connect(MEMBER).await?;
     let tools = member.list_all_tools().await?;
@@ -238,7 +238,7 @@ async fn member_discovers_and_calls_time_through_the_gateway() -> Result<()> {
             tools
                 .iter()
                 .any(|tool| tool.name == format!("time__{name}")),
-            "the Gateway does not list time__{name}"
+            "the Hub does not list time__{name}"
         );
     }
     let instant = now(&member).await?;
@@ -267,7 +267,7 @@ async fn member_discovers_and_calls_time_through_the_gateway() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a running local installation"]
-async fn the_gateway_refuses_unauthenticated_and_undeclared_requests() -> Result<()> {
+async fn the_hub_refuses_unauthenticated_and_undeclared_requests() -> Result<()> {
     let installation = Installation::from_env()?;
     let response = reqwest::Client::new()
         .post(installation.mcp()?)
@@ -293,7 +293,7 @@ async fn the_gateway_refuses_unauthenticated_and_undeclared_requests() -> Result
 
 #[tokio::test]
 #[ignore = "requires a running local installation"]
-async fn a_schedule_task_reports_its_status_and_completes_through_the_gateway() -> Result<()> {
+async fn a_schedule_task_reports_its_status_and_completes_through_the_hub() -> Result<()> {
     let installation = Installation::from_env()?;
     let member = installation.connect(MEMBER).await?;
     let start = now(&member).await?;
@@ -326,7 +326,7 @@ async fn a_schedule_task_reports_its_status_and_completes_through_the_gateway() 
     let mut listener = member.listen(filter.clone()).await?;
     ensure!(
         listener.acknowledged() == &filter,
-        "the Gateway did not acknowledge the Task subscription"
+        "the Hub did not acknowledge the Task subscription"
     );
     // Nothing polls the Task until its completion arrives on the subscription. The
     // subscription's first status is the one it opened with. That status must still be
@@ -361,7 +361,7 @@ async fn a_schedule_task_reports_its_status_and_completes_through_the_gateway() 
         }
     })
     .await
-    .context("the Gateway pushed no Completed status for the schedule Task within 120 seconds")??;
+    .context("the Hub pushed no Completed status for the schedule Task within 120 seconds")??;
     let TaskPayload::Completed { result } = &completed.payload else {
         bail!("the pushed Completed status carries no result")
     };
@@ -460,7 +460,7 @@ async fn an_event_reaches_due_with_a_notification() -> Result<()> {
         })
         .await
         .with_context(|| {
-            format!("the Gateway pushed no update of the event's Due state within {wait:?}")
+            format!("the Hub pushed no update of the event's Due state within {wait:?}")
         })??;
         return Ok(());
     }

@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use veoveo_sdk_rust::{GatewayInternalIdentity, PrincipalKind};
+use veoveo_hub_sdk::{HubInternalIdentity, PrincipalKind};
 use veoveo_store::{PlatformStore, PrincipalKind as StorePrincipalKind};
 use veoveo_task::{TaskOwner, TaskRuntime};
 
@@ -26,7 +26,7 @@ pub struct TimeApplication {
 }
 
 impl TimeApplication {
-    pub async fn scope(&self, identity: &GatewayInternalIdentity) -> Result<TimeAccessContext> {
+    pub async fn scope(&self, identity: &HubInternalIdentity) -> Result<TimeAccessContext> {
         let tenant_key = identity
             .actor
             .tenant

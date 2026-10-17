@@ -27,13 +27,13 @@ port         8800
 
 | Standard or protocol | Implemented profile |
 |---|---|
-| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-sdk-rust/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
+| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-hub-sdk/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
 | [JSON Schema Draft 2020-12](https://json-schema.org/draft/2020-12/) | Temporal expressions, authority bindings, calendars, epochs, windows, clock evidence, tasks, and results. |
 | [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
-| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-sdk-rust/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-sdk-rust/src/registration/DESIGN.md) | Time registers with the Gateway through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
-| [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Gateway forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. When a token names a key Time does not hold, Time reads the issuer's RFC 8414 metadata and fetches its `jwks_uri` with the registration's HTTP client, at most once per refresh interval. |
+| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-hub-sdk/src/registration/DESIGN.md) | Time registers with the Hub through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
+| [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Hub forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. When a token names a key Time does not hold, Time reads the issuer's RFC 8414 metadata and fetches its `jwks_uri` with the registration's HTTP client, at most once per refresh interval. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
 | IANA Time Zone Database and [TZif RFC 8536](https://www.rfc-editor.org/rfc/rfc8536.html) | Versioned civil-time authority, compiled release products, zone completion, and fold/gap resolution. |
@@ -233,7 +233,7 @@ agent
   |
   | MCP and Task API
   v
-Gateway
+Hub
   |
   | RFC 9068 access token with granted Time permissions
   v
@@ -529,7 +529,7 @@ create, get, update, cancel, list discovery, and task subscriptions.
 
 Tasks persist through `veoveo-task` in the kernel `tasks` schema, and the
 SDK's `durable_tasks` adapter serves them over MCP. Ownership includes tenant,
-principal, server and data labels, and the Task's surface is the Gateway profile the
+principal, server and data labels, and the Task's surface is the Hub profile the
 call arrived on, so a caller reads a Task only through that profile. Creating a Task queues
 it. Each process runs the SDK's `TaskWorker` over the runtime's claim stream: a claim
 records the process instance as the Task's owner, and the worker decodes the persisted
@@ -580,10 +580,10 @@ Unrelated progress conflicts and storage errors stop execution without being rep
 as successful settlement. This path performs no polling.
 
 The installed schedule profile, kept in the monorepo's
-[installed harness](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/servers/time-mcp/tests/gateway_consumers/schedule.rs), selects
+[installed harness](https://github.com/BiomaAI/veoveo/blob/0c33cf8a7e5a1d46f953702553ac6643f99c1363/servers/time-mcp/tests/hub_consumers/schedule.rs), selects
 completion, cancellation or unfinished process recovery explicitly. Cancellation
 and recovery require both delivered and current Working state for the acknowledged
-opaque Gateway Task identity. Recovery admits one maintained Rust container, observes
+opaque Hub Task identity. Recovery admits one maintained Rust container, observes
 its externally signalled exit and same-Pod replacement, then requires the same Task
 still Working before accepting delivered Completed and its independently expected
 result. A completed Task surviving replacement does not qualify unfinished recovery.
@@ -755,7 +755,7 @@ limit. The catalog decodes only the records selected by those queries.
 
 Tenant administration uses MCP tools over the same typed temporal models, catalog and
 task state as the domain tools. Every tool requires a permission that carries the
-`administer` risk, so the Gateway grants it only to roles that allow that risk.
+`administer` risk, so the Hub grants it only to roles that allow that risk.
 
 | Tool | Permission | Operation |
 |---|---|---|
@@ -803,7 +803,7 @@ family has a persisted pointer. Bootstrap effective references belong to
 ## Persistence
 
 Time keeps its catalog in the PostgreSQL schema `time` of the installation database.
-The Gateway creates the schema, owned by the group role `server_time`, when Time
+The Hub creates the schema, owned by the group role `server_time`, when Time
 registers. At startup Time takes that role on a dedicated connection and applies the
 migrations in `migrations/`, so the group role owns every object and the history lives
 in `time._sqlx_migrations`. Concurrent replicas wait on the migrator's advisory lock,
@@ -957,7 +957,7 @@ deployment mounts `/var/lib/veoveo/time` from a persistent volume.
 
 ## Authorization
 
-The Gateway grants permissions, and Time checks every request against them again.
+The Hub grants permissions, and Time checks every request against them again.
 `TimePermission` names nine permissions in Time's namespace:
 
 | Permission | Resource | Access | Grants |
@@ -977,7 +977,7 @@ resource template and prompt to its permission. The table builds the
 `ai.veoveo/authorization` declaration through `AuthorizationBuilder`, which registration
 sends and MCP Discover advertises. Every handler resolves its own target through that
 declaration and checks the result against the permissions in the forwarded access
-token, so the Gateway and Time evaluate the same table. A target the declaration omits
+token, so the Hub and Time evaluate the same table. A target the declaration omits
 is denied. Task admission checks the tool's permission before it creates a Task.
 Declared templates use simple variables only; `time://zones/{zone_id}` matches zone IDs
 that contain slashes, and `?cursor={cursor}` templates admit later collection pages.
@@ -990,24 +990,24 @@ through the hosted router.
 The forwarded token also carries the caller's principal, tenant, roles, data labels
 and invocation authority. Task and event ownership is derived from that identity.
 
-Time declares no audit classes. The Gateway records each call's admission and
+Time declares no audit classes. The Hub records each call's admission and
 completion under the SDK's `mcp.*` classes, with Time as the target server.
 
 ## Registration
 
-Time registers with the Gateway at startup, before it serves traffic:
+Time registers with the Hub at startup, before it serves traffic:
 
 1. `KeyDirectory` loads Time's Ed25519 key from `VEOVEO_KEY_DIRECTORY`, generating it on
    first start. The key keeps Time's registration identity across restarts.
 2. `RegistrationClient::discover` reads the registration endpoint from the RFC 8414
-   metadata of `VEOVEO_GATEWAY_ISSUER`.
+   metadata of `VEOVEO_HUB_ISSUER`.
 3. Time registers its slug, URI scheme, version, MCP endpoint
    `{VEOVEO_PUBLIC_BASE_URL}/time/mcp` and authorization declaration. The
    installation's registration secret, `VEOVEO_REGISTRATION_SECRET`, is the initial
    access token.
 4. The response supplies the issuer and keys that verify forwarded access tokens and
    the `veoveo_database` grant: the database URL and the login and password the
-   Gateway created for this registration, a member of `server_time`.
+   Hub created for this registration, a member of `server_time`.
 5. Time connects as that login, applies its migrations, starts its process instance,
    its change listener and its due loop, and serves.
 6. On SIGTERM or Ctrl-C Time stops serving and stops its instance.
@@ -1015,7 +1015,7 @@ Time registers with the Gateway at startup, before it serves traffic:
    drops the login.
 
 The registration lasts while Time's login holds a live process instance. When Time
-exits without deleting it, the Gateway removes it after the installation's grace period.
+exits without deleting it, the Hub removes it after the installation's grace period.
 Time sends no updates or renewals. A registration without a database grant stops
 startup, and Time still deletes it.
 
@@ -1029,7 +1029,7 @@ An installation runs one replica with a `ReadWriteOnce` volume because acquisiti
 artifacts live on that volume. Activation, due transitions and change notifications
 coordinate through PostgreSQL, which holds the durable state. Time connects to
 PostgreSQL directly, without a pooler that multiplexes sessions, because its instance
-lock and change listener hold session state. The Gateway reaches the service only over
+lock and change listener hold session state. The Hub reaches the service only over
 the installation network.
 
 Connected installations grant the pod HTTPS egress only to approved IANA mirrors or
@@ -1092,7 +1092,7 @@ Examples of agent requests include:
 | `src/prompts.rs` | reusable temporal interaction prompts |
 | `src/server/tasks.rs` | final Task API adapter, the claim-stream consumer and settlement |
 | `src/server/` | configuration, HTTP assembly and startup |
-| `src/server/registration.rs` | key loading, Gateway discovery and registration |
+| `src/server/registration.rs` | key loading, Hub discovery and registration |
 | `migrations/`, `sqlx.toml` | Time's schema: tables, checks, keys, indexes and notification triggers |
 | `src/persistence/queries/`, `src/tests/queries/` | production and native fixture statements; the workspace's `.sqlx/` holds their checked metadata |
 
@@ -1102,7 +1102,7 @@ A unit test walks every tool's input and output schema and fails on a descriptio
 that holds a code block. Schemars copies a type's doc comment into its description, so
 compile-fail examples live in module documentation.
 
-`tests/acceptance.rs` qualifies Time through a live local installation and the Gateway:
+`tests/acceptance.rs` qualifies Time through a live local installation and the Hub:
 discovery, tool calls, a schedule Task, future events with resource notifications and
 reconciliation after a reconnect, and administration refused to a member and admitted
 for an admin. The schedule Task keeps working long enough that its subscription opens on
