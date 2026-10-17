@@ -27,12 +27,12 @@ port         8800
 
 | Standard or protocol | Implemented profile |
 |---|---|
-| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-hub-sdk/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
+| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
 | [JSON Schema Draft 2020-12](https://json-schema.org/draft/2020-12/) | Temporal expressions, authority bindings, calendars, epochs, windows, clock evidence, tasks, and results. |
 | [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
-| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-hub-sdk/src/registration/DESIGN.md) | Time registers with the Hub through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
+| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/src/registration/DESIGN.md) | Time registers with the Hub through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
 | [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Hub forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. When a token names a key Time does not hold, Time reads the issuer's RFC 8414 metadata and fetches its `jwks_uri` with the registration's HTTP client, at most once per refresh interval. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
@@ -1004,7 +1004,8 @@ Time registers with the Hub at startup, before it serves traffic:
 3. Time registers its slug, URI scheme, version, MCP endpoint
    `{VEOVEO_PUBLIC_BASE_URL}/time/mcp` and authorization declaration. The
    installation's registration secret, `VEOVEO_REGISTRATION_SECRET`, is the initial
-   access token.
+   access token. In a native sandbox it may be an opaque provider reference bound
+   only to this initial registration request; it is not the later management token.
 4. The response supplies the issuer and keys that verify forwarded access tokens and
    the `veoveo_database` grant: the database URL and the login and password the
    Hub created for this registration, a member of `server_time`.
@@ -1030,7 +1031,13 @@ artifacts live on that volume. Activation, due transitions and change notificati
 coordinate through PostgreSQL, which holds the durable state. Time connects to
 PostgreSQL directly, without a pooler that multiplexes sessions, because its instance
 lock and change listener hold session state. The Hub reaches the service only over
-the installation network.
+an admitted logical HTTP endpoint transported by authenticated native OpenShell
+`ForwardTcp` to Time's loopback listener. Hub preserves its URI, Host and token
+audience. Time reaches Hub's native HTTPS application origin for registration and
+issuer metadata, with the provisioned workload CA roots and hostname verification.
+The author factory is separate from this service and receives no Time state or
+registration keys. Deployed native forwarding and lifecycle acceptance remain
+installation qualification gates.
 
 Connected installations grant the pod HTTPS egress only to approved IANA mirrors or
 installation-controlled authority endpoints. Source endpoints remain tenant admin
@@ -1105,7 +1112,12 @@ compile-fail examples live in module documentation.
 `tests/acceptance.rs` qualifies Time through a live local installation and the Hub:
 discovery, tool calls, a schedule Task, future events with resource notifications and
 reconciliation after a reconnect, and administration refused to a member and admitted
-for an admin. The schedule Task keeps working long enough that its subscription opens on
+for an admin. Prepared bearer sources select member and optional admin identities
+through named environment variables; they use SDK `StaticBearer`, without private
+caller keys or test-owned renewal. The full suite runs in a trusted qualification
+runner with both identities. The author factory receives only its member reference
+for the separate SDK access preflight. Input regressions inject their environment
+lookup and run without a deployment. The schedule Task keeps working long enough that its subscription opens on
 a Working status. Its completion and result must then arrive as a pushed status
 notification, and the test polls the Task only afterwards. The event test likewise reads
 Due only after an update that follows its subscription's opening update.

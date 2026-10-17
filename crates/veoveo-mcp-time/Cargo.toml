@@ -137,7 +137,7 @@ veoveo-task = { workspace = true, optional = true }
 
 [dev-dependencies]
 veoveo-fixtures = { workspace = true, features = ["store", "database-conformance"] }
-veoveo-hub-sdk = { workspace = true, features = ["server", "testing", "client-credentials"] }
+veoveo-hub-sdk = { workspace = true, features = ["server", "testing"] }
 veoveo-hub-sdk-fixture.workspace = true
 jsonschema.workspace = true
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }

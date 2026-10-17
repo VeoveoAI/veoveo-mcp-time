@@ -1,9 +1,9 @@
 # Time MCP Server — Agent Manual
 
 Delta over the repository root `AGENTS.md`. The normative server contract is the
-[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-hub-sdk/DESIGN.md) in
+[hosted MCP server contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/DESIGN.md) in
 `veoveo-hub-sdk`, and registration follows its
-[server registration protocol](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/7446181806258d48a352ecdbd2bc00998d303701/crates/veoveo-hub-sdk/src/registration/DESIGN.md).
+[server registration protocol](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/src/registration/DESIGN.md).
 
 ## Purpose
 
@@ -28,7 +28,8 @@ leap second assumptions.
   database login from the registration. Do not add static trust, JWKS or database
   credentials to configuration. The registration's HTTP client also refreshes the
   forwarded-token keys from the issuer's RFC 8414 metadata, which Time reads through
-  the installation's edge. `RegistrationClient::maintain` deletes the
+  the Hub's native HTTPS application origin, with verified hostname and provisioned
+  workload CA trust. `RegistrationClient::maintain` deletes the
   registration after serving ends; the live process instance keeps it, so do not add
   renewal or update calls.
 - Owns the `time://` URI scheme. Identity: slug `time`, MCP `/time/mcp`,
@@ -90,13 +91,27 @@ leap second assumptions.
 - `cargo check -p veoveo-mcp-time`
 - `tests/acceptance.rs` runs through a live local installation from this repository's
   environment (see the README's Acceptance section): discovery and tool calls as the
-  member and admin callers, refused unauthenticated and undeclared requests,
+  member and admin bearers selected by `VEOVEO_ACCEPTANCE_MEMBER_BEARER_ENV` and
+  `VEOVEO_ACCEPTANCE_ADMIN_BEARER_ENV`, refused unauthenticated and undeclared requests,
   administration refused to the member and admitted for the admin, a schedule Task whose
-  completion and result arrive as a pushed status notification, an event whose Due state
+  completion and result arrive as a pushed status notification, a Working schedule Task
+  whose cancellation from another member connection is pushed and retained after a
+  reconnect, an event whose Due state
   follows a pushed update of its resource, and current state after a reconnect. A test
   that claims a push polls nothing before the change and requires it to follow the state
   the subscription opened with. The tests are ignored by default; run them from a fresh
-  nextest archive extraction.
+  nextest archive extraction. Input-only tests are not ignored and inject their lookup
+  rather than mutating process environment. Do not copy caller private keys into a
+  native factory; its access preflight receives only the member reference. Exclude
+  `restart_persistence_` and `a_running_schedule_task_recovers_after_restart` from
+  the ordinary ignored suite; run the persistence prepare
+  and verify phases around trusted operator restarts, as the README describes.
+  These phases prove retained terminal event/Task state with fresh subscriptions,
+  not in-flight Task recovery or the runtime restart itself. Run the explicit
+  in-flight case alone with native streamed stdin/stdout and trusted operator
+  restart evidence. It requires the same Task Working after restart, opening
+  Working and then pushed Completed with the expected typed schedule. Early
+  completion is inconclusive evidence and must fail.
 - `cargo test -p veoveo-mcp-time --lib server::tasks::tests` runs Time's consumer, the
   SDK's `TaskWorker`, on two process instances on separate pools. The SDK qualifies the
   worker's settlement seams; these tests qualify Time's checkpoints. A queued Task is
@@ -108,8 +123,12 @@ leap second assumptions.
   expands directly. When the first replica's process stops instead, its calculation
   publishes nothing, invents no cancellation and is finished by the second replica after
   recovery. A cancellation requested on another replica settles the Task as cancelled at
-  the next checkpoint. Keep each stall deterministic. Installed cancellation and
-  installed restart still require their own observable qualification.
+  the next checkpoint. Keep each stall deterministic. The ordinary live suite
+  qualifies installed cancellation only when run against the deployed installation;
+  it supplies no restart proof. The explicit running-Task restart case qualifies its
+  narrow recovery claim only with independently verified native lifecycle evidence
+  that the old runtime stopped and its replacement became ready. Terminal event/Task
+  persistence is checked separately by the prepare and verify phases.
 - `cargo test -p veoveo-mcp-time --lib server::tasks::calculation::tests`
   checks async responsiveness during a retained blocking job and joins the original
   job after interruption. `cargo test -p veoveo-mcp-time --lib cooperative_stop`
