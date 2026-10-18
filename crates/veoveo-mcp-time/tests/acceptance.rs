@@ -564,7 +564,7 @@ async fn next_task_status(listener: &mut Subscription, task_id: &str) -> Result<
         let notification = listener
             .next()
             .await?
-            .context("the Task subscription ended")?;
+            .with_context(|| format!("Task {task_id} subscription ended: {:?}", listener.end()))?;
         if let ServerNotification::TaskStatusNotification(notification) = notification {
             let task = notification.params.task;
             ensure!(
@@ -778,16 +778,22 @@ async fn a_running_schedule_task_recovers_after_restart() -> Result<()> {
         // ready. Requiring nonterminal state now rules out completion before
         // that boundary; lastUpdatedAt is not a completion timestamp.
         let reconnected = installation.connect(CallerRole::Member).await?;
-        let current = reconnected.get_task(GetTaskParams::new(&task_id)).await?.task;
+        let current = reconnected.get_task(GetTaskParams::new(&task_id)).await
+            .context("reading the same Task after the operator restart boundary")?.task;
         ensure!(current.task.task_id == task_id && current.status() == TaskStatus::Working,
             "inconclusive restart evidence: after the operator boundary the same Task is {:?}, not Working", current.status());
-        let mut resumed = reconnected.listen(filter.clone()).await?;
+        eprintln!("Task {task_id}: Working after the operator restart boundary");
+        let mut resumed = reconnected.listen(filter.clone()).await
+            .context("opening the Task subscription after the operator restart boundary")?;
         ensure!(resumed.acknowledged() == &filter, "the Hub did not acknowledge the resumed Task subscription");
-        let opened = next_task_status(&mut resumed, &task_id).await?;
+        let opened = next_task_status(&mut resumed, &task_id).await
+            .context("waiting for the reopened Task subscription's initial Working state")?;
         ensure!(opened.status() == TaskStatus::Working,
             "inconclusive restart evidence: the new subscription opened on {:?}, not Working", opened.status());
+        eprintln!("Task {task_id}: reopened subscription delivered Working; waiting for pushed Completed");
         let completed = loop {
-            let update = next_task_status(&mut resumed, &task_id).await?;
+            let update = next_task_status(&mut resumed, &task_id).await
+                .context("waiting for the resumed Task's pushed Completed state")?;
             match update.status() {
                 TaskStatus::Working => {}
                 TaskStatus::Completed => break update,
@@ -800,7 +806,8 @@ async fn a_running_schedule_task_recovers_after_restart() -> Result<()> {
         let expanded: ExpandScheduleOutput = serde_json::from_value(result.get("structuredContent")
             .cloned().context("the resumed result has no structured content")?)?;
         ensure!(expanded == expected, "the resumed schedule differs from the expected UTC windows");
-        let retained = reconnected.get_task(GetTaskParams::new(&task_id)).await?.task;
+        let retained = reconnected.get_task(GetTaskParams::new(&task_id)).await
+            .context("reading the retained resumed Task completion")?.task;
         ensure!(retained.task.task_id == task_id && retained.payload == completed.payload,
             "tasks/get did not retain the resumed completion");
         eprintln!("Task {task_id}: Working after confirmed restart, pushed Completed with expected schedule, completion retained");
