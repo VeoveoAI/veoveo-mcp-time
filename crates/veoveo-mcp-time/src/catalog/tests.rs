@@ -16,6 +16,25 @@ mod metadata;
 mod numeric;
 mod precision;
 
+fn selection<C: veoveo_types::Collection<Limit = veoveo_types::PageSize<100>>>()
+-> veoveo_hub_sdk::definition::CollectionRequest<C>
+where
+    C::Filters: Default,
+{
+    veoveo_hub_sdk::definition::CollectionRequest::new(
+        C::Filters::default(),
+        veoveo_types::PageSize::new(100).unwrap(),
+    )
+}
+fn event_selection(
+    state: Option<EventState>,
+) -> veoveo_hub_sdk::definition::CollectionRequest<crate::Events> {
+    veoveo_hub_sdk::definition::CollectionRequest::new(
+        crate::EventFilters { state },
+        veoveo_types::PageSize::new(100).unwrap(),
+    )
+}
+
 async fn scope(store: &PlatformStore, tenant: &str, owner: &str) -> TimeAccessContext {
     TimeAccessContext {
         work_context: "fixture-context".parse().unwrap(),
@@ -116,35 +135,37 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             own.iter()
                 .all(|row| row.owner == owner.identity.principal_id)
         );
-        let page = catalog.events_page(&owner, None, None).await.unwrap();
-        assert_eq!(page.limit, 100);
-        assert_eq!(page.items.len(), 100);
-        assert!(page.next_cursor.is_some());
-        let last = page.items.last().unwrap();
-        let cursor: crate::EventCursor = serde_json::from_value(
-            serde_json::to_value(page.next_cursor.as_ref().unwrap()).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(cursor.event_id(), &last.event_id);
-        assert_eq!(cursor.tai_seconds(), last.due.tai_seconds_since_1970);
-        assert_eq!(cursor.nanosecond(), last.due.nanosecond);
-        let next = catalog
-            .events_page(&owner, Some(&cursor), None)
+        let page = catalog
+            .events_page(&owner, &selection::<crate::Events>())
             .await
             .unwrap();
-        assert_eq!(next.items.len(), 2);
-        assert!(next.next_cursor.is_none());
+        assert_eq!(page.limit().get(), 100);
+        assert_eq!(page.items().len(), 100);
+        assert!(page.next_cursor().is_some());
+        let cursor: veoveo_types::CursorToken<crate::Events> =
+            serde_json::from_value(serde_json::to_value(page.next_cursor().unwrap()).unwrap())
+                .unwrap();
+        let next = catalog
+            .events_page(
+                &owner,
+                &selection::<crate::Events>().continuing(cursor.clone()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(next.items().len(), 2);
+        assert!(next.next_cursor().is_none());
         assert_eq!(
-            next.items[0].event_id.as_str(),
+            next.items()[0].event_id.as_str(),
             "event-ffffffff-ffff-7000-8000-000000000064"
         );
         assert!(
             catalog
-                .events_page(&foreign, Some(&cursor), None)
+                .events_page(
+                    &foreign,
+                    &selection::<crate::Events>().continuing(cursor.clone())
+                )
                 .await
-                .unwrap()
-                .items
-                .is_empty()
+                .is_err()
         );
         // A persistence caller cannot bypass the same owner predicate on a transition.
         assert!(
@@ -472,73 +493,82 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
                 .await
                 .unwrap();
         }
-        let first = catalog.epochs_page(&owner, None).await.unwrap();
-        assert_eq!(first.items.len(), 100);
-        assert_eq!(first.items[0].version.get(), 113);
-        assert!(first.next_cursor.is_some());
-        let last = first.items.last().unwrap();
-        let position: crate::EpochCursor = serde_json::from_value(
-            serde_json::to_value(first.next_cursor.as_ref().unwrap()).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(position.epoch_id(), &last.epoch_id);
-        assert_eq!(position.version(), last.version);
-        let second = catalog.epochs_page(&owner, Some(&position)).await.unwrap();
+        let first = catalog
+            .epochs_page(&owner, &selection::<crate::Epochs>())
+            .await
+            .unwrap();
+        assert_eq!(first.items().len(), 100);
+        assert_eq!(first.items()[0].version.get(), 113);
+        assert!(first.next_cursor().is_some());
+        let position: veoveo_types::CursorToken<crate::Epochs> =
+            serde_json::from_value(serde_json::to_value(first.next_cursor().unwrap()).unwrap())
+                .unwrap();
+        let second = catalog
+            .epochs_page(
+                &owner,
+                &selection::<crate::Epochs>().continuing(position.clone()),
+            )
+            .await
+            .unwrap();
         assert_eq!(
             second
-                .items
+                .items()
                 .iter()
                 .map(|e| e.version.get())
                 .collect::<Vec<_>>(),
             vec![13, 12, 2, 1]
         );
-        assert!(second.next_cursor.is_none());
+        assert!(second.next_cursor().is_none());
         assert!(
             catalog
-                .epochs_page(&foreign, Some(&position))
+                .epochs_page(
+                    &foreign,
+                    &selection::<crate::Epochs>().continuing(position.clone())
+                )
                 .await
-                .unwrap()
-                .items
-                .is_empty()
+                .is_err()
         );
-        let first = catalog.calendars_page(&owner, None).await.unwrap();
-        assert_eq!(first.items.len(), 100);
-        assert_eq!(first.items[0].version.get(), 113);
-        let last = first.items.last().unwrap();
-        let position: crate::CalendarCursor = serde_json::from_value(
-            serde_json::to_value(first.next_cursor.as_ref().unwrap()).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(position.calendar_id(), &last.calendar_id);
-        assert_eq!(position.version(), last.version);
+        let first = catalog
+            .calendars_page(&owner, &selection::<crate::Calendars>())
+            .await
+            .unwrap();
+        assert_eq!(first.items().len(), 100);
+        assert_eq!(first.items()[0].version.get(), 113);
+        let position: veoveo_types::CursorToken<crate::Calendars> =
+            serde_json::from_value(serde_json::to_value(first.next_cursor().unwrap()).unwrap())
+                .unwrap();
         let second = catalog
-            .calendars_page(&peer, Some(&position))
+            .calendars_page(
+                &peer,
+                &selection::<crate::Calendars>().continuing(position.clone()),
+            )
             .await
             .unwrap();
-        assert_eq!(second.items.len(), 5);
-        assert!(second.next_cursor.is_none());
-        assert_eq!(second.items.last().unwrap().version.get(), 42);
+        assert_eq!(second.items().len(), 5);
+        assert!(second.next_cursor().is_none());
+        assert_eq!(second.items().last().unwrap().version.get(), 42);
         let scheduled = catalog
-            .events_page(&owner, None, Some(EventState::Scheduled))
+            .events_page(&owner, &event_selection(Some(EventState::Scheduled)))
             .await
             .unwrap();
-        assert_eq!(scheduled.items.len(), 100);
-        assert!(scheduled.next_cursor.is_some());
+        assert_eq!(scheduled.items().len(), 100);
+        assert!(scheduled.next_cursor().is_some());
         assert!(
             scheduled
-                .items
+                .items()
                 .iter()
                 .all(|e| e.state == EventState::Scheduled && e.event_id != own_id)
         );
-        let last = scheduled.items.last().unwrap();
-        let position = scheduled.next_cursor.as_ref().unwrap();
-        assert_eq!(position.event_id(), &last.event_id);
+        let position = scheduled.next_cursor().unwrap();
         let last_scheduled = catalog
-            .events_page(&owner, Some(position), Some(EventState::Scheduled))
+            .events_page(
+                &owner,
+                &event_selection(Some(EventState::Scheduled)).continuing(position.clone()),
+            )
             .await
             .unwrap();
-        assert_eq!(last_scheduled.items.len(), 1);
-        assert!(last_scheduled.next_cursor.is_none());
+        assert_eq!(last_scheduled.items().len(), 1);
+        assert!(last_scheduled.next_cursor().is_none());
 
         // An unrelated malformed payload must never reach a request's epoch decoder.
         TimePersistence::new(db.a.pool().clone())

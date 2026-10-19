@@ -335,8 +335,8 @@ fn actual_owner_request_variants_refuse_retired_and_mixed_nested_members() {
 #[test]
 fn authority_source_and_current_page_refuse_retired_members() {
     use veoveo_mcp_time::contract::{
-        AuthorityBinding, CollectionPage, Event, EventCursor, EventState, SubsecondNanoseconds,
-        TimeAuthoritySource, TimeInstant, TimeVersion,
+        AuthorityBinding, Event, EventFilters, EventKeyset, EventState, Events,
+        SubsecondNanoseconds, TimeAuthoritySource, TimeInstant, TimeVersion,
     };
     assert_current_member_cut(TimeAuthoritySource::Acquisition {
         source_id: TimeSourceId::parse("time-source-fixture").unwrap(),
@@ -385,10 +385,15 @@ fn authority_source_and_current_page_refuse_retired_members() {
         state: EventState::Scheduled,
         record_version: TimeVersion::FIRST,
     };
-    let cursor = EventCursor::new(&event.event_id, 0, SubsecondNanoseconds::ZERO);
-    assert_current_member_cut(CollectionPage {
-        items: vec![event],
-        limit: 100,
-        next_cursor: Some(cursor),
-    });
+    let page = veoveo_types::Pager::<Events>::new(
+        "fixture",
+        EventFilters::default(),
+        veoveo_types::PageSize::new(100).unwrap(),
+        EventKeyset::new(veoveo_types::PrincipalId::parse("fixture-owner").unwrap()),
+        None,
+    )
+    .unwrap()
+    .finish(vec![event])
+    .unwrap();
+    assert_current_member_cut(page);
 }

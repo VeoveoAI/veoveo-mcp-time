@@ -66,9 +66,9 @@ async fn task(fixture: &Fixture, grants: &[TimePermission], tool: &str) -> serde
 }
 
 fn denied(body: &serde_json::Value, permission: TimePermission) -> bool {
-    body["error"]["message"].as_str().is_some_and(|message| {
-        message.contains(&format!("Missing permission `{}`", permission.name()))
-    })
+    body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains(permission.name().as_str()))
 }
 
 #[tokio::test]
@@ -107,7 +107,7 @@ async fn tools_require_the_permission_their_table_entry_names() {
         let refused = rpc(&fixture, &[AuthoritiesRead], "tools/call", create.clone()).await;
         assert!(denied(&refused, EventsWrite), "{refused}");
         let created = rpc(&fixture, &[EventsWrite], "tools/call", create).await;
-        let event = created["result"]["structuredContent"].clone();
+        let event = created["result"]["structuredContent"]["metadata"].clone();
         assert!(event["eventId"].is_string(), "{created}");
         let cancel = json!({
             "name": "cancel_event",
@@ -138,8 +138,8 @@ async fn resources_prompts_and_listing_require_reading_authority_data() {
         let admitted = rpc(&fixture, &[AuthoritiesRead], "prompts/get", prompt).await;
         assert!(!denied(&admitted, AuthoritiesRead), "{admitted}");
 
-        let refused = rpc(&fixture, &[EventsWrite], "resources/list", json!({})).await;
-        assert!(denied(&refused, AuthoritiesRead), "{refused}");
+        let hidden = rpc(&fixture, &[EventsWrite], "resources/list", json!({})).await;
+        assert_eq!(hidden["result"]["resources"], json!([]), "{hidden}");
         let admitted = rpc(&fixture, &[AuthoritiesRead], "resources/list", json!({})).await;
         assert!(admitted.get("error").is_none(), "{admitted}");
     })
@@ -199,7 +199,7 @@ async fn administration_tools_require_their_administrative_permission() {
         let calendar = json!({"calendarId": "calendar-0195dabe-7777-7abc-8def-000000000008",
             "version": 1, "name": "operations", "zoneId": "UTC", "windows": [], "excludedDates": []});
         let cases = [
-            ("list_sources", json!({}), AuthoritiesInspect),
+            ("list_sources", json!({"filters":{}}), AuthoritiesInspect),
             ("get_source", json!({"sourceId": "time-source-0195dabe-7777-7abc-8def-000000000009"}), AuthoritiesInspect),
             (
                 "create_source",
@@ -211,7 +211,7 @@ async fn administration_tools_require_their_administrative_permission() {
                 json!({"source": source(1), "expectedRecordVersion": 1}),
                 AuthoritiesAdminister,
             ),
-            ("list_acquisitions", json!({}), AuthoritiesInspect),
+            ("list_acquisitions", json!({"filters":{}}), AuthoritiesInspect),
             (
                 "get_acquisition",
                 json!({"acquisitionId": "time-acquisition-00000000-0000-7000-8000-000000000001"}),
@@ -227,7 +227,7 @@ async fn administration_tools_require_their_administrative_permission() {
                 json!({"acquisitionId": "time-acquisition-00000000-0000-7000-8000-000000000001"}),
                 AuthoritiesAdminister,
             ),
-            ("list_active_authorities", json!({}), AuthoritiesInspect),
+            ("list_active_authorities", json!({"filters":{}}), AuthoritiesInspect),
             (
                 "activate_release",
                 json!({"releaseId": "time-release-fixture", "expectedReleaseRecordVersion": 1, "expectedActivePointerVersion": 0}),

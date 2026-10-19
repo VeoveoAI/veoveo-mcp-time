@@ -207,28 +207,27 @@ fn active_selection_exposes_pointer_guard_and_rejects_unadmitted_wire() {
         .build()
         .is_err()
     );
-    let page = AdminPage::<_, NoCursor> {
-        items: vec![selection],
-        next_cursor: None,
-    };
+    let page = veoveo_types::Pager::<ActiveAuthorities>::new(
+        "fixture",
+        veoveo_hub_sdk::definition::NoFilters {},
+        veoveo_types::PageSize::new(100).unwrap(),
+        veoveo_types::LiveKeyset,
+        None,
+    )
+    .unwrap()
+    .finish(vec![selection])
+    .unwrap();
     let wire = serde_json::to_value(page).unwrap();
-    let admitted: AdminPage<ActiveAuthoritySelection, NoCursor> =
+    let admitted: veoveo_types::Page<ActiveAuthorities> =
         serde_json::from_value(wire.clone()).unwrap();
-    assert_eq!(admitted.items.len(), 1);
+    assert_eq!(admitted.items().len(), 1);
     let validator = jsonschema::validator_for(
-        &serde_json::to_value(schemars::schema_for!(AdminPage<ActiveAuthoritySelection, NoCursor>))
+        &serde_json::to_value(schemars::schema_for!(veoveo_types::Page<ActiveAuthorities>))
             .unwrap(),
     )
     .unwrap();
     assert!(validator.is_valid(&wire));
-    // The active selection is one page, so neither its schema nor its decoder admits a cursor.
-    let mut continued = wire.clone();
-    continued["nextCursor"] = json!("next");
-    assert!(!validator.is_valid(&continued));
-    assert!(
-        serde_json::from_value::<AdminPage<ActiveAuthoritySelection, NoCursor>>(continued).is_err()
-    );
     let old = json!({"items":[wire["items"][0]["release"].clone()],"nextCursor":null});
     assert!(!validator.is_valid(&old));
-    assert!(serde_json::from_value::<AdminPage<ActiveAuthoritySelection, NoCursor>>(old).is_err());
+    assert!(serde_json::from_value::<veoveo_types::Page<ActiveAuthorities>>(old).is_err());
 }

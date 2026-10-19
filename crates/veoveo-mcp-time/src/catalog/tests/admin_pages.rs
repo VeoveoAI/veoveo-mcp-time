@@ -2,11 +2,12 @@
 //! cursor that names its own listing and a tenant that reads only its own records.
 use super::*;
 use crate::{
-    AcquisitionCursor, AdminPageLimit, AuthorityDatasetKind, CalendarCursor, SourceCursor,
-    TimeAcquisition, TimeAcquisitionId, TimeAcquisitionPhase, TimeAcquisitionStatus, TimeSource,
-    TimeSourceId, TimeVersion,
+    Acquisitions, AuthorityDatasetKind, Sources, TimeAcquisition, TimeAcquisitionId,
+    TimeAcquisitionPhase, TimeAcquisitionStatus, TimeSource, TimeSourceId, TimeVersion,
 };
 use uuid::Uuid;
+use veoveo_hub_sdk::definition::{CollectionRequest, List, NoFilters};
+use veoveo_types::{CursorToken, PageSize};
 
 async fn source(catalog: &TimeCatalog, scope: &TimeAccessContext) -> TimeSource {
     catalog
@@ -72,7 +73,7 @@ async fn source_and_acquisition_pages_walk_every_record_once() {
         let owner = scope(&db.a, "admin-pages", "owner").await;
         let peer = scope(&db.a, "admin-pages", "peer").await;
         let foreign = scope(&db.a, "admin-pages-other", "owner").await;
-        let two = AdminPageLimit::new(2).unwrap();
+        let two = PageSize::new(2).unwrap();
 
         // Five sources page as 2, 2 and 1 in source ID order.
         let mut sources = Vec::new();
@@ -82,36 +83,50 @@ async fn source_and_acquisition_pages_walk_every_record_once() {
         let foreign_source = source(&catalog, &foreign).await;
         let mut walked = Vec::new();
         let mut sizes = Vec::new();
-        let mut after: Option<SourceCursor> = None;
+        let mut after: Option<CursorToken<Sources>> = None;
         loop {
             let page = catalog
-                .sources_page(&owner, after.as_ref(), two)
+                .sources_page(
+                    &owner,
+                    &match after.as_ref() {
+                        Some(cursor) => CollectionRequest::<Sources>::new(NoFilters {}, two)
+                            .continuing(cursor.clone()),
+                        None => CollectionRequest::<Sources>::new(NoFilters {}, two),
+                    },
+                )
                 .await
                 .unwrap();
-            sizes.push(page.items.len());
-            walked.extend(page.items.iter().map(|source| source.source_id.clone()));
-            let Some(next) = page.next_cursor else { break };
-            assert_eq!(Some(next.source_id()), walked.last());
-            after = Some(returned(&next));
+            sizes.push(page.items().len());
+            walked.extend(page.items().iter().map(|source| source.source_id.clone()));
+            let Some(next) = page.next_cursor() else {
+                break;
+            };
+            after = Some(returned(next));
         }
         assert_eq!(sizes, [2, 2, 1]);
         sources.sort_by(|left, right| left.as_str().cmp(right.as_str()));
         assert_eq!(walked, sources);
         let all = catalog
-            .sources_page(&owner, None, AdminPageLimit::default())
+            .sources_page(&owner, &selection::<Sources>())
             .await
             .unwrap();
-        assert_eq!(all.items.len(), 5);
-        assert!(all.next_cursor.is_none());
-        // Another tenant's walk from the lowest position reads only its own source.
-        let position = SourceCursor::new(
-            &TimeSourceId::parse("time-source-00000000-0000-7000-8000-000000000000").unwrap(),
+        assert_eq!(all.items().len(), 5);
+        assert!(all.next_cursor().is_none());
+        // A serialized continuation is refused under a foreign tenant.
+        let source_cursor = after.as_ref().unwrap();
+        let foreign_selection =
+            CollectionRequest::<Sources>::new(NoFilters {}, two).continuing(source_cursor.clone());
+        assert!(
+            catalog
+                .sources_page(&foreign, &foreign_selection)
+                .await
+                .is_err()
         );
         let other = catalog
-            .sources_page(&foreign, Some(&position), AdminPageLimit::default())
+            .sources_page(&foreign, &selection::<Sources>())
             .await
             .unwrap();
-        assert_eq!(other.items, [foreign_source]);
+        assert_eq!(other.items(), &[foreign_source]);
 
         // Four acquisitions page as 2 and 2, the most recently started first, and the
         // second page knows it is the last. Every principal of the tenant appears.
@@ -121,50 +136,58 @@ async fn source_and_acquisition_pages_walk_every_record_once() {
             let by = if index % 2 == 0 { &owner } else { &peer };
             acquisitions.push(acquisition(&catalog, by, &shared).await.acquisition_id);
         }
-        let first = catalog.acquisitions_page(&owner, None, two).await.unwrap();
-        let next = first.next_cursor.as_ref().unwrap();
-        assert_eq!(next.acquisition_id(), &first.items[1].acquisition_id);
-        let second = catalog
-            .acquisitions_page(&owner, Some(&returned(next)), two)
+        let first = catalog
+            .acquisitions_page(
+                &owner,
+                &CollectionRequest::<Acquisitions>::new(NoFilters {}, two),
+            )
             .await
             .unwrap();
-        assert!(second.next_cursor.is_none());
+        let next = first.next_cursor().unwrap();
+        let second = catalog
+            .acquisitions_page(
+                &owner,
+                &CollectionRequest::<Acquisitions>::new(NoFilters {}, two)
+                    .continuing(returned(next)),
+            )
+            .await
+            .unwrap();
+        assert!(second.next_cursor().is_none());
         let walked: Vec<_> = first
-            .items
+            .items()
             .iter()
-            .chain(&second.items)
+            .chain(second.items())
             .map(|acquisition| acquisition.acquisition_id.clone())
             .collect();
         acquisitions.reverse();
         assert_eq!(walked, acquisitions);
         assert!(
             catalog
-                .acquisitions_page(&foreign, None, AdminPageLimit::default())
+                .acquisitions_page(&foreign, &selection::<Acquisitions>())
                 .await
                 .unwrap()
-                .items
+                .items()
                 .is_empty()
         );
 
-        // A cursor admits only the listing that issued it.
-        let source_cursor = after.expect("the source walk continued past its first page");
-        assert!(AcquisitionCursor::parse(source_cursor.as_str()).is_err());
-        assert!(SourceCursor::parse(next.as_str()).is_err());
-        let calendar = CalendarCursor::new(
-            &CalendarId::parse("calendar-00000000-0000-7000-8000-000000000001").unwrap(),
-            TimeVersion::FIRST,
+        // Returning the same wire token through a different family's DTO does not admit it.
+        let wrong: CursorToken<Acquisitions> =
+            serde_json::from_value(serde_json::to_value(source_cursor).unwrap()).unwrap();
+        assert!(
+            catalog
+                .acquisitions_page(
+                    &owner,
+                    &CollectionRequest::<Acquisitions>::new(NoFilters {}, two).continuing(wrong)
+                )
+                .await
+                .is_err()
         );
-        assert!(SourceCursor::parse(calendar.as_str()).is_err());
-        assert!(AcquisitionCursor::parse(calendar.as_str()).is_err());
-        for limit in [0, 101] {
-            assert!(AdminPageLimit::new(limit).is_err());
-            assert!(serde_json::from_value::<AdminPageLimit>(limit.into()).is_err());
-        }
-        assert_eq!(AdminPageLimit::default(), AdminPageLimit::MAX);
-        let request: crate::ListSourcesRequest =
-            serde_json::from_value(serde_json::json!({})).unwrap();
-        assert_eq!(request.limit.get(), 100);
-        assert!(request.cursor.is_none());
+        let changed = CollectionRequest::<Sources>::new(NoFilters {}, PageSize::new(1).unwrap())
+            .continuing(source_cursor.clone());
+        assert!(catalog.sources_page(&owner, &changed).await.is_err());
+        let request: List<crate::ListSources> =
+            serde_json::from_value(serde_json::json!({"filters":{}})).unwrap();
+        assert_eq!(request.selection().limit().get(), 100);
     })
     .await
     .expect("administration page qualification exceeded 90 seconds");

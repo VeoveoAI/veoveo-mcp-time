@@ -1,6 +1,6 @@
 //! Records built from nanosecond timestamps keep microsecond precision, so their JSON
 //! bodies and PostgreSQL's microsecond columns read back as the same instants.
-use super::{instant, scope};
+use super::{instant, scope, selection};
 use crate::{
     catalog::TimeCatalog,
     contract::*,
@@ -80,8 +80,12 @@ async fn nanosecond_timestamps_round_trip_through_the_database_at_microsecond_pr
             release
         );
         assert_eq!(
-            catalog.releases_page(&owner, None).await.unwrap().items,
-            std::slice::from_ref(&release)
+            catalog
+                .releases_page(&owner, &selection::<crate::Releases>())
+                .await
+                .unwrap()
+                .items(),
+            &[crate::ReleaseEntry::from(release.clone())]
         );
         let stored = body(&db.a, tenant, Row::Release(&release.release_id)).await;
         assert_eq!(stored["retrievedAt"], recorded_wire);

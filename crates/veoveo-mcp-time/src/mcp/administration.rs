@@ -1,88 +1,54 @@
 //! Tenant administration as MCP tools: authority sources, acquisitions, release
 //! activation, calendar and epoch publication, and the clock quality policy. Each tool
-//! requires the permission the requirement table names; reads and listings require
+//! is bound to its permission by the ready routes; reads and listings require
 //! `time.authorities.inspect`.
-use rmcp::{
-    ErrorData as McpError, RoleServer,
-    handler::server::wrapper::Parameters,
-    model::{CallToolResult, ContentBlock},
-    service::RequestContext,
-    tool, tool_router,
-};
-use veoveo_hub_sdk::hosting::structured_result;
-
-use super::{
-    TimeMcp, internal,
-    requirements::{Target, require},
-};
-use crate::contract::{
-    AcquisitionCursor, ActivateReleaseRequest, ActiveAuthoritySelection, AdminPage,
-    AuthorityRelease, CancelAcquisitionRequest, ClockQualityPolicyRecord, CreateCalendarRequest,
-    CreateCalendarRequestValue, CreateSourceRequest, CreateSourceRequestValue, Epoch,
-    GetAcquisitionRequest, GetSourceRequest, ListAcquisitionsRequest, ListSourcesRequest, NoCursor,
-    OperationalCalendar, ReplaceClockQualityPolicyRequest, ReplaceSourceRequest, SourceCursor,
-    StartAcquisitionRequest, StartAcquisitionRequestValue, TimeAcquisition, TimeSource,
-    UpsertEpochRequest, UpsertEpochRequestValue,
+use super::{TimeMcp, internal};
+use crate::contract::*;
+use rmcp::{ErrorData as McpError, RoleServer, service::RequestContext};
+use veoveo_hub_sdk::{
+    definition::List,
+    hosting::{ToolError, hub_identity},
 };
 
-#[tool_router(router = administration_router, vis = "pub(crate)")]
 impl TimeMcp {
-    #[tool(
-        title = "List authority sources",
-        description = "List the tenant's registered time-authority sources, the HTTPS locations of IANA time zone and leap-second data, in source ID order. A page holds up to `limit` sources, 100 by default. Pass its `nextCursor` as `cursor` to read the next page.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<AdminPage<TimeSource, SourceCursor>>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
-    async fn list_sources(
+    pub(super) async fn list_sources(
         &self,
-        Parameters(request): Parameters<ListSourcesRequest>,
+        request: List<ListSources>,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("list_sources"))?;
+    ) -> Result<veoveo_types::Page<Sources>, McpError> {
+        let identity = hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         match self
             .state
             .catalog
-            .sources_page(&scope, request.cursor.as_ref(), request.limit)
+            .sources_page(&scope, request.selection())
             .await
         {
-            Ok(page) => structured_result(format!("{} sources", page.items.len()), &page),
-            Err(error) => rejected(error),
+            Ok(page) => Ok(page),
+            Err(error) => Err(crate::index::query_error(error)),
         }
     }
 
-    #[tool(
-        title = "Get authority source",
-        description = "Read one registered time-authority source.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<TimeSource>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
-    async fn get_source(
+    pub(super) async fn get_source(
         &self,
-        Parameters(request): Parameters<GetSourceRequest>,
+        request: GetSourceRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("get_source"))?;
+    ) -> Result<TimeSource, ToolError> {
+        let identity = hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         match self.state.catalog.source(&scope, &request.source_id).await {
-            Ok(Some(source)) => structured_result(source.source_id.to_string(), &source),
+            Ok(Some(source)) => Ok(source),
             Ok(None) => missing("time source"),
             Err(error) => rejected(error),
         }
     }
 
-    #[tool(
-        title = "Create authority source",
-        description = "Register an HTTPS source of IANA time zone or leap-second data for the tenant. Repeating a call with the same idempotency key returns the same source.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<TimeSource>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
-    async fn create_source(
+    pub(super) async fn create_source(
         &self,
-        Parameters(request): Parameters<CreateSourceRequest>,
+        request: CreateSourceRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("create_source"))?;
+    ) -> Result<TimeSource, ToolError> {
+        let identity = hub_identity(&context)?;
         let request = CreateSourceRequestValue::from(request);
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         match self
@@ -91,23 +57,17 @@ impl TimeMcp {
             .create_source(&scope, request.source)
             .await
         {
-            Ok(source) => structured_result(format!("registered {}", source.source_id), &source),
+            Ok(source) => Ok(source),
             Err(error) => rejected(error),
         }
     }
 
-    #[tool(
-        title = "Replace authority source",
-        description = "Replace a registered source's settings. Pass the record version you last read; the call fails if it has changed.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<TimeSource>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
-    )]
-    async fn replace_source(
+    pub(super) async fn replace_source(
         &self,
-        Parameters(request): Parameters<ReplaceSourceRequest>,
+        request: ReplaceSourceRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("replace_source"))?;
+    ) -> Result<TimeSource, ToolError> {
+        let identity = hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         match self
             .state
@@ -115,47 +75,35 @@ impl TimeMcp {
             .replace_source(&scope, request.source, request.expected_record_version)
             .await
         {
-            Ok(source) => structured_result(format!("replaced {}", source.source_id), &source),
+            Ok(source) => Ok(source),
             Err(error) => rejected(error),
         }
     }
 
-    #[tool(
-        title = "List acquisitions",
-        description = "List the tenant's authority acquisitions and their progress, the most recently started first. A page holds up to `limit` acquisitions, 100 by default. Pass its `nextCursor` as `cursor` to read the next page.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<AdminPage<TimeAcquisition, AcquisitionCursor>>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
-    async fn list_acquisitions(
+    pub(super) async fn list_acquisitions(
         &self,
-        Parameters(request): Parameters<ListAcquisitionsRequest>,
+        request: List<ListAcquisitions>,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("list_acquisitions"))?;
+    ) -> Result<veoveo_types::Page<Acquisitions>, McpError> {
+        let identity = hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         match self
             .state
             .catalog
-            .acquisitions_page(&scope, request.cursor.as_ref(), request.limit)
+            .acquisitions_page(&scope, request.selection())
             .await
         {
-            Ok(page) => structured_result(format!("{} acquisitions", page.items.len()), &page),
-            Err(error) => rejected(error),
+            Ok(page) => Ok(page),
+            Err(error) => Err(crate::index::query_error(error)),
         }
     }
 
-    #[tool(
-        title = "Get acquisition",
-        description = "Read one acquisition's status, phase and staged release.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<TimeAcquisition>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
-    async fn get_acquisition(
+    pub(super) async fn get_acquisition(
         &self,
-        Parameters(request): Parameters<GetAcquisitionRequest>,
+        request: GetAcquisitionRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("get_acquisition"))?;
+    ) -> Result<TimeAcquisition, ToolError> {
+        let identity = hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         match self
             .state
@@ -163,26 +111,18 @@ impl TimeMcp {
             .acquisition(&scope, &request.acquisition_id)
             .await
         {
-            Ok(Some(acquisition)) => {
-                structured_result(acquisition.acquisition_id.to_string(), &acquisition)
-            }
+            Ok(Some(acquisition)) => Ok(acquisition),
             Ok(None) => missing("time acquisition"),
             Err(error) => rejected(error),
         }
     }
 
-    #[tool(
-        title = "Start acquisition",
-        description = "Download, verify and compile a new release from a registered source, staging it for activation. The acquisition continues after the call returns; read its progress with get_acquisition. Repeating a call with the same idempotency key returns the same acquisition.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<TimeAcquisition>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = true)
-    )]
-    async fn start_acquisition(
+    pub(super) async fn start_acquisition(
         &self,
-        Parameters(request): Parameters<StartAcquisitionRequest>,
+        request: StartAcquisitionRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("start_acquisition"))?;
+    ) -> Result<TimeAcquisition, ToolError> {
+        let identity = hub_identity(&context)?;
         let request = StartAcquisitionRequestValue::from(request);
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let source = match self.state.catalog.source(&scope, &request.source_id).await {
@@ -201,29 +141,17 @@ impl TimeMcp {
             )
             .await
         {
-            Ok(acquisition) => structured_result(
-                format!(
-                    "acquisition {} {:?}",
-                    acquisition.acquisition_id, acquisition.status
-                ),
-                &acquisition,
-            ),
+            Ok(acquisition) => Ok(acquisition),
             Err(error) => rejected(error),
         }
     }
 
-    #[tool(
-        title = "Cancel acquisition",
-        description = "Request cancellation of a running acquisition. Its scratch content is removed and no release is staged.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<TimeAcquisition>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
-    async fn cancel_acquisition(
+    pub(super) async fn cancel_acquisition(
         &self,
-        Parameters(request): Parameters<CancelAcquisitionRequest>,
+        request: CancelAcquisitionRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("cancel_acquisition"))?;
+    ) -> Result<TimeAcquisition, ToolError> {
+        let identity = hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         match self
             .state
@@ -231,54 +159,31 @@ impl TimeMcp {
             .cancel(&scope, &request.acquisition_id)
             .await
         {
-            Ok(acquisition) => structured_result(
-                format!(
-                    "acquisition {} {:?}",
-                    acquisition.acquisition_id, acquisition.status
-                ),
-                &acquisition,
-            ),
+            Ok(acquisition) => Ok(acquisition),
             Err(error) => rejected(error),
         }
     }
 
-    #[tool(
-        title = "List active authorities",
-        description = "List the tenant's active release for each authority dataset with the pointer version activate_release requires as its expected active pointer version.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<AdminPage<ActiveAuthoritySelection, NoCursor>>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
-    async fn list_active_authorities(
+    pub(super) async fn list_active_authorities(
         &self,
+        request: List<ListActiveAuthorities>,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("list_active_authorities"))?;
+    ) -> Result<veoveo_types::Page<ActiveAuthorities>, McpError> {
+        let identity = hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
-        match self.state.catalog.active_authorities(&scope).await {
-            // At most one release per dataset family, so one page holds them all.
-            Ok(items) => {
-                let page = AdminPage::<_, NoCursor> {
-                    items,
-                    next_cursor: None,
-                };
-                structured_result(format!("{} active authorities", page.items.len()), &page)
-            }
-            Err(error) => rejected(error),
-        }
+        self.state
+            .catalog
+            .active_authorities_page(&scope, request.selection())
+            .await
+            .map_err(crate::index::query_error)
     }
 
-    #[tool(
-        title = "Activate release",
-        description = "Make a staged release the tenant's active authority for its dataset. The previous release is retired and kept. Pass the release's record version and the active pointer version you last read; the call fails if either has changed.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<AuthorityRelease>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
-    )]
-    async fn activate_release(
+    pub(super) async fn activate_release(
         &self,
-        Parameters(request): Parameters<ActivateReleaseRequest>,
+        request: ActivateReleaseRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("activate_release"))?;
+    ) -> Result<AuthorityRelease, ToolError> {
+        let identity = hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let candidate = match self
             .state
@@ -310,21 +215,15 @@ impl TimeMcp {
             .reload(&self.state.catalog, &scope)
             .await
             .map_err(internal)?;
-        structured_result(format!("activated {}", release.release_id), &release)
+        Ok(release)
     }
 
-    #[tool(
-        title = "Create calendar version",
-        description = "Publish a version of an operational calendar for the tenant. Repeating a call with the same idempotency key returns the same version.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<OperationalCalendar>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
-    async fn create_calendar(
+    pub(super) async fn create_calendar(
         &self,
-        Parameters(request): Parameters<CreateCalendarRequest>,
+        request: CreateCalendarRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("create_calendar"))?;
+    ) -> Result<OperationalCalendar, ToolError> {
+        let identity = hub_identity(&context)?;
         let request = CreateCalendarRequestValue::from(request);
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let calendar = match self
@@ -336,21 +235,15 @@ impl TimeMcp {
             Ok(calendar) => calendar,
             Err(error) => return rejected(error),
         };
-        structured_result(format!("published {}", calendar.calendar_id), &calendar)
+        Ok(calendar)
     }
 
-    #[tool(
-        title = "Create epoch version",
-        description = "Publish a version of a mission epoch for the tenant. Repeating a call with the same idempotency key returns the same version.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<Epoch>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
-    async fn create_epoch(
+    pub(super) async fn create_epoch(
         &self,
-        Parameters(request): Parameters<UpsertEpochRequest>,
+        request: UpsertEpochRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("create_epoch"))?;
+    ) -> Result<Epoch, ToolError> {
+        let identity = hub_identity(&context)?;
         let request = UpsertEpochRequestValue::from(request);
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let epoch = match self.state.catalog.create_epoch(&scope, request.epoch).await {
@@ -362,21 +255,15 @@ impl TimeMcp {
             .reload(&self.state.catalog, &scope)
             .await
             .map_err(internal)?;
-        structured_result(format!("published {}", epoch.epoch_id), &epoch)
+        Ok(epoch)
     }
 
-    #[tool(
-        title = "Replace clock policy",
-        description = "Replace the tenant's clock quality policy, which assess_clock applies when a call passes none. Pass the record version you last read, or none when no policy exists yet.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ClockQualityPolicyRecord>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
-    )]
-    async fn replace_clock_policy(
+    pub(super) async fn replace_clock_policy(
         &self,
-        Parameters(request): Parameters<ReplaceClockQualityPolicyRequest>,
+        request: ReplaceClockQualityPolicyRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("replace_clock_policy"))?;
+    ) -> Result<ClockQualityPolicyRecord, ToolError> {
+        let identity = hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let (policy, record_version) = match self
             .state
@@ -391,25 +278,15 @@ impl TimeMcp {
             policy,
             record_version,
         };
-        structured_result("replaced clock policy".to_owned(), &record)
+        Ok(record)
     }
 }
 
-/// A tool execution error the caller can act on, reported in the result as MCP
-/// specifies for tool errors.
-fn failed(message: impl Into<String>) -> Result<CallToolResult, McpError> {
-    Ok(CallToolResult::error(vec![ContentBlock::text(
-        message.into(),
-    )]))
+/// Preserve actionable domain rejections as typed tool errors.
+fn missing<T>(kind: &str) -> Result<T, ToolError> {
+    Err(ToolError::Rejected(format!("Unknown {kind}.")))
 }
-
-fn missing(kind: &str) -> Result<CallToolResult, McpError> {
-    failed(format!("Unknown {kind}."))
-}
-
-/// Report a domain rejection, such as a version conflict or an invalid value, in the
-/// tool result; anything else is an internal error.
-fn rejected(error: anyhow::Error) -> Result<CallToolResult, McpError> {
+fn rejected<T>(error: anyhow::Error) -> Result<T, ToolError> {
     let message = error.to_string();
     let actionable = [
         "unknown",
@@ -424,8 +301,8 @@ fn rejected(error: anyhow::Error) -> Result<CallToolResult, McpError> {
     .iter()
     .any(|marker| message.contains(marker));
     if actionable {
-        failed(message)
+        Err(ToolError::Rejected(message))
     } else {
-        Err(internal(error))
+        Err(internal(error).into())
     }
 }

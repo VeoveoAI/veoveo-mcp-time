@@ -6,7 +6,6 @@ use crate::contract::TimeTaskKind;
 use std::{collections::BTreeSet, sync::Arc};
 use veoveo_types::TaskTypeDefinition;
 
-use rmcp::model::{CallToolResult, ContentBlock};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use veoveo_hub_sdk::{
@@ -285,10 +284,16 @@ async fn calculate(
         .run(move |stop| match request {
             TimeTaskRequest::ExpandSchedule(request) => engine
                 .expand_schedule_with_stop(&request, &stop)
-                .and_then(|output| tool_result("expanded operational schedule", &output)),
+                .and_then(|output| {
+                    veoveo_hub_sdk::hosting::task_result::<ExpandScheduleRequest>(&output)
+                        .map_err(Into::into)
+                }),
             TimeTaskRequest::ValidateTimeline(request) => engine
                 .validate_timeline_with_stop(&request, &stop)
-                .and_then(|output| tool_result("validated mission timeline", &output)),
+                .and_then(|output| {
+                    veoveo_hub_sdk::hosting::task_result::<ValidateTimelineRequest>(&output)
+                        .map_err(Into::into)
+                }),
         })
         .await;
     match result {
@@ -324,12 +329,6 @@ impl TimeTaskRequest {
             Self::ValidateTimeline(_) => "validating mission timeline",
         }
     }
-}
-
-fn tool_result<T: Serialize>(text: &str, value: &T) -> anyhow::Result<CallToolResult> {
-    let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
-    result.structured_content = Some(serde_json::to_value(value)?);
-    Ok(result)
 }
 
 fn failed(code: &str, error: impl std::fmt::Display) -> TaskTransition {

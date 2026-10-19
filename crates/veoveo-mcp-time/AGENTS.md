@@ -18,12 +18,11 @@ leap second assumptions.
 - The server is hosted through `veoveo_hub_sdk::hosting`: `TimeMcp` implements
   `DomainServer` and `TimeSubscriptions` implements `ResourceSubscriptions`. Tenant
   administration is MCP tools in `src/mcp/administration.rs`, joined to the domain
-  tools by `TimeMcp::tools()`. `/readyz` at the listener root reports ready while the
+  tools by its ready typed `Routes` table. `/readyz` at the listener root reports ready while the
   clock is observed. Do not add a `ServerHandler`, host check or token verification here.
-- `src/mcp/requirements.rs` is the only source of permission requirements. A new tool,
-  fixed resource, template or prompt gets its row there, and its handler checks
-  through `require` or `authorize`. The table builds the registration and Discover
-  declaration, so the Hub and Time evaluate the same requirements.
+- Typed `Routes` construction binds each tool request and resource reader to its
+  output, permission and cache policy. Registration, discovery, annotation hints and
+  dispatch derive from that table; do not author a second requirements registry.
 - Time registers with the Hub before serving and takes its access-token trust and
   database login from the registration. Do not add static trust, JWKS or database
   credentials to configuration. The registration's HTTP client also refreshes the
@@ -63,12 +62,10 @@ leap second assumptions.
   load of the prospective TZDB and leap second pair; one active release per
   family per tenant. Acquisition downloads run under fixed host, media,
   digest, size, and time policy with archive traversal rejected.
-- `list_active_authorities` returns `AdminPage<ActiveAuthoritySelection, NoCursor>` with
-  closed `{pointerVersion, release}` entries. Use `selection.write_guard()` for
-  activation; the persisted pointer version differs from `release.recordVersion`.
-  Preserve the joined tenant/parent/body admission and reject non-active releases.
-  An absent family uses `TimeWriteGuard::Absent`; packaged effective references
-  never supply a persisted pointer version.
+- Every listing, including bounded `list_active_authorities`, uses the native
+  `Collection`/`Pager` and canonical `Page` contract. Active entries retain
+  `{pointerVersion, release}` and `selection.write_guard()`; pointer and release
+  versions advance independently. Preserve joined tenant/parent/body admission.
 - Packaged bootstrap references bind the authority family and source-file SHA-256.
   Their immutable resource IDs must change with the bytes, never with a process
   restart or path. `server/bootstrap.rs` owns construction and qualification.
@@ -139,10 +136,8 @@ leap second assumptions.
   library control reads the real pointer guard for two successive activations;
   preserve the existing native active-pointer corruption checks.
 - `cargo test -p veoveo-mcp-time`
-- `cargo test -p veoveo-mcp-time --lib requirements` checks the requirement table
-  against the listed tools, advertised resources and tool annotations, and
-  `--lib registry::tests::permissions` checks each handler's allowed and denied
-  permissions through the hosted router.
+- `cargo test -p veoveo-mcp-time --lib registry::tests::permissions` checks allowed
+  and denied current route permissions through the hosted router.
 - `cargo test -p veoveo-mcp-time --no-default-features --features contract` checks
   public contract validation and compile-fail examples. Qualify dependency isolation
   with a separately resolved consumer workspace; a workspace-wide build may enable
@@ -242,44 +237,7 @@ leap second assumptions.
 - The optional ntpd-rs observation socket is a deployment concern; unit tests
   use bounded fake observations.
 
-## Contract Compliance
 
-<!-- veoveo:contract-compliance:start -->
-Contract: https://veoveo.ai/contracts/hosted-mcp
-
-- C01: met
-- C02: met
-- C03: met
-- C04: met — stable discovery, SQL-scoped pages of 100 records, exact reads, and bounded completions; native tests cover tenant/owner isolation and cursor ordering
-- C05: met
-- C06: met
-- C07: met
-- C08: met
-- C09: met
-- C10: met
-- C11: met
-- C12: met
-- C13: met
-- C14: met
-- C15: met
-- C16: met
-- C17: met
-- C18: met
-- C19: met
-- C20: met
-- C21: met
-- C22: met
-- C23: met
-- C24: met
-- C25: met
-- C26: met
-- C27: met
-- C28: met — static discovery advertises no list-change capability; database change notifications invalidate the resource contents of the changed tenant
-- C29: met
-- C30: met — the endpoint is stateless; durable and domain state never derives authority from a protocol connection
-- C31: pending — installed Discover and list readiness qualification is pending
-- C33: pending — Owner naming producers, consumers and installed qualification are pending.
-<!-- veoveo:contract-compliance:end -->
 
 ### Installed Future Events
 

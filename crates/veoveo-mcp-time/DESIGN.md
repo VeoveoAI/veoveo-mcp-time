@@ -187,40 +187,30 @@ implements `PermissionDefinition` with each permission's resource, access and ri
 `TimeScope` declares the single coarse OAuth scope `time`.
 [Authorization](#authorization) describes how handlers use them.
 
-`mcp/setup.rs` implements `McpServerContract` with `TimeScope` and `TimeResource`.
-The HTTP process validates its `McpServerSetup` before serving. MCP initialization
-and resource discovery consume that setup. Resource descriptors, including the
-embedded documents, are built from typed addresses. The setup preserves Time's reserved
-zone template; the owning resource tests qualify routes.
+`mcp/setup.rs` binds Time's provider, scope and typed `Routes` through
+`McpServerContract`. Ready routes associate each tool request and resource reader
+with its output, policy and cache selection. Setup derives descriptors, registration
+authorization and discovery from that table. The host supplies documentation routes.
 
-Template descriptors use `McpResourceTemplate` and the foundational RFC 6570 type.
-Native contract tests expand every Time route declaration through iri-string and
-compare the result with `TimeResource` construction. Reserved zone names preserve
-slashes and plus signs. Collection routes bind an optional `cursor` query and cover
-each typed cursor envelope, while discovery lists the collection roots as resources.
-Concrete resource reads continue through the same owning parser.
-
-`TimeResource` owns every resource route and implements `ResourceAddress`. Its variants
-carry the corresponding ID, version, zone key, or collection cursor. Its derived
-route declarations drive parsing, typed component building and checked discovery
-templates. Time owns codecs for documents, versions, slash-separated zone keys and
-opaque cursors; cursor codecs preserve the existing hex-encoded JSON envelope. Reads
-and subscriptions use this same contract. Unsupported parameters, fragments, encoded
-ID aliases, relative paths, and incorrect ID families are rejected before dispatch.
-`TimeAuthorityReleaseUri` restricts provenance fields to acquired or packaged authority
-references and requires an `AuthorityReleaseId` when constructed. The reference builder
-checks that the URI variant agrees with the source kind.
+`TimeResource` contains only owner path and filter data and implements
+`ResourceAddress`. Its shared route declarations own typed IDs, versions and the
+reserved zone tail. Resource collection readers use `ReadCollection`, which owns
+limit/cursor URI encoding and admission; discovery and authorization derive the
+same optional `{?limit,cursor}` expression from the owner root template. Unsupported
+parameters, fragments, encoded ID aliases, relative paths and incorrect ID families
+are refused before dispatch. `TimeAuthorityReleaseUri` restricts provenance fields
+to acquired or packaged authority references, and its builder checks source agreement.
 
 `TimeVersion` validates the positive signed database range. `TimeZoneId` validates a
 relative TZDB key with nonempty ASCII name components and a maximum of 1024 bytes;
 the active authority determines whether that zone exists. It preserves slash-separated
 names and literal plus signs in the public resource path.
 
-`CalendarCursor`, `EpochCursor`, and `EventCursor` retain their family's typed IDs and
-validate their current envelope revision, position, and collection name during deserialization. Page
-responses serialize these types as opaque strings. Catalog methods require the matching
-cursor type; resource reads and event recovery use those same types. The
-contract feature includes Serde JSON and hex for this wire format.
+Collection families and typed seek keys live in `contract/collections.rs`. The
+canonical Core `Pager` admits a bounded family-branded wire token against current
+context, supplies the SQL seek and lookahead bound and constructs the immutable
+`Page`. Deserialization alone admits only observable wire bounds; it grants no
+context or authority. There is no Time cursor codec or unchecked page DTO.
 
 Temporal IDs validate their domain prefix, length, and character set during JSON
 deserialization as well as construction. `TimeAccessContext` carries tenant and
@@ -611,8 +601,11 @@ qualify the current template against the typed zone builder.
 
 Calendar versions, epoch versions, events, acquired authority releases and packaged
 bootstrap authorities each enumerate from a collection root, such as `time://events`.
-A page holds at most 100 `items`, each with a typed `uri` and `title`, and an optional
-`nextCursor`. The SQL selects the tenant, and for events the owner, before ordering
+A page is `{items, limit, nextCursor}` with at most 100 typed records and a null
+terminal cursor. Calendar, epoch and event items are their domain records. Acquired
+releases use `ReleaseEntry`, a public summary with canonical release URI, dataset,
+version label, digest and state; local compiled artifact paths remain internal.
+Bootstrap items are complete `TimeAuthorityReference` values. The SQL selects the tenant, and for events the owner, before ordering
 and LIMIT. Every epoch version has its own member URI, and the unversioned epoch
 resource selects the current version for operational callers.
 
@@ -720,7 +713,8 @@ disconnected.
 Events are owner-scoped durable records. Creation validates an authority-bound due
 instant and uses a principal-scoped idempotency key. `create_event` takes the due
 instant from a `resolve_time` result and returns the event as its product: the record,
-`resultUri` `time://events/{event_id}`, and one resource link to that address. The row stores the instant's TAI
+`Product<Event>` with `resultUri` `time://events/{event_id}`, the event in `metadata`,
+and one generated resource link to that same address. The row stores the instant's TAI
 coordinates and `due`, the earliest UTC microsecond that does not precede it under the
 active authority; an instant inside a positive leap second becomes due at the start of
 the next second. Cancellation updates the record under optimistic concurrency.
@@ -775,18 +769,17 @@ Releases, calendars, epochs and the clock policy are read through Time's resourc
 An acquisition is a durable job with its own idempotency, phases and cancellation:
 `start_acquisition` returns its record, and `get_acquisition` reports its progress.
 
-`list_sources` and `list_acquisitions` return keyset pages, `AdminPage<TimeSource,
-SourceCursor>` and `AdminPage<TimeAcquisition, AcquisitionCursor>`. A request names an
-optional `cursor` and a `limit` of 1 to 100 records, 100 when omitted. SQL reads one
-record past the limit, and `nextCursor` appears only when that record exists. Sources
-list in source ID order. Acquisitions list newest first: Time assigns their UUIDv7 IDs,
-so ID order is the order they started. Both orders seek the table's primary key. Each
-cursor is an opaque envelope that names its listing, so neither listing nor a resource
-collection admits another's cursor. The tenant predicate applies to every page.
+`list_sources`, `list_acquisitions` and `list_active_authorities` all use the shared
+collection tool request `{filters, limit?, cursor?}` and canonical `Page` result.
+Their filters are the empty typed object. Limits default to 100 and are bounded to
+1..=100. SQL reads one row past the limit. Sources sort by unique source ID ascending;
+acquisitions sort by UUIDv7 acquisition ID descending. Their cursors bind family,
+tenant, filters and limit, and are opaque bounded tokens. A token reused under a
+changed selection is refused before SQL.
 
-`list_active_authorities` returns `AdminPage<ActiveAuthoritySelection, NoCursor>`, one
-page with at most one selection per family. `NoCursor` has no value, so `nextCursor` is
-always null. Each closed
+`list_active_authorities` uses `Page<ActiveAuthorities>` even though at most two
+families exist. It sorts by dataset family (`leap_seconds`, then `tzdb`) and supports
+the same continuation algorithm at smaller limits. Each closed
 entry contains `pointerVersion` and `release`, an admitted active `AuthorityRelease`.
 The positive pointer version advances independently of the release's `recordVersion`.
 An operator passes the selection's `write_guard()` as
@@ -831,9 +824,9 @@ through the persistence interface and into the driver: the IDs, the persistence
 vocabularies and `TimeAcquisitionPhase` bind as `text` through their `postgres` hooks,
 which the `runtime` feature enables, and tenants and principals bind as `uuid`.
 Contract-only consumers resolve no database dependency. Calendar, epoch and
-existing-record guards use `TimeVersion`. Collection queries accept `CalendarCursor`,
-`EpochCursor`, `EventCursor`, `AuthorityCursor`, `SourceCursor` or `AcquisitionCursor`
-directly. Completion selects one of eight fixed queries through `TimeCompletion`, and
+existing-record guards use `TimeVersion`. Collection queries receive typed seek
+positions only after `Pager` admits the contextual token. Calendar, epoch and event
+positions retain their domain IDs and ordering coordinates. Completion selects one of eight fixed queries through `TimeCompletion`, and
 an ID prefix reaches SQL as its typed key range. Tenant and event-owner predicates,
 keyset positions, sorting, distinct selection and limits execute in SQL.
 
@@ -972,20 +965,18 @@ The Hub grants permissions, and Time checks every request against them again.
 | `time.epochs.write` | `time.epoch` | write, administer risk | `create_epoch` |
 | `time.clock-policies.write` | `time.clock-policy` | write, administer risk | `replace_clock_policy` |
 
-`mcp/requirements.rs` holds one requirement table that maps each tool, fixed resource,
-resource template and prompt to its permission. The table builds the
-`ai.veoveo/authorization` declaration through `AuthorizationBuilder`, which registration
-sends and MCP Discover advertises. Every handler resolves its own target through that
-declaration and checks the result against the permissions in the forwarded access
-token, so the Hub and Time evaluate the same table. A target the declaration omits
-is denied. Task admission checks the tool's permission before it creates a Task.
-Declared templates use simple variables only; `time://zones/{zone_id}` matches zone IDs
-that contain slashes, and `?cursor={cursor}` templates admit later collection pages.
+The ready `Routes` table owns access policy, discovery and dispatch. It derives
+`ai.veoveo/authorization` for registration and MCP Discover, and derives tool
+annotation hints from each native permission definition. Handlers receive the
+current admitted identity; the host checks policy before routing or starting a Task.
+Operational task and subscription admission also consults that same derived table.
+A missing route is undeclared. Native templates use literal roots, whole scalar
+path segments, terminal reserved tails and optional query expansions; there is no
+separate lexical authorization template table.
 
-Native tests check that every listed tool has exactly one requirement, that every
-advertised resource and concrete address resolves, that tool annotations agree with
-the declaration, and that each handler admits its permission and refuses the others
-through the hosted router.
+Ordinary hosted behavior tests exercise admitted and denied permissions, Task
+admission, owner isolation and resource behavior. Structural associations come from
+typed construction, with no compliance profile or runtime certification runner.
 
 The forwarded token also carries the caller's principal, tenant, roles, data labels
 and invocation authority. Task and event ownership is derived from that identity.
@@ -1094,7 +1085,7 @@ Examples of agent requests include:
 | `src/acquisition/` | bounded download, validation, compilation, staging, cancellation |
 | `src/mcp.rs` | MCP tools, resources, templates, completions, subscriptions |
 | `src/mcp/administration.rs` | tenant administration tools |
-| `src/mcp/requirements.rs` | the requirement table, the authorization declaration and handler checks |
+| `src/mcp/requirements.rs` | route-derived authorization and operational admission |
 | `src/mcp/declarations.rs` | registration identity |
 | `src/prompts.rs` | reusable temporal interaction prompts |
 | `src/server/tasks.rs` | final Task API adapter, the claim-stream consumer and settlement |
@@ -1207,19 +1198,21 @@ Public Time ID declarations use `Id` with Time-owned prefix and lexical admissio
 
 Time windows, authority bindings, effective authority pairs and resolution outputs retain their Wire fields through immutable `Checked` storage. Owner checks enforce ordered coordinates and release/dataset agreement. TimeAuthorityReference keeps the explicit redundant release-ID adapter; the temporal engine owns projection calculations.
 
-## Cursor Admission
+## Collection Construction
 
-The five temporal cursors select distinct collection profiles through one generic
-owner codec. Each profile binds its position type and collection URI at compile time;
-acquired and bootstrap authority releases have separate profiles even though both use
-`AuthorityReleaseId`. `OpaqueCursor` retains admitted original text, including
-hexadecimal-case and JSON spelling aliases. Transparent Serde delegates admission to
-the stateless codec. Each public wrapper keeps its own string schema identity.
-Constructors keep their infallible signatures and parser size policy; copied and
-borrowed position accessors preserve the owner API.
+Eight nominal collections share Core's canonical `Page`: sources, acquisitions,
+active authorities, calendars, epochs, events, acquired releases and bootstrap
+references. Calendar and epoch keys sort by ID ascending and version descending;
+events sort by due TAI seconds, nanosecond and unique event ID ascending; acquired
+and bootstrap releases sort by release ID ascending. SQL retains separate first and
+next statements and applies the current tenant, and for events the owner, on every
+page. Event selection also binds state and the admitted principal into cursor scope.
+All tokens bind their family, tenant, effective filters and limit and are bounded to
+4096 bytes. A token is a seek position, never authority.
 
-## Task Completion Products
-
-Schedule expansion and timeline validation return inline calculations with their
-existing typed temporal provenance. These Task completions create no result resource
-and omit `result_uri`; MCP envelope admission records that distinction.
+These are live keysets, not retained snapshots. Each request sees current admitted
+data; unchanged data traverses each selected key once. Concurrent insertion after
+the seek position can appear, earlier insertion is outside the remaining walk, and
+deletion or state changes can reduce it. Active-pointer replacements retain their
+family key and expose the value current on the page that reads it. Runtime and
+transport behavior remain ordinary owner tests.

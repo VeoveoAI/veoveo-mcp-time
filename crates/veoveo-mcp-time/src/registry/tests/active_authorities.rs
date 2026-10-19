@@ -28,18 +28,17 @@ async fn operator_reads_pointer_guard_for_next_activation() {
         let owner_token = token("tenant-a");
         // The operator reads the actual pointer guard, rather than the release's
         // independently advancing record version, for the next activation.
-        let empty: AdminPage<crate::ActiveAuthoritySelection, crate::NoCursor> =
-            serde_json::from_value(
-                call(
-                    hub,
-                    &owner_token,
-                    "list_active_authorities",
-                    serde_json::json!({}),
-                )
-                .await,
+        let empty: veoveo_types::Page<crate::ActiveAuthorities> = serde_json::from_value(
+            call(
+                hub,
+                &owner_token,
+                "list_active_authorities",
+                serde_json::json!({"filters":{}}),
             )
-            .unwrap();
-        assert!(empty.items.is_empty());
+            .await,
+        )
+        .unwrap();
+        assert!(empty.items().is_empty());
         let operator = scope(&db.a, "tenant-a").await;
         let mut guard = TimeWriteGuard::Absent;
         for version in 1..=2 {
@@ -62,36 +61,34 @@ async fn operator_reads_pointer_guard_for_next_activation() {
                 serde_json::to_value(&activation).unwrap(),
             )
             .await;
-            let selected: AdminPage<crate::ActiveAuthoritySelection, crate::NoCursor> =
-                serde_json::from_value(
-                    call(
-                        hub,
-                        &owner_token,
-                        "list_active_authorities",
-                        serde_json::json!({}),
-                    )
-                    .await,
+            let selected: veoveo_types::Page<crate::ActiveAuthorities> = serde_json::from_value(
+                call(
+                    hub,
+                    &owner_token,
+                    "list_active_authorities",
+                    serde_json::json!({"filters":{}}),
                 )
-                .unwrap();
-            assert_eq!(selected.items.len(), 1);
-            let selected = &selected.items[0];
+                .await,
+            )
+            .unwrap();
+            assert_eq!(selected.items().len(), 1);
+            let selected = &selected.items()[0];
             assert_eq!(selected.pointer_version.get(), version);
             assert_eq!(selected.release.record_version.get(), 2);
             assert_eq!(selected.release.release_id, candidate.release_id);
             guard = selected.write_guard();
         }
-        let other: AdminPage<crate::ActiveAuthoritySelection, crate::NoCursor> =
-            serde_json::from_value(
-                call(
-                    hub,
-                    &token("tenant-b"),
-                    "list_active_authorities",
-                    serde_json::json!({}),
-                )
-                .await,
+        let other: veoveo_types::Page<crate::ActiveAuthorities> = serde_json::from_value(
+            call(
+                hub,
+                &token("tenant-b"),
+                "list_active_authorities",
+                serde_json::json!({"filters":{}}),
             )
-            .unwrap();
-        assert!(other.items.is_empty());
+            .await,
+        )
+        .unwrap();
+        assert!(other.items().is_empty());
     })
     .await
     .expect("Time active selection control exceeded 90 seconds");

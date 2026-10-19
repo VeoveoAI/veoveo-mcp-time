@@ -1,4 +1,4 @@
-use super::{instant, later, scope};
+use super::{instant, later, scope, selection};
 use crate::{
     catalog::TimeCatalog,
     contract::*,
@@ -87,7 +87,10 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
                 "{field}"
             );
             assert!(
-                catalog.calendars_page(&peer, None).await.is_err(),
+                catalog
+                    .calendars_page(&peer, &selection::<crate::Calendars>())
+                    .await
+                    .is_err(),
                 "{field}"
             );
             assert!(
@@ -103,10 +106,10 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
             );
             assert!(
                 catalog
-                    .calendars_page(&foreign, None)
+                    .calendars_page(&foreign, &selection::<crate::Calendars>())
                     .await
                     .unwrap()
-                    .items
+                    .items()
                     .is_empty()
             );
             assert_eq!(
@@ -117,7 +120,11 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
         }
         set_body(&db.a, tenant, row, &original).await;
         assert_eq!(
-            catalog.calendars_page(&owner, None).await.unwrap().items,
+            catalog
+                .calendars_page(&owner, &selection::<crate::Calendars>())
+                .await
+                .unwrap()
+                .items(),
             vec![calendar]
         );
 
@@ -151,7 +158,13 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
                 catalog.epoch(&owner, &epoch.epoch_id).await.is_err(),
                 "{field}"
             );
-            assert!(catalog.epochs_page(&owner, None).await.is_err(), "{field}");
+            assert!(
+                catalog
+                    .epochs_page(&owner, &selection::<crate::Epochs>())
+                    .await
+                    .is_err(),
+                "{field}"
+            );
             assert!(
                 catalog
                     .epochs_for_keys(&peer, std::slice::from_ref(&epoch.epoch_id))
@@ -212,7 +225,10 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
                 "{field}"
             );
             assert!(
-                catalog.events_page(&owner, None, None).await.is_err(),
+                catalog
+                    .events_page(&owner, &selection::<crate::Events>())
+                    .await
+                    .is_err(),
                 "{field}"
             );
             assert!(
@@ -232,10 +248,10 @@ async fn collection_reads_reject_identity_and_ordering_conflicts_after_sql_visib
                 );
                 assert!(
                     catalog
-                        .events_page(denied, None, None)
+                        .events_page(denied, &selection::<crate::Events>())
                         .await
                         .unwrap()
-                        .items
+                        .items()
                         .is_empty()
                 );
             }
@@ -329,7 +345,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             assert!(!format!("{error:#}").contains("STORED_SECRET_MARKER"));
             assert!(
                 catalog
-                    .sources_page(&owner, None, crate::AdminPageLimit::MAX)
+                    .sources_page(&owner, &selection::<crate::Sources>())
                     .await
                     .is_err(),
                 "{field}"
@@ -424,7 +440,10 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
                 "{field}"
             );
             assert!(
-                catalog.releases_page(&owner, None).await.is_err(),
+                catalog
+                    .releases_page(&owner, &selection::<crate::Releases>())
+                    .await
+                    .is_err(),
                 "{field}"
             );
             assert!(
@@ -537,7 +556,7 @@ async fn administrative_metadata_preserves_lifecycle_columns_and_rejects_conflic
             );
             assert!(
                 catalog
-                    .acquisitions_page(&owner, None, crate::AdminPageLimit::MAX)
+                    .acquisitions_page(&owner, &selection::<crate::Acquisitions>())
                     .await
                     .is_err()
             );
@@ -695,9 +714,15 @@ async fn subsecond_columns_admit_one_second_and_corrupt_bodies_reject_reads() {
             }
             let errors = [
                 catalog.epoch(&owner, &epoch.epoch_id).await.unwrap_err(),
-                catalog.epochs_page(&owner, None).await.unwrap_err(),
+                catalog
+                    .epochs_page(&owner, &selection::<crate::Epochs>())
+                    .await
+                    .unwrap_err(),
                 catalog.event(&owner, &event.event_id).await.unwrap_err(),
-                catalog.events_page(&owner, None, None).await.unwrap_err(),
+                catalog
+                    .events_page(&owner, &selection::<crate::Events>())
+                    .await
+                    .unwrap_err(),
             ];
             for error in errors {
                 let message = format!("{error:#}");
@@ -706,18 +731,18 @@ async fn subsecond_columns_admit_one_second_and_corrupt_bodies_reject_reads() {
             }
             assert!(
                 catalog
-                    .epochs_page(&foreign, None)
+                    .epochs_page(&foreign, &selection::<crate::Epochs>())
                     .await
                     .unwrap()
-                    .items
+                    .items()
                     .is_empty()
             );
             assert!(
                 catalog
-                    .events_page(&foreign, None, None)
+                    .events_page(&foreign, &selection::<crate::Events>())
                     .await
                     .unwrap()
-                    .items
+                    .items()
                     .is_empty()
             );
             for ((row, _, _, field), original) in rows.iter().zip(&originals) {
@@ -785,9 +810,15 @@ async fn retained_instants_reject_ambiguous_authority_bindings_after_sql_visibil
         }
         for error in [
             catalog.epoch(&owner, &epoch.epoch_id).await.unwrap_err(),
-            catalog.epochs_page(&owner, None).await.unwrap_err(),
+            catalog
+                .epochs_page(&owner, &selection::<crate::Epochs>())
+                .await
+                .unwrap_err(),
             catalog.event(&owner, &event.event_id).await.unwrap_err(),
-            catalog.events_page(&owner, None, None).await.unwrap_err(),
+            catalog
+                .events_page(&owner, &selection::<crate::Events>())
+                .await
+                .unwrap_err(),
         ] {
             assert!(error.to_string().contains("body"));
         }
@@ -807,18 +838,18 @@ async fn retained_instants_reject_ambiguous_authority_bindings_after_sql_visibil
         );
         assert!(
             catalog
-                .epochs_page(&foreign, None)
+                .epochs_page(&foreign, &selection::<crate::Epochs>())
                 .await
                 .unwrap()
-                .items
+                .items()
                 .is_empty()
         );
         assert!(
             catalog
-                .events_page(&foreign, None, None)
+                .events_page(&foreign, &selection::<crate::Events>())
                 .await
                 .unwrap()
-                .items
+                .items()
                 .is_empty()
         );
         for (((row, _), original), corrupted) in rows.iter().zip(originals).zip(corrupted_bodies) {

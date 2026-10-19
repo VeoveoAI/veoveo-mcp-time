@@ -1,20 +1,14 @@
 use std::sync::LazyLock;
 
-use rmcp::model::{Resource, ResourceTemplate, ServerCapabilities, ServerConfig};
+use rmcp::model::{ServerCapabilities, ServerConfig};
 use veoveo_hub_sdk::{
-    ServerSlug,
     docs::ServerDocs,
-    server_contract::{
-        McpResource, McpResourceTemplate, McpServerContract, McpServerSetup, McpSetupError,
-    },
+    server_contract::{McpServerContract, McpServerSetup},
 };
-use veoveo_types::{ResourceScheme, ResourceTemplateUri};
+use veoveo_types::ResourceScheme;
 
 use super::SERVER_DOCS;
-use crate::{
-    contract::{TimeDocument, TimeResource, TimeScope},
-    uris,
-};
+use crate::contract::{TimeProvider, TimeScope};
 
 pub struct TimeContract;
 pub(crate) static SERVER_SETUP: LazyLock<McpServerSetup<TimeContract>> =
@@ -22,11 +16,9 @@ pub(crate) static SERVER_SETUP: LazyLock<McpServerSetup<TimeContract>> =
 
 impl McpServerContract for TimeContract {
     type Scope = TimeScope;
-    type Resource = TimeResource;
+    type Server = super::TimeMcp;
+    type Provider = TimeProvider;
 
-    fn slug() -> ServerSlug {
-        ServerSlug::parse("time").expect("declared Time slug")
-    }
     fn scheme() -> ResourceScheme {
         ResourceScheme::parse("time").expect("declared Time scheme")
     }
@@ -39,83 +31,6 @@ impl McpServerContract for TimeContract {
     fn server_config() -> ServerConfig {
         server_info()
     }
-    fn resources() -> Result<Vec<McpResource<TimeResource>>, McpSetupError> {
-        resources()
-    }
-    fn resource_templates() -> Result<Vec<McpResourceTemplate>, McpSetupError> {
-        resource_templates()
-    }
-}
-
-fn json_descriptor(
-    address: TimeResource,
-    title: &str,
-    description: &str,
-) -> Result<McpResource<TimeResource>, McpSetupError> {
-    McpResource::new(address, |uri| {
-        Resource::new(uri, title)
-            .with_title(title)
-            .with_description(description)
-            .with_mime_type("application/json")
-    })
-}
-
-fn resources() -> Result<Vec<McpResource<TimeResource>>, McpSetupError> {
-    let mut resources = vec![json_descriptor(
-        TimeResource::Docs,
-        "Server documents",
-        "Index of the crate documents embedded at build time.",
-    )?];
-    for doc in SERVER_DOCS.iter() {
-        resources.push(McpResource::new(
-            TimeResource::Document(TimeDocument::parse(doc.id).expect("declared Time document")),
-            |uri| {
-                Resource::new(uri, doc.title)
-                    .with_title(doc.title)
-                    .with_description("Crate document embedded at build time.")
-                    .with_mime_type("text/markdown")
-            },
-        )?);
-    }
-    resources.push(json_descriptor(
-        TimeResource::Contract,
-        "Contract declaration",
-        "Machine-readable contract revision and compliance declaration.",
-    )?);
-    for (address, title) in [
-        (TimeResource::ClockCurrent, "Current authoritative time"),
-        (TimeResource::ClockQuality, "Clock quality"),
-        (TimeResource::AuthoritiesCurrent, "Active time authorities"),
-    ] {
-        resources.push(json_descriptor(
-            address,
-            title,
-            "Authorized Time domain resource.",
-        )?);
-    }
-    for (address, title) in [
-        (
-            TimeResource::AuthorityReleases { cursor: None },
-            "Acquired time authorities",
-        ),
-        (
-            TimeResource::BootstrapAuthorities { cursor: None },
-            "Packaged time authorities",
-        ),
-        (
-            TimeResource::Calendars { cursor: None },
-            "Operational calendars",
-        ),
-        (TimeResource::Epochs { cursor: None }, "Epochs"),
-        (TimeResource::Events { cursor: None }, "Events"),
-    ] {
-        resources.push(json_descriptor(
-            address,
-            title,
-            "The first page of up to 100 entries. Read a later page by adding the page's `nextCursor` as the `cursor` query parameter.",
-        )?);
-    }
-    Ok(resources)
 }
 
 fn server_info() -> ServerConfig {
@@ -142,75 +57,4 @@ fn server_info() -> ServerConfig {
     info.server_info = rmcp::model::Implementation::new("time", env!("CARGO_PKG_VERSION"));
     info.instructions = Some("Time interpretation and scheduling for agents. Resolve civil, military, GNSS, Unix, TAI, and mission-relative times against versioned TZDB and leap-second releases. Call `expand_schedule` and `validate_timeline` as MCP Tasks. When you pass a time to Map or Optimization, pass the resolved TimeInstant with its uncertainty, not a plain string.".to_owned());
     info
-}
-
-fn template(
-    uri: &str,
-    title: &str,
-    description: &str,
-    mime: &str,
-) -> Result<McpResourceTemplate, McpSetupError> {
-    let template = ResourceTemplateUri::new(uri).map_err(|_| McpSetupError::InvalidTemplate)?;
-    McpResourceTemplate::new(template, |uri| {
-        ResourceTemplate::new(uri, title)
-            .with_title(title)
-            .with_description(description)
-            .with_mime_type(mime)
-    })
-}
-
-fn resource_templates() -> Result<Vec<McpResourceTemplate>, McpSetupError> {
-    [
-        (
-            uris::BOOTSTRAP_AUTHORITY_TEMPLATE,
-            "Packaged authority",
-            "Immutable packaged compiler provenance.",
-            "application/json",
-        ),
-        (
-            uris::EPOCH_VERSION_TEMPLATE,
-            "Epoch version",
-            "One immutable epoch version.",
-            "application/json",
-        ),
-        (
-            uris::DOC_TEMPLATE,
-            "Server document",
-            "Embedded crate document body (contract C18).",
-            "text/markdown",
-        ),
-        (
-            uris::ZONE_TEMPLATE,
-            "IANA time zone",
-            "Zone interpretation under active TZDB.",
-            "application/json",
-        ),
-        (
-            uris::AUTHORITY_RELEASE_TEMPLATE,
-            "Time authority release",
-            "Immutable compiler-ready authority provenance.",
-            "application/json",
-        ),
-        (
-            uris::CALENDAR_TEMPLATE,
-            "Operational calendar",
-            "Versioned operational calendar.",
-            "application/json",
-        ),
-        (
-            uris::EPOCH_TEMPLATE,
-            "Epoch",
-            "Versioned epoch.",
-            "application/json",
-        ),
-        (
-            uris::EVENT_TEMPLATE,
-            "Event",
-            "Owner-scoped event.",
-            "application/json",
-        ),
-    ]
-    .into_iter()
-    .map(|(uri, title, description, mime)| template(uri, title, description, mime))
-    .collect()
 }

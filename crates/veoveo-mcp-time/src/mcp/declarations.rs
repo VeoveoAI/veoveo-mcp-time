@@ -16,10 +16,10 @@ pub(crate) static REGISTRATION: OnceLock<RegistrationDeclaration> = OnceLock::ne
 pub(crate) fn registration(
     deployment: &PublicDeployment,
 ) -> anyhow::Result<RegistrationDeclaration> {
-    let endpoint = deployment.server(TimeContract::slug().as_str())?;
+    let endpoint = deployment.server(crate::changes::server().as_str())?;
     let url = url::Url::parse(&format!("{}/mcp", endpoint.public_url()))?;
     Ok(RegistrationDeclaration {
-        slug: TimeContract::slug(),
+        slug: crate::changes::server(),
         uri_scheme: TimeContract::scheme(),
         version: ServerVersion::new(env!("CARGO_PKG_VERSION"))?,
         endpoint: ServerEndpoint::new(url)?,

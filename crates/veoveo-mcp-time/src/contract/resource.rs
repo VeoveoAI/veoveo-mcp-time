@@ -1,23 +1,13 @@
 //! Domain-owned resource routes, independent of hosted MCP and persistence.
 //!
-//! The compiler refuses this use of `TimeResource`:
-//! ```compile_fail
-//! use veoveo_mcp_time::contract::{CalendarCursor, TimeResource};
-//! fn wrong_page(cursor: CalendarCursor) { let _ = TimeResource::Events { cursor: Some(cursor) }; }
-//! ```
 use std::{borrow::Cow, error::Error, fmt};
 
 use veoveo_types::{ResourceFieldCodec, ResourceRouteError, ResourceTailCodec, ResourceUriError};
 
 use super::{AuthorityReleaseId, CalendarId, EpochId, EventId, TimeVersion};
 
-mod cursor;
 mod identifiers;
 mod release;
-pub use cursor::{
-    AcquisitionCursor, AuthorityCursor, BootstrapAuthorityCursor, CalendarCursor, EpochCursor,
-    EventCursor, SourceCursor,
-};
 pub use identifiers::{TimeDocument, TimeZoneId};
 pub use release::TimeAuthorityReleaseUri;
 
@@ -28,7 +18,6 @@ pub enum TimeResourceError {
     InvalidId,
     InvalidVersion,
     InvalidZone,
-    InvalidCursor,
 }
 
 impl fmt::Display for TimeResourceError {
@@ -40,9 +29,6 @@ impl fmt::Display for TimeResourceError {
             Self::InvalidVersion => f.write_str("Time version must be in 1..=9223372036854775807"),
             Self::InvalidZone => {
                 f.write_str("expected a relative TZDB zone key with nonempty name components")
-            }
-            Self::InvalidCursor => {
-                f.write_str("invalid Time collection cursor or query parameters")
             }
         }
     }
@@ -83,28 +69,19 @@ pub enum TimeResource {
         #[resource(variable = "release_id", error = |_| TimeResourceError::InvalidId)]
         AuthorityReleaseId,
     ),
-    #[resource(template = "time://authorities/releases{?cursor}", route_error = page_route_error)]
-    AuthorityReleases {
-        #[resource(codec = TimeCursorCodec)]
-        cursor: Option<AuthorityCursor>,
-    },
+    #[resource(template = "time://authorities/releases")]
+    AuthorityReleases,
     #[resource(template = "time://authorities/bootstrap/{release_id}")]
     BootstrapAuthority(
         #[resource(variable = "release_id", error = |_| TimeResourceError::InvalidId)]
         AuthorityReleaseId,
     ),
-    #[resource(template = "time://authorities/bootstrap{?cursor}", route_error = page_route_error)]
-    BootstrapAuthorities {
-        #[resource(codec = TimeCursorCodec)]
-        cursor: Option<BootstrapAuthorityCursor>,
-    },
+    #[resource(template = "time://authorities/bootstrap")]
+    BootstrapAuthorities,
     #[resource(template = "time://zones/{+zone_id}")]
     Zone(#[resource(variable = "zone_id", tail, codec = TimeZoneCodec)] TimeZoneId),
-    #[resource(template = "time://calendars{?cursor}", route_error = page_route_error)]
-    Calendars {
-        #[resource(codec = TimeCursorCodec)]
-        cursor: Option<CalendarCursor>,
-    },
+    #[resource(template = "time://calendars")]
+    Calendars,
     #[resource(template = "time://calendars/{calendar_id}/versions/{version}")]
     Calendar {
         #[resource(variable = "calendar_id", error = |_| TimeResourceError::InvalidId)]
@@ -112,11 +89,8 @@ pub enum TimeResource {
         #[resource(codec = TimeVersionCodec)]
         version: TimeVersion,
     },
-    #[resource(template = "time://epochs{?cursor}", route_error = page_route_error)]
-    Epochs {
-        #[resource(codec = TimeCursorCodec)]
-        cursor: Option<EpochCursor>,
-    },
+    #[resource(template = "time://epochs")]
+    Epochs,
     #[resource(template = "time://epochs/{epoch_id}")]
     Epoch(#[resource(variable = "epoch_id", error = |_| TimeResourceError::InvalidId)] EpochId),
     #[resource(template = "time://epochs/{epoch_id}/versions/{version}")]
@@ -126,11 +100,8 @@ pub enum TimeResource {
         #[resource(codec = TimeVersionCodec)]
         version: TimeVersion,
     },
-    #[resource(template = "time://events{?cursor}", route_error = page_route_error)]
-    Events {
-        #[resource(codec = TimeCursorCodec)]
-        cursor: Option<EventCursor>,
-    },
+    #[resource(template = "time://events")]
+    Events,
     #[resource(template = "time://events/{event_id}")]
     Event(#[resource(variable = "event_id", error = |_| TimeResourceError::InvalidId)] EventId),
 }
@@ -143,9 +114,9 @@ impl TimeResource {
             Self::ClockCurrent
                 | Self::ClockQuality
                 | Self::AuthoritiesCurrent
-                | Self::Calendars { cursor: None }
-                | Self::Epochs { cursor: None }
-                | Self::Events { cursor: None }
+                | Self::Calendars
+                | Self::Epochs
+                | Self::Events
                 | Self::Calendar { .. }
                 | Self::Epoch(_)
                 | Self::Event(_)
@@ -163,13 +134,6 @@ fn time_route_error(error: ResourceRouteError) -> TimeResourceError {
     match error {
         ResourceRouteError::Uri(error) => TimeResourceError::Uri(error),
         _ => TimeResourceError::UnknownResource,
-    }
-}
-
-fn page_route_error(error: ResourceRouteError) -> TimeResourceError {
-    match error {
-        ResourceRouteError::Query => TimeResourceError::InvalidCursor,
-        _ => time_route_error(error),
     }
 }
 
@@ -214,53 +178,6 @@ impl ResourceTailCodec<TimeZoneId> for TimeZoneCodec {
     }
     fn segments(value: &TimeZoneId) -> Vec<Cow<'_, str>> {
         value.components().map(Cow::Borrowed).collect()
-    }
-}
-
-struct TimeCursorCodec;
-impl ResourceFieldCodec<AuthorityCursor> for TimeCursorCodec {
-    type Error = TimeResourceError;
-    fn parse(value: &str) -> Result<AuthorityCursor, Self::Error> {
-        AuthorityCursor::parse(value)
-    }
-    fn text(value: &AuthorityCursor) -> Cow<'_, str> {
-        value.as_str().into()
-    }
-}
-impl ResourceFieldCodec<BootstrapAuthorityCursor> for TimeCursorCodec {
-    type Error = TimeResourceError;
-    fn parse(value: &str) -> Result<BootstrapAuthorityCursor, Self::Error> {
-        BootstrapAuthorityCursor::parse(value)
-    }
-    fn text(value: &BootstrapAuthorityCursor) -> Cow<'_, str> {
-        value.as_str().into()
-    }
-}
-impl ResourceFieldCodec<CalendarCursor> for TimeCursorCodec {
-    type Error = TimeResourceError;
-    fn parse(value: &str) -> Result<CalendarCursor, Self::Error> {
-        CalendarCursor::parse(value)
-    }
-    fn text(value: &CalendarCursor) -> Cow<'_, str> {
-        value.as_str().into()
-    }
-}
-impl ResourceFieldCodec<EpochCursor> for TimeCursorCodec {
-    type Error = TimeResourceError;
-    fn parse(value: &str) -> Result<EpochCursor, Self::Error> {
-        EpochCursor::parse(value)
-    }
-    fn text(value: &EpochCursor) -> Cow<'_, str> {
-        value.as_str().into()
-    }
-}
-impl ResourceFieldCodec<EventCursor> for TimeCursorCodec {
-    type Error = TimeResourceError;
-    fn parse(value: &str) -> Result<EventCursor, Self::Error> {
-        EventCursor::parse(value)
-    }
-    fn text(value: &EventCursor) -> Cow<'_, str> {
-        value.as_str().into()
     }
 }
 

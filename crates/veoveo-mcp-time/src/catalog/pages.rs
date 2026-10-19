@@ -2,132 +2,185 @@ use super::{
     TimeAccessContext, TimeCatalog, acquisition_from_record, calendar_from_record,
     epoch_from_record, event_from_record, release_from_record, source_from_record,
 };
-use crate::contract::EventState;
-use crate::{
-    contract::{
-        AcquisitionCursor, AdminPage, AdminPageLimit, AuthorityCursor, AuthorityRelease,
-        CalendarCursor, CollectionPage, Epoch, EpochCursor, EpochId, Event, EventCursor,
-        OperationalCalendar, SourceCursor, TimeAcquisition, TimeSource, TimeVersion,
-    },
-    index,
-};
+use crate::contract::*;
 use anyhow::Result;
+use veoveo_hub_sdk::definition::CollectionRequest;
+use veoveo_types::{LiveKeyset, Page, Pager};
 
 impl TimeCatalog {
-    /// One page of the tenant's sources in source ID order.
     pub async fn sources_page(
         &self,
         scope: &TimeAccessContext,
-        after: Option<&SourceCursor>,
-        limit: AdminPageLimit,
-    ) -> Result<AdminPage<TimeSource, SourceCursor>> {
+        request: &CollectionRequest<Sources>,
+    ) -> Result<Page<Sources>> {
+        let pager = Pager::<Sources>::new(
+            scope.identity.tenant_id,
+            *request.filters(),
+            request.limit(),
+            LiveKeyset,
+            request.cursor(),
+        )?;
         let rows = self
             .persistence
-            .time_sources_page(scope.identity.tenant_id, after, index::admin_fetch(limit))
+            .time_sources_page(
+                scope.identity.tenant_id,
+                pager.after(),
+                pager.fetch_limit() as u32,
+            )
             .await?;
-        index::admin_page(
-            rows,
-            limit,
-            |row| Ok(SourceCursor::new(&row.source_key)),
-            source_from_record,
-        )
+        Ok(pager.finish(
+            rows.into_iter()
+                .map(source_from_record)
+                .collect::<Result<_>>()?,
+        )?)
     }
-
-    /// One page of the tenant's acquisitions, the most recently started first.
     pub async fn acquisitions_page(
         &self,
         scope: &TimeAccessContext,
-        after: Option<&AcquisitionCursor>,
-        limit: AdminPageLimit,
-    ) -> Result<AdminPage<TimeAcquisition, AcquisitionCursor>> {
+        request: &CollectionRequest<Acquisitions>,
+    ) -> Result<Page<Acquisitions>> {
+        let pager = Pager::<Acquisitions>::new(
+            scope.identity.tenant_id,
+            *request.filters(),
+            request.limit(),
+            LiveKeyset,
+            request.cursor(),
+        )?;
         let rows = self
             .persistence
-            .time_acquisitions_page(scope.identity.tenant_id, after, index::admin_fetch(limit))
+            .time_acquisitions_page(
+                scope.identity.tenant_id,
+                pager.after(),
+                pager.fetch_limit() as u32,
+            )
             .await?;
-        index::admin_page(
-            rows,
-            limit,
-            |row| Ok(AcquisitionCursor::new(&row.acquisition_key)),
-            acquisition_from_record,
-        )
+        Ok(pager.finish(
+            rows.into_iter()
+                .map(acquisition_from_record)
+                .collect::<Result<_>>()?,
+        )?)
     }
-
     pub async fn calendars_page(
         &self,
         scope: &TimeAccessContext,
-        after: Option<&CalendarCursor>,
-    ) -> Result<CollectionPage<OperationalCalendar, CalendarCursor>> {
+        request: &CollectionRequest<Calendars>,
+    ) -> Result<Page<Calendars>> {
+        let pager = Pager::<Calendars>::new(
+            scope.identity.tenant_id,
+            *request.filters(),
+            request.limit(),
+            LiveKeyset,
+            request.cursor(),
+        )?;
         let rows = self
             .persistence
-            .list_time_calendar_versions(scope.identity.tenant_id, after, 101)
+            .list_time_calendar_versions(
+                scope.identity.tenant_id,
+                pager.after(),
+                pager.fetch_limit() as u32,
+            )
             .await?;
-        index::page(
-            rows,
-            |row| {
-                Ok(CalendarCursor::new(
-                    &row.calendar_key,
-                    TimeVersion::new(row.calendar_version.try_into()?)?,
-                ))
-            },
-            calendar_from_record,
-        )
+        Ok(pager.finish(
+            rows.into_iter()
+                .map(calendar_from_record)
+                .collect::<Result<_>>()?,
+        )?)
     }
     pub async fn epochs_page(
         &self,
         scope: &TimeAccessContext,
-        after: Option<&EpochCursor>,
-    ) -> Result<CollectionPage<Epoch, EpochCursor>> {
+        request: &CollectionRequest<Epochs>,
+    ) -> Result<Page<Epochs>> {
+        let pager = Pager::<Epochs>::new(
+            scope.identity.tenant_id,
+            *request.filters(),
+            request.limit(),
+            LiveKeyset,
+            request.cursor(),
+        )?;
         let rows = self
             .persistence
-            .list_time_epochs(scope.identity.tenant_id, after, 101)
+            .list_time_epochs(
+                scope.identity.tenant_id,
+                pager.after(),
+                pager.fetch_limit() as u32,
+            )
             .await?;
-        index::page(
-            rows,
-            |row| {
-                Ok(EpochCursor::new(
-                    &row.epoch_key,
-                    TimeVersion::new(row.epoch_version.try_into()?)?,
-                ))
-            },
-            epoch_from_record,
-        )
+        Ok(pager.finish(
+            rows.into_iter()
+                .map(epoch_from_record)
+                .collect::<Result<_>>()?,
+        )?)
     }
     pub async fn events_page(
         &self,
         scope: &TimeAccessContext,
-        after: Option<&EventCursor>,
-        state: Option<EventState>,
-    ) -> Result<CollectionPage<Event, EventCursor>> {
+        request: &CollectionRequest<Events>,
+    ) -> Result<Page<Events>> {
+        let policy = EventKeyset::new(veoveo_types::PrincipalId::parse(
+            scope.identity.principal_id.to_string(),
+        )?);
+        let pager = Pager::<Events>::new(
+            scope.identity.tenant_id,
+            request.filters().clone(),
+            request.limit(),
+            policy,
+            request.cursor(),
+        )?;
         let rows = self
             .persistence
-            .list_time_events(&scope.identity, after, state.map(super::event_state), 101)
+            .list_time_events(
+                &scope.identity,
+                pager.after(),
+                pager.filters().state.map(super::event_state),
+                pager.fetch_limit() as u32,
+            )
             .await?;
-        index::page(
-            rows,
-            |row| {
-                Ok(EventCursor::new(
-                    &row.event_key,
-                    row.due_tai_seconds_since_1970,
-                    crate::SubsecondNanoseconds::new(row.due_nanosecond.try_into()?)?,
-                ))
-            },
-            event_from_record,
-        )
+        Ok(pager.finish(
+            rows.into_iter()
+                .map(event_from_record)
+                .collect::<Result<_>>()?,
+        )?)
     }
     pub async fn releases_page(
         &self,
         scope: &TimeAccessContext,
-        after: Option<&AuthorityCursor>,
-    ) -> Result<CollectionPage<AuthorityRelease, AuthorityCursor>> {
+        request: &CollectionRequest<Releases>,
+    ) -> Result<Page<Releases>> {
+        let pager = Pager::<Releases>::new(
+            scope.identity.tenant_id,
+            *request.filters(),
+            request.limit(),
+            LiveKeyset,
+            request.cursor(),
+        )?;
         let rows = self
             .persistence
-            .time_authority_releases_page(scope.identity.tenant_id, after, 101)
+            .time_authority_releases_page(
+                scope.identity.tenant_id,
+                pager.after(),
+                pager.fetch_limit() as u32,
+            )
             .await?;
-        index::page(
-            rows,
-            |row| Ok(AuthorityCursor::new(&row.release_key)),
-            release_from_record,
-        )
+        Ok(pager.finish(
+            rows.into_iter()
+                .map(|row| release_from_record(row).map(ReleaseEntry::from))
+                .collect::<Result<_>>()?,
+        )?)
+    }
+    pub async fn active_authorities_page(
+        &self,
+        scope: &TimeAccessContext,
+        request: &CollectionRequest<ActiveAuthorities>,
+    ) -> Result<Page<ActiveAuthorities>> {
+        let pager = Pager::<ActiveAuthorities>::new(
+            scope.identity.tenant_id,
+            *request.filters(),
+            request.limit(),
+            LiveKeyset,
+            request.cursor(),
+        )?;
+        Ok(pager.select(self.active_authorities(scope).await?)?)
     }
     pub async fn epochs_for_keys(
         &self,

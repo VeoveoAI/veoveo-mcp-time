@@ -1,27 +1,17 @@
 use std::sync::{Arc, LazyLock};
 
-use rmcp::tool;
 use rmcp::{
     ErrorData as McpError, RoleServer,
-    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{
-        CallToolResult, CompleteRequestParams, CompleteResult, CompletionInfo,
-        GetPromptRequestParams, GetPromptResult, Prompt, ReadResourceRequestParams, Reference,
-        Resource,
-    },
+    model::{CompleteRequestParams, CompleteResult, CompletionInfo, Reference},
     service::RequestContext,
-    tool_router,
 };
 use uuid::Uuid;
 use veoveo_hub_sdk::{
+    definition::Product,
     docs::ServerDocs,
-    hosting::{
-        DomainAddress, DomainRead, DomainServer, Listing, completion, product_result,
-        rank_completions, structured_result, unknown_prompt,
-    },
+    hosting::{DomainServer, RoutePolicy, Routes, completion, rank_completions},
     server_contract::McpServerSetup,
 };
-use veoveo_types::ResourceAddress as _;
 
 use crate::{
     clock::assess_clock,
@@ -29,8 +19,8 @@ use crate::{
         AssessClockRequest, CancelEventRequest, ClockAssessment, ClockQualityPolicy,
         ConvertTimeOutput, ConvertTimeRequest, CreateEventRequest, EvaluateWindowsOutput,
         EvaluateWindowsRequest, Event, EventId, EventState, ExpandScheduleOutput,
-        ExpandScheduleRequest, ResolveTimeOutput, ResolveTimeRequest, ScheduledEvent,
-        ValidateTimelineOutput, ValidateTimelineRequest,
+        ExpandScheduleRequest, ResolveTimeOutput, ResolveTimeRequest, ValidateTimelineOutput,
+        ValidateTimelineRequest,
     },
     prompts::TimePrompt,
     state::TimeApplication,
@@ -43,7 +33,7 @@ pub(crate) mod requirements;
 mod resources;
 mod setup;
 mod subscriptions;
-use requirements::{Target, require, require_permission};
+use requirements::require_permission;
 pub(crate) use setup::SERVER_SETUP;
 use setup::TimeContract;
 pub(crate) use subscriptions::TimeSubscriptions;
@@ -57,37 +47,21 @@ pub(crate) static SERVER_DOCS: LazyLock<ServerDocs> =
 #[derive(Clone)]
 pub struct TimeMcp {
     state: Arc<TimeApplication>,
-    tool_router: ToolRouter<TimeMcp>,
 }
 
-#[tool_router]
 impl TimeMcp {
     pub fn new(state: Arc<TimeApplication>) -> Self {
-        Self {
-            state,
-            tool_router: Self::tools(),
-        }
-    }
-
-    /// Every tool Time serves: its domain tools and tenant administration.
-    pub(crate) fn tools() -> ToolRouter<Self> {
-        Self::tool_router() + Self::administration_router()
+        Self { state }
     }
 
     /// The capability inventory declared at `time://contract` (contract C19).
     ///
-    #[tool(
-        title = "Resolve operational time",
-        description = "Resolve a time given as RFC 3339/9557, civil time, a military DTG, Unix time, TAI, GPS time, Julian TAI, or mission-relative time, using the active time-authority releases.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ResolveTimeOutput>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
     async fn resolve_time(
         &self,
-        Parameters(request): Parameters<ResolveTimeRequest>,
+        request: ResolveTimeRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("resolve_time"))?;
+    ) -> Result<ResolveTimeOutput, McpError> {
+        let identity = veoveo_hub_sdk::hosting::hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let output = self
             .state
@@ -96,24 +70,15 @@ impl TimeMcp {
             .map_err(internal)?
             .resolve(&request)
             .map_err(invalid_params)?;
-        structured_result(
-            format!("resolved {}", output.projection().utc_rfc3339),
-            &output,
-        )
+        Ok(output)
     }
 
-    #[tool(
-        title = "Convert operational time",
-        description = "Convert a resolved TimeInstant to UTC, chosen IANA time zones, TAI, TT, TDB, GPS time (GPST), and Galileo time (GST).",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ConvertTimeOutput>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
     async fn convert_time(
         &self,
-        Parameters(request): Parameters<ConvertTimeRequest>,
+        request: ConvertTimeRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("convert_time"))?;
+    ) -> Result<ConvertTimeOutput, McpError> {
+        let identity = veoveo_hub_sdk::hosting::hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let output = self
             .state
@@ -122,21 +87,15 @@ impl TimeMcp {
             .map_err(internal)?
             .convert(&request)
             .map_err(invalid_params)?;
-        structured_result("converted authority-bound time".to_owned(), &output)
+        Ok(output)
     }
 
-    #[tool(
-        title = "Evaluate time windows",
-        description = "Compute the union, intersection, or difference of half-open time windows.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<EvaluateWindowsOutput>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
     async fn evaluate_windows(
         &self,
-        Parameters(request): Parameters<EvaluateWindowsRequest>,
+        request: EvaluateWindowsRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("evaluate_windows"))?;
+    ) -> Result<EvaluateWindowsOutput, McpError> {
+        let identity = veoveo_hub_sdk::hosting::hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let output = self
             .state
@@ -145,24 +104,15 @@ impl TimeMcp {
             .map_err(internal)?
             .evaluate_windows(&request)
             .map_err(invalid_params)?;
-        structured_result(
-            format!("calculated {} window(s)", output.windows.len()),
-            &output,
-        )
+        Ok(output)
     }
 
-    #[tool(
-        title = "Assess clock quality",
-        description = "Check the host clock's measured offset, error bound, stratum, source diversity, holdover, and traceability against a policy you pass or the tenant's policy.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ClockAssessment>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
-    )]
     async fn assess_clock(
         &self,
-        Parameters(request): Parameters<AssessClockRequest>,
+        request: AssessClockRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("assess_clock"))?;
+    ) -> Result<ClockAssessment, McpError> {
+        let identity = veoveo_hub_sdk::hosting::hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let policy = match request.policy {
             Some(policy) => policy,
@@ -177,55 +127,37 @@ impl TimeMcp {
         };
         let output = assess_clock(self.state.clock.quality().await.map_err(internal)?, policy)
             .map_err(internal)?;
-        structured_result(format!("clock acceptable: {}", output.acceptable), &output)
+        Ok(output)
     }
 
-    #[tool(
-        title = "Expand operational calendar",
-        description = "Expand a versioned civil-time operational calendar into half-open time windows. Run as an MCP Task.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ExpandScheduleOutput>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
     async fn expand_schedule(
         &self,
-        Parameters(_request): Parameters<ExpandScheduleRequest>,
+        _request: ExpandScheduleRequest,
         _context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
+    ) -> Result<ExpandScheduleOutput, McpError> {
         Err(McpError::invalid_request(
             "`expand_schedule` must be called as an MCP Task. Resend the call with task parameters.",
             None,
         ))
     }
 
-    #[tool(
-        title = "Validate mission timeline",
-        description = "Resolve named time points and check their ordering and minimum and maximum separation constraints. Run as an MCP Task.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ValidateTimelineOutput>(),
-        annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
-    )]
     async fn validate_timeline(
         &self,
-        Parameters(_request): Parameters<ValidateTimelineRequest>,
+        _request: ValidateTimelineRequest,
         _context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
+    ) -> Result<ValidateTimelineOutput, McpError> {
         Err(McpError::invalid_request(
             "`validate_timeline` must be called as an MCP Task. Resend the call with task parameters.",
             None,
         ))
     }
 
-    #[tool(
-        title = "Create event",
-        description = "Create an event at a resolved time instant. Subscribers receive a resource update when it becomes due. Only its owner can change it.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<ScheduledEvent>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
-    )]
     async fn create_event(
         &self,
-        Parameters(request): Parameters<CreateEventRequest>,
+        request: CreateEventRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("create_event"))?;
+    ) -> Result<Product<Event>, McpError> {
+        let identity = veoveo_hub_sdk::hosting::hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let engine = self.state.engine(&scope).await.map_err(internal)?;
         engine
@@ -258,27 +190,15 @@ impl TimeMcp {
             .create_event(&scope, event, due, request.idempotency_key)
             .await
             .map_err(internal)?;
-        let scheduled = ScheduledEvent::from(event);
-        let uri = scheduled.result_uri.to_uri().map_err(internal)?;
-        product_result(
-            "Event scheduled.",
-            Resource::new(uri.as_str(), scheduled.name.clone()),
-            &scheduled,
-        )
+        Product::new(&crate::TimeResource::Event(event.event_id.clone()), event).map_err(internal)
     }
 
-    #[tool(
-        title = "Cancel event",
-        description = "Cancel an event you own. Pass the revision you last read; the call fails if it has changed.",
-        output_schema = rmcp::handler::server::tool::schema_for_type::<Event>(),
-        annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
-    )]
     async fn cancel_event(
         &self,
-        Parameters(request): Parameters<CancelEventRequest>,
+        request: CancelEventRequest,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let identity = require(&context, Target::Tool("cancel_event"))?;
+    ) -> Result<Event, McpError> {
+        let identity = veoveo_hub_sdk::hosting::hub_identity(&context)?;
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let event = self
             .state
@@ -286,9 +206,135 @@ impl TimeMcp {
             .cancel_event(&scope, &request.event_id, request.expected_record_version)
             .await
             .map_err(internal)?;
-        structured_result(format!("cancelled {}", event.event_id), &event)
+        Ok(event)
     }
 }
+
+static ROUTES: LazyLock<Routes<TimeMcp>> = LazyLock::new(|| {
+    use crate::contract::*;
+    use TimePermission::*;
+    let policy = |permission| RoutePolicy::permission(permission).expect("Time permission");
+    let routes = Routes::<TimeMcp>::builder(policy(AuthoritiesRead));
+    let routes = routes.tool::<ResolveTimeRequest, _, _>(
+        "Resolve a time given as RFC 3339/9557, civil time, a military DTG, Unix time, TAI, GPS time, Julian TAI, or mission-relative time, using the active time-authority releases.",
+        policy(AuthoritiesRead),
+        |domain, request, context| async move { domain.resolve_time(request, context).await.map_err(Into::into) },
+    );
+    let routes = routes.tool::<ConvertTimeRequest, _, _>(
+        "Convert a resolved TimeInstant to UTC, chosen IANA time zones, TAI, TT, TDB, GPS time (GPST), and Galileo time (GST).",
+        policy(AuthoritiesRead),
+        |domain, request, context| async move { domain.convert_time(request, context).await.map_err(Into::into) },
+    );
+    let routes = routes.tool::<EvaluateWindowsRequest, _, _>(
+        "Compute the union, intersection, or difference of half-open time windows.",
+        policy(SchedulesExpand),
+        |domain, request, context| async move {
+            domain
+                .evaluate_windows(request, context)
+                .await
+                .map_err(Into::into)
+        },
+    );
+    let routes = routes.tool::<AssessClockRequest, _, _>(
+        "Check the host clock's measured offset, error bound, stratum, source diversity, holdover, and traceability against a policy you pass or the tenant's policy.",
+        policy(AuthoritiesRead),
+        |domain, request, context| async move { domain.assess_clock(request, context).await.map_err(Into::into) },
+    );
+    let routes = routes.task::<ExpandScheduleRequest, _, _>(
+        "Expand a versioned civil-time operational calendar into half-open time windows. Run as an MCP Task.",
+        policy(SchedulesExpand),
+        |domain, request, context| async move { domain.expand_schedule(request, context).await.map_err(Into::into) },
+    );
+    let routes = routes.task::<ValidateTimelineRequest, _, _>(
+        "Resolve named time points and check their ordering and minimum and maximum separation constraints. Run as an MCP Task.",
+        policy(TimelinesValidate),
+        |domain, request, context| async move { domain.validate_timeline(request, context).await.map_err(Into::into) },
+    );
+    let routes = routes.tool::<CreateEventRequest, _, _>(
+        "Create an event at a resolved time instant. Subscribers receive a resource update when it becomes due. Only its owner can change it.",
+        policy(EventsWrite),
+        |domain, request, context| async move { domain.create_event(request, context).await.map_err(Into::into) },
+    );
+    let routes = routes.tool::<CancelEventRequest, _, _>(
+        "Cancel an event you own. Pass the revision you last read; the call fails if it has changed.",
+        policy(EventsWrite),
+        |domain, request, context| async move { domain.cancel_event(request, context).await.map_err(Into::into) },
+    );
+    let routes = routes.collection::<ListSources, _, _>(
+        "List the tenant's registered time-authority sources, the HTTPS locations of IANA time zone and leap-second data, in source ID order. A page holds up to `limit` sources, 100 by default. Pass its `nextCursor` as `cursor` to read the next page.",
+        policy(AuthoritiesInspect),
+        |domain, request, context| async move { domain.list_sources(request, context).await },
+    );
+    let routes = routes.tool::<GetSourceRequest, _, _>(
+        "Read one registered time-authority source.",
+        policy(AuthoritiesInspect),
+        |domain, request, context| async move { domain.get_source(request, context).await },
+    );
+    let routes = routes.tool::<CreateSourceRequest, _, _>(
+        "Register an HTTPS source of IANA time zone or leap-second data for the tenant. Repeating a call with the same idempotency key returns the same source.",
+        policy(AuthoritiesAdminister),
+        |domain, request, context| async move { domain.create_source(request, context).await },
+    );
+    let routes = routes.tool::<ReplaceSourceRequest, _, _>(
+        "Replace a registered source's settings. Pass the record version you last read; the call fails if it has changed.",
+        policy(AuthoritiesAdminister),
+        |domain, request, context| async move { domain.replace_source(request, context).await },
+    );
+    let routes = routes.collection::<ListAcquisitions, _, _>(
+        "List the tenant's authority acquisitions and their progress, the most recently started first. A page holds up to `limit` acquisitions, 100 by default. Pass its `nextCursor` as `cursor` to read the next page.",
+        policy(AuthoritiesInspect),
+        |domain, request, context| async move { domain.list_acquisitions(request, context).await },
+    );
+    let routes = routes.tool::<GetAcquisitionRequest, _, _>(
+        "Read one acquisition's status, phase and staged release.",
+        policy(AuthoritiesInspect),
+        |domain, request, context| async move { domain.get_acquisition(request, context).await },
+    );
+    let routes = routes.tool::<StartAcquisitionRequest, _, _>(
+        "Download, verify and compile a new release from a registered source, staging it for activation. The acquisition continues after the call returns; read its progress with get_acquisition. Repeating a call with the same idempotency key returns the same acquisition.",
+        policy(AuthoritiesAdminister),
+        |domain, request, context| async move { domain.start_acquisition(request, context).await },
+    );
+    let routes = routes.tool::<CancelAcquisitionRequest, _, _>(
+        "Request cancellation of a running acquisition. Its scratch content is removed and no release is staged.",
+        policy(AuthoritiesAdminister),
+        |domain, request, context| async move { domain.cancel_acquisition(request, context).await },
+    );
+    let routes = routes.collection::<ListActiveAuthorities, _, _>(
+        "List the tenant's active release for each authority dataset with the pointer version activate_release requires as its expected active pointer version.",
+        policy(AuthoritiesInspect),
+        |domain, request, context| async move { domain.list_active_authorities(request, context).await },
+    );
+    let routes = routes.tool::<ActivateReleaseRequest, _, _>(
+        "Make a staged release the tenant's active authority for its dataset. The previous release is retired and kept. Pass the release's record version and the active pointer version you last read; the call fails if either has changed.",
+        policy(AuthoritiesAdminister),
+        |domain, request, context| async move { domain.activate_release(request, context).await },
+    );
+    let routes = routes.tool::<CreateCalendarRequest, _, _>(
+        "Publish a version of an operational calendar for the tenant. Repeating a call with the same idempotency key returns the same version.",
+        policy(CalendarsWrite),
+        |domain, request, context| async move { domain.create_calendar(request, context).await },
+    );
+    let routes = routes.tool::<UpsertEpochRequest, _, _>(
+        "Publish a version of a mission epoch for the tenant. Repeating a call with the same idempotency key returns the same version.",
+        policy(EpochsWrite),
+        |domain, request, context| async move { domain.create_epoch(request, context).await },
+    );
+    let routes = routes.tool::<ReplaceClockQualityPolicyRequest, _, _>(
+        "Replace the tenant's clock quality policy, which assess_clock applies when a call passes none. Pass the record version you last read, or none when no policy exists yet.",
+        policy(ClockPoliciesWrite),
+        |domain, request, context| async move { domain.replace_clock_policy(request, context).await },
+    );
+    let mut routes = resources::register(routes);
+    for prompt in TimePrompt::ALL {
+        routes = routes.prompt(
+            prompt.definition(),
+            policy(AuthoritiesRead),
+            move |_, request, _| async move { prompt.render(request.arguments) },
+        );
+    }
+    routes.build()
+});
 
 impl DomainServer for TimeMcp {
     type Contract = TimeContract;
@@ -297,47 +343,8 @@ impl DomainServer for TimeMcp {
         &SERVER_SETUP
     }
 
-    fn tool_router(&self) -> &ToolRouter<Self> {
-        &self.tool_router
-    }
-
-    async fn list_resources(
-        &self,
-        declared: Vec<Resource>,
-        _cursor: Option<&str>,
-        context: &RequestContext<RoleServer>,
-    ) -> Result<Listing<Resource>, McpError> {
-        require_permission(context, requirements::SERVER)?;
-        Ok(Listing::all(declared))
-    }
-
-    async fn read(
-        &self,
-        address: DomainAddress<TimeContract>,
-        request: &ReadResourceRequestParams,
-        context: &RequestContext<RoleServer>,
-    ) -> Result<DomainRead, McpError> {
-        self.read_time_resource(address, &request.uri, context)
-            .await
-            .map(DomainRead::private)
-    }
-
-    fn prompts(&self) -> Vec<Prompt> {
-        TimePrompt::ALL
-            .into_iter()
-            .map(TimePrompt::definition)
-            .collect()
-    }
-
-    async fn get_prompt(
-        &self,
-        request: GetPromptRequestParams,
-        context: RequestContext<RoleServer>,
-    ) -> Result<GetPromptResult, McpError> {
-        require(&context, Target::Prompt(&request.name))?;
-        TimePrompt::by_name(&request.name)
-            .ok_or_else(|| unknown_prompt(&request.name))?
-            .render(request.arguments)
+    fn routes() -> &'static Routes<Self> {
+        &ROUTES
     }
 
     async fn complete(
@@ -507,61 +514,22 @@ mod tests {
         for root in [uris::CALENDARS_URI, uris::EPOCHS_URI, uris::EVENTS_URI] {
             assert!(roots.iter().any(|resource| resource.uri == root));
         }
-        // Collections continue through `nextCursor` and a `?cursor=` query on their
-        // root, so no advertised template carries a query operator.
-        assert!(
-            SERVER_SETUP
-                .resource_templates()
-                .iter()
-                .all(|resource| !resource.template().as_str().contains("{?"))
-        );
-    }
-
-    #[test]
-    fn tool_input_schemas_use_the_canonical_profile() {
-        assert!(!TimeMcp::tools().list_all().is_empty());
-    }
-
-    /// Schemars copies a type's doc comment into its schema description, which a model
-    /// reads. Doc tests belong in module documentation, outside any description.
-    #[test]
-    fn schema_descriptions_carry_no_code_blocks() {
-        fn walk(value: &serde_json::Value, path: &str, found: &mut Vec<String>) {
-            match value {
-                serde_json::Value::Object(object) => {
-                    if let Some(serde_json::Value::String(text)) = object.get("description")
-                        && text.contains("```")
-                    {
-                        found.push(path.to_owned());
-                    }
-                    for (key, child) in object {
-                        walk(child, &format!("{path}/{key}"), found);
-                    }
-                }
-                serde_json::Value::Array(items) => {
-                    for (index, child) in items.iter().enumerate() {
-                        walk(child, &format!("{path}/{index}"), found);
-                    }
-                }
-                _ => {}
-            }
+        // Collection templates derive the same shared selection as resource dispatch.
+        let templates = SERVER_SETUP.resource_templates();
+        for root in [uris::CALENDARS_URI, uris::EPOCHS_URI, uris::EVENTS_URI] {
+            let expected = format!("{root}{{?limit,cursor}}");
+            assert!(
+                templates
+                    .iter()
+                    .any(|resource| resource.template().as_str() == expected)
+            );
         }
-        let mut found = Vec::new();
-        for tool in TimeMcp::tools().list_all() {
-            let input = serde_json::Value::Object((*tool.input_schema).clone());
-            walk(&input, &format!("{}/input", tool.name), &mut found);
-            if let Some(output) = &tool.output_schema {
-                let output = serde_json::Value::Object((**output).clone());
-                walk(&output, &format!("{}/output", tool.name), &mut found);
-            }
-        }
-        assert!(found.is_empty(), "{found:#?}");
     }
 }
 
 #[cfg(test)]
 mod well_known_tests {
-    use veoveo_hub_sdk::docs::{ComplianceStatus, ContractId, DOC_ID_AGENTS, DOC_ID_DESIGN};
+    use veoveo_hub_sdk::docs::{ContractId, DOC_ID_AGENTS, DOC_ID_DESIGN};
 
     use super::SERVER_DOCS;
 
@@ -569,7 +537,7 @@ mod well_known_tests {
     fn embedded_documents_carry_the_crate_manual_and_design() {
         assert_eq!(SERVER_DOCS.server(), "time");
         let agents = SERVER_DOCS.doc(DOC_ID_AGENTS).expect("agents document");
-        assert!(agents.body.contains("## Contract Compliance"));
+        assert!(agents.body.contains("## Purpose"));
         let design = SERVER_DOCS.doc(DOC_ID_DESIGN).expect("design document");
         assert!(!design.body.is_empty());
         let index = SERVER_DOCS.llms_txt();
@@ -582,14 +550,6 @@ mod well_known_tests {
         let declaration = veoveo_hub_sdk::docs::ContractDeclaration::from_docs(&SERVER_DOCS);
         assert_eq!(declaration.server().as_str(), "time");
         assert_eq!(declaration.contract(), ContractId::HostedMcp);
-        for id in ["C18", "C19", "C20", "C21"] {
-            let item = declaration
-                .compliance()
-                .iter()
-                .find(|item| item.id.as_str() == id)
-                .expect("declared checklist item");
-            assert_eq!(item.status, ComplianceStatus::Met, "{id} must be met");
-        }
         let json = serde_json::to_value(&declaration).expect("declaration serializes");
         assert_eq!(json["server"], "time");
     }

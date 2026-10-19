@@ -112,7 +112,18 @@ async fn retained_digests_carry_provenance_idempotency_and_reject_corruption() {
             .await
             .unwrap_err();
         assert!(!format!("{error:#}").contains("PRIVATE_INVALID_DIGEST"));
-        assert!(catalog.releases_page(&owner, None).await.is_err());
+        assert!(
+            catalog
+                .releases_page(
+                    &owner,
+                    &veoveo_hub_sdk::definition::CollectionRequest::<crate::Releases>::new(
+                        veoveo_hub_sdk::definition::NoFilters {},
+                        veoveo_types::PageSize::new(100).unwrap()
+                    )
+                )
+                .await
+                .is_err()
+        );
         assert!(
             catalog
                 .release(&foreign, &release.release_id)

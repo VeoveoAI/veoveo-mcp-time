@@ -31,8 +31,8 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use veoveo_hub_sdk::client::{BearerSource as _, StaticBearer};
 use veoveo_mcp_time::{
-    ConvertTimeOutput, Event, EventState, ExpandScheduleOutput, ScheduleOccurrence, ScheduledEvent,
-    TimeInstant, TimeResource, TimeScale, TimeVersion, TimeWindow,
+    ConvertTimeOutput, Event, EventState, ExpandScheduleOutput, ScheduleOccurrence, TimeInstant,
+    TimeResource, TimeScale, TimeVersion, TimeWindow,
 };
 
 #[derive(Clone, Copy)]
@@ -215,29 +215,30 @@ fn later(instant: &Value, seconds: i64) -> Result<Value> {
     Ok(later)
 }
 
-async fn create_event(client: &Client, name: &str, due: Value) -> Result<ScheduledEvent> {
+async fn create_event(client: &Client, name: &str, due: Value) -> Result<Event> {
     let created = call(
         client,
         "create_event",
         json!({"name": name, "due": due, "idempotencyKey": uuid::Uuid::now_v7().to_string()}),
     )
     .await?;
-    Ok(serde_json::from_value(created)?)
+    let product: veoveo_hub_sdk::definition::Product<Event> = serde_json::from_value(created)?;
+    Ok(product.metadata().clone())
 }
 
 /// The address `create_event` returned as the event's `resultUri`.
-fn event_uri(event: &ScheduledEvent) -> String {
-    event.result_uri.to_string()
+fn event_uri(event: &Event) -> String {
+    veoveo_mcp_time::TimeResource::Event(event.event_id.clone()).to_string()
 }
 
-async fn event(client: &Client, event: &ScheduledEvent) -> Result<Event> {
+async fn event(client: &Client, event: &Event) -> Result<Event> {
     Ok(serde_json::from_value(
         read(client, &event_uri(event)).await?,
     )?)
 }
 
 /// Subscribe to one event's own resource; the Hub must accept it unchanged.
-async fn watch_event(client: &Client, event: &ScheduledEvent) -> Result<Subscription> {
+async fn watch_event(client: &Client, event: &Event) -> Result<Subscription> {
     let filter = SubscriptionFilter::builder()
         .resource_subscriptions([event_uri(event)])
         .build();
@@ -250,7 +251,7 @@ async fn watch_event(client: &Client, event: &ScheduledEvent) -> Result<Subscrip
 }
 
 /// The next update naming the watched event; it carries no state, so the caller reads it.
-async fn next_event_update(listener: &mut Subscription, event: &ScheduledEvent) -> Result<()> {
+async fn next_event_update(listener: &mut Subscription, event: &Event) -> Result<()> {
     let uri = event_uri(event);
     loop {
         let notification = listener
@@ -587,7 +588,7 @@ async fn administration_is_admitted_for_admins_and_refused_to_members() -> Resul
         refused(&member, name)
             .await
             .with_context(|| format!("a member called {name}"))?;
-        let page = call(&admin, name, json!({})).await?;
+        let page = call(&admin, name, json!({"filters":{}})).await?;
         ensure!(page["items"].is_array(), "{name} returned no page");
     }
     Ok(())
@@ -943,7 +944,7 @@ async fn restart_persistence_verify() -> Result<()> {
             "the prepared Task did not retain its Cancelled outcome"
         );
 
-        let scheduled = ScheduledEvent::from(current.clone());
+        let scheduled = current.clone();
         let mut events = watch_event(&member, &scheduled).await?;
         next_event_update(&mut events, &scheduled).await?;
         ensure!(

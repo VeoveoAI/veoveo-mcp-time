@@ -18,9 +18,6 @@ impl TimePrompt {
         Self::ExpandOperationalCalendar,
         Self::ValidateMissionTimeline,
     ];
-    pub fn by_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|value| value.name() == name)
-    }
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::ResolveOperationalTime => "resolve_operational_time",
