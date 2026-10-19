@@ -5,7 +5,7 @@ use rmcp::{
     ErrorData as McpError, RoleServer,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{
-        CallToolResult, CompleteRequestParams, CompleteResult, CompletionInfo,
+        CallToolResult, ClientCapabilities, CompleteRequestParams, CompleteResult, CompletionInfo,
         GetPromptRequestParams, GetPromptResult, Prompt, ReadResourceRequestParams, Reference,
         Resource,
     },
@@ -189,11 +189,11 @@ impl TimeMcp {
     async fn expand_schedule(
         &self,
         Parameters(_request): Parameters<ExpandScheduleRequest>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        Err(McpError::invalid_request(
-            "`expand_schedule` must be called as an MCP Task. Resend the call with task parameters.",
-            None,
+        require(&context, Target::Tool("expand_schedule"))?;
+        Err(McpError::missing_required_client_capability(
+            ClientCapabilities::builder().enable_tasks().build(),
         ))
     }
 
@@ -206,11 +206,11 @@ impl TimeMcp {
     async fn validate_timeline(
         &self,
         Parameters(_request): Parameters<ValidateTimelineRequest>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        Err(McpError::invalid_request(
-            "`validate_timeline` must be called as an MCP Task. Resend the call with task parameters.",
-            None,
+        require(&context, Target::Tool("validate_timeline"))?;
+        Err(McpError::missing_required_client_capability(
+            ClientCapabilities::builder().enable_tasks().build(),
         ))
     }
 
