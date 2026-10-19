@@ -51,6 +51,20 @@ fn retired_members(wire: &serde_json::Value) -> Vec<serde_json::Value> {
     controls
 }
 
+fn rejects_arguments(tool: &str, arguments: &serde_json::Value) -> bool {
+    match tool {
+        "resolve_time" => serde_json::from_value::<ResolveTimeRequest>(arguments.clone()).is_err(),
+        "convert_time" => serde_json::from_value::<ConvertTimeRequest>(arguments.clone()).is_err(),
+        "evaluate_windows" => {
+            serde_json::from_value::<EvaluateWindowsRequest>(arguments.clone()).is_err()
+        }
+        "expand_schedule" => {
+            serde_json::from_value::<ExpandScheduleRequest>(arguments.clone()).is_err()
+        }
+        _ => panic!("unexpected fixture tool"),
+    }
+}
+
 #[tokio::test]
 async fn unknown_tool_arguments_complete_before_time_resolution() {
     tokio::time::timeout(Duration::from_secs(120), async {
@@ -59,6 +73,8 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
         let state = &fixture.state;
         let discover = hub.rpc("server/discover", json!({})).await;
         assert!(discover.get("error").is_none(), "{discover}");
+        let tools = hub.rpc("tools/list", json!({})).await;
+        assert!(tools.get("error").is_none(), "{tools}");
         // Real authenticated HTTP captures remain snake_case while owner JSON is camelCase.
         let owner_token = token("tenant-a");
         let inputs: Vec<serde_json::Value> =
@@ -146,6 +162,10 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
         let clock_text = clock["result"]["contents"][0]["text"].as_str().unwrap();
         let current: ClockCurrent = serde_json::from_str(clock_text).unwrap();
         let wire = serde_json::to_value(&current).unwrap();
+        assert_eq!(
+            serde_json::from_value::<ClockCurrent>(wire.clone()).unwrap(),
+            current
+        );
         let schema = serde_json::to_value(schemars::schema_for!(ClockCurrent)).unwrap();
         let validator = jsonschema::validator_for(&schema).unwrap();
         assert!(validator.is_valid(&wire));
@@ -243,6 +263,18 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
         ));
         assert_eq!(cases.len(), 30);
         for case in cases {
+            let tool = tools["result"]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tool| tool["name"] == case.tool)
+                .unwrap();
+            let validator = jsonschema::validator_for(&tool["inputSchema"]).unwrap();
+            assert!(
+                validator.is_valid(&case.arguments),
+                "{}: published schema refuses the baseline",
+                case.branch
+            );
             match case.tool.as_str() {
                 "resolve_time" => {
                     let _: crate::contract::ResolveTimeRequest = case.decode();
@@ -276,11 +308,29 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                 assert_eq!(result.is_error, Some(true), "{}: {body}", case.branch);
                 assert!(state.tasks.claim_next().await.unwrap().is_none());
             }
-            for (location, arguments) in case
+            for (location, arguments, unknown_field) in case
                 .unknown_fields()
                 .into_iter()
-                .chain(case.invalid_values())
+                .map(|(location, arguments)| (location, arguments, true))
+                .chain(
+                    case.invalid_values()
+                        .into_iter()
+                        .map(|(location, arguments)| (location, arguments, false)),
+                )
             {
+                assert!(
+                    rejects_arguments(&case.tool, &arguments),
+                    "{} {location}",
+                    case.branch
+                );
+                let schema_refuses = !validator.is_valid(&arguments);
+                if unknown_field {
+                    assert!(
+                        schema_refuses,
+                        "{} {location}: published schema admits an unknown field",
+                        case.branch
+                    );
+                }
                 let body = hub
                     .rpc(
                         "tools/call",
@@ -305,7 +355,24 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
                     "{} {location}: {body}",
                     case.branch
                 );
-                case.assert_error(&location, &serde_json::to_string(&result.content).unwrap());
+                // Typed routes mask owner decoding details. Tagged oneOf schemas
+                // may identify the containing expression rather than its field.
+                let content = serde_json::to_string(&result.content).unwrap();
+                assert!(
+                    content.contains("invalid typed tool arguments"),
+                    "{} {location}: {body}",
+                    case.branch
+                );
+                if schema_refuses {
+                    assert!(
+                        content.contains(&format!(
+                            "The arguments do not match the published input schema of `{}`",
+                            case.tool
+                        )),
+                        "{} {location}: {body}",
+                        case.branch
+                    );
+                }
             }
         }
         assert!(state.tasks.claim_next().await.unwrap().is_none());

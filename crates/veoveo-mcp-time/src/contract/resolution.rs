@@ -35,6 +35,7 @@ pub struct TimeProjectionValue {
     pub unix_seconds: i64,
     pub gps_week: Option<u32>,
     pub gps_seconds_of_week: Option<super::admission::GpsSecondsOfWeek>,
+    #[serde(deserialize_with = "super::admission::finite_json_number")]
     pub julian_day_tai: f64,
 }
 

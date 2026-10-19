@@ -71,6 +71,7 @@ pub enum TimeExpressionValue {
         seconds_of_week: super::admission::GpsSecondsOfWeek,
     },
     JulianTai {
+        #[serde(deserialize_with = "super::admission::finite_json_number")]
         day: f64,
     },
     MilitaryDtg {

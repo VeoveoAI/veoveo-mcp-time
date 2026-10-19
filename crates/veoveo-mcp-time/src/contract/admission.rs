@@ -162,9 +162,26 @@ fn nato_zone_offset_hours(letter: char) -> AnyResult<i32> {
 }
 
 /// GPS week-local seconds preserve their f64 wire and binary representation.
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(try_from = "f64", into = "f64")]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
+#[serde(into = "f64")]
 pub struct GpsSecondsOfWeek(f64);
+impl<'de> serde::Deserialize<'de> for GpsSecondsOfWeek {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(finite_json_number(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Tagged expressions and flattened projections buffer JSON numbers. Use the
+/// JSON number decoder so arbitrary-precision buffering retains the f64 contract.
+pub(crate) fn finite_json_number<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<f64, D::Error> {
+    let number = <serde_json::Number as serde::Deserialize>::deserialize(deserializer)?;
+    number
+        .as_f64()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| serde::de::Error::custom("finite JSON number required"))
+}
 impl GpsSecondsOfWeek {
     pub fn new(value: f64) -> Result<Self, TimeValueError> {
         gps(value)?;
@@ -234,11 +251,20 @@ mod tests {
                 value: "061230ZOCT26".into(),
             },
             TimeExpressionValue::JulianTai { day: 2461319.0 },
+            TimeExpressionValue::Gps {
+                week: 2400,
+                seconds_of_week: GpsSecondsOfWeek::new(123.25).unwrap(),
+            },
         ] {
             let wire = serde_json::to_vec(&draft).unwrap();
             let admitted = draft.build().unwrap();
             assert_eq!(
                 serde_json::from_slice::<TimeExpression>(&wire).unwrap(),
+                admitted
+            );
+            let value = serde_json::from_slice(&wire).unwrap();
+            assert_eq!(
+                serde_json::from_value::<TimeExpression>(value).unwrap(),
                 admitted
             );
         }
@@ -259,6 +285,44 @@ mod tests {
                 .build()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn expression_numbers_reject_non_numbers_and_values_outside_f64() {
+        for value in [
+            serde_json::json!("123.25"),
+            serde_json::Value::Null,
+            serde_json::json!(true),
+            serde_json::json!({"value": 123.25}),
+            serde_json::json!([123.25]),
+        ] {
+            assert!(serde_json::from_value::<GpsSecondsOfWeek>(value.clone()).is_err());
+            assert!(
+                serde_json::from_slice::<GpsSecondsOfWeek>(&serde_json::to_vec(&value).unwrap())
+                    .is_err()
+            );
+            for wire in [
+                serde_json::json!({"format":"julian_tai","day":value}),
+                serde_json::json!({"format":"gps","week":2400,"secondsOfWeek":value}),
+            ] {
+                assert!(serde_json::from_value::<TimeExpression>(wire.clone()).is_err());
+                assert!(
+                    serde_json::from_slice::<TimeExpression>(&serde_json::to_vec(&wire).unwrap())
+                        .is_err()
+                );
+            }
+        }
+        for wire in [
+            r#"{"format":"julian_tai","day":1e400}"#,
+            r#"{"format":"gps","week":2400,"secondsOfWeek":1e400}"#,
+        ] {
+            assert!(serde_json::from_str::<TimeExpression>(wire).is_err());
+            assert!(
+                serde_json::from_str::<serde_json::Value>(wire)
+                    .and_then(serde_json::from_value::<TimeExpression>)
+                    .is_err()
+            );
+        }
     }
 
     #[test]
