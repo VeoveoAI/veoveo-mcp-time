@@ -45,7 +45,9 @@ const fn one() -> u32 {
 #[schemars(rename = "CalendarWindow")]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarWindowValue {
+    #[schemars(schema_with = "super::admission::local_schema")]
     pub start_local: String,
+    #[schemars(schema_with = "super::admission::local_schema")]
     pub end_local: String,
     pub recurrence: RecurrenceRule,
     #[serde(default)]

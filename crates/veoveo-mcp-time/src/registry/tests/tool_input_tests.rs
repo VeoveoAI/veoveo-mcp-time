@@ -380,3 +380,114 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
     .await
     .expect("Time argument admission exceeded 120 seconds");
 }
+
+#[tokio::test]
+async fn published_schedule_schema_exposes_calendar_ids_and_full_local_datetimes() {
+    tokio::time::timeout(Duration::from_secs(120), async {
+        let fixture = super::hosted::Fixture::new().await;
+        let tools = fixture.hub.rpc("tools/list", json!({})).await;
+        assert!(tools.get("error").is_none(), "{tools}");
+        let schema = &tools["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "expand_schedule")
+            .unwrap()["inputSchema"];
+        let validator = jsonschema::validator_for(schema).unwrap();
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_slice(include_bytes!("../../../testdata/controlled-inputs.json"))
+                .unwrap();
+        let baseline = cases
+            .iter()
+            .find(|case| case["tool"] == "expand_schedule")
+            .unwrap()["arguments"]
+            .clone();
+        assert!(validator.is_valid(&baseline));
+        assert!(serde_json::from_value::<ExpandScheduleRequest>(baseline.clone()).is_ok());
+        for (id, admitted) in [
+            ("calendar-qual-2030".to_owned(), true),
+            ("calendar-A_1.:-".to_owned(), true),
+            (format!("calendar-{}", "a".repeat(119)), true),
+            ("acceptance-qual-2030".to_owned(), false),
+            ("calendar-".to_owned(), false),
+            ("calendar-one/two".to_owned(), false),
+            ("calendar-one\n".to_owned(), false),
+            (format!("calendar-{}", "a".repeat(120)), false),
+        ] {
+            let mut arguments = baseline.clone();
+            arguments["calendar"]["calendarId"] = id.into();
+            assert_eq!(validator.is_valid(&arguments), admitted, "{arguments}");
+            assert_eq!(
+                serde_json::from_value::<ExpandScheduleRequest>(arguments).is_ok(),
+                admitted
+            );
+        }
+        for (start, end) in [
+            ("2030-01-01T09:00:00", "2030-01-01T10:00:00"),
+            (
+                "2030-01-01T09:00:00.123456789123",
+                "2030-01-01T10:00:00.123456789123",
+            ),
+            ("+10000-01-01T09:00:00", "+10000-01-01T10:00:00"),
+            ("-0001-01-01T09:00:00", "-0001-01-01T10:00:00"),
+            (" 2030-1-1T9:0:0", " 2030-1-1T10:0:0"),
+        ] {
+            let mut arguments = baseline.clone();
+            arguments["calendar"]["windows"][0]["startLocal"] = start.into();
+            arguments["calendar"]["windows"][0]["endLocal"] = end.into();
+            assert!(validator.is_valid(&arguments), "{arguments}");
+            assert!(serde_json::from_value::<ExpandScheduleRequest>(arguments).is_ok());
+        }
+        for field in ["startLocal", "endLocal"] {
+            for invalid in [
+                "09:00:00",
+                "2030-01-01",
+                "2030-01-01T09:00:00Z",
+                "2030-01-01T09:00:00+00:00",
+                "2030-01-01T09:00:00-01:00",
+            ] {
+                let mut arguments = baseline.clone();
+                arguments["calendar"]["windows"][0][field] = invalid.into();
+                assert!(!validator.is_valid(&arguments), "{arguments}");
+                assert!(serde_json::from_value::<ExpandScheduleRequest>(arguments).is_err());
+            }
+        }
+        // These are local civil timestamps, not RFC 3339 instants with offsets.
+        // Inspect the published schema rather than a second handwritten tool schema.
+        fn local_fields(value: &serde_json::Value, found: &mut usize) {
+            match value {
+                serde_json::Value::Object(object) => {
+                    if let Some(properties) = object.get("properties") {
+                        for field in ["startLocal", "endLocal"] {
+                            if let Some(schema) = properties.get(field) {
+                                assert!(schema.get("format").is_none());
+                                assert!(
+                                    schema["description"]
+                                        .as_str()
+                                        .unwrap()
+                                        .contains("YYYY-MM-DD")
+                                );
+                                assert!(schema["examples"].as_array().unwrap().len() >= 2);
+                                *found += 1;
+                            }
+                        }
+                    }
+                    for child in object.values() {
+                        local_fields(child, found);
+                    }
+                }
+                serde_json::Value::Array(values) => {
+                    for child in values {
+                        local_fields(child, found);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut fields = 0;
+        local_fields(schema, &mut fields);
+        assert_eq!(fields, 2);
+    })
+    .await
+    .expect("published schedule schema fixture timed out");
+}

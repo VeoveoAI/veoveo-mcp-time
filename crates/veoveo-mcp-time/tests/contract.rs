@@ -48,14 +48,37 @@ fn permission_wire_values_follow_the_naming_convention() {
     }
 }
 
-fn check_id<T: Serialize + DeserializeOwned>(valid: &str, foreign: &str) {
+fn check_id<T: Serialize + DeserializeOwned + schemars::JsonSchema>(valid: &str, foreign: &str) {
+    let schema = serde_json::to_value(schemars::schema_for!(T)).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    assert_eq!(schema["maxLength"], 128);
+    assert!(validator.is_valid(&valid.into()));
     let value = serde_json::from_value::<T>(valid.into()).unwrap();
     assert_eq!(serde_json::to_value(value).unwrap(), valid);
-    for invalid in ["", foreign, "../escape", "calendar-one/two"] {
+    for admitted in [
+        format!("{valid}:A_1.-"),
+        format!("{valid}{}", "a".repeat(128 - valid.len())),
+    ] {
+        assert!(validator.is_valid(&admitted.clone().into()));
+        assert!(serde_json::from_value::<T>(admitted.into()).is_ok());
+    }
+    for invalid in [
+        "",
+        foreign,
+        "../escape",
+        "calendar-one/two",
+        "calendar-one\n",
+    ] {
+        assert!(!validator.is_valid(&invalid.into()));
         assert!(serde_json::from_value::<T>(invalid.into()).is_err());
     }
-    assert!(serde_json::from_value::<T>(serde_json::json!(123)).is_err());
-    assert!(serde_json::from_value::<T>(format!("{valid}{}", "a".repeat(129)).into()).is_err());
+    for invalid in [
+        serde_json::json!(123),
+        format!("{valid}{}", "a".repeat(129)).into(),
+    ] {
+        assert!(!validator.is_valid(&invalid));
+        assert!(serde_json::from_value::<T>(invalid).is_err());
+    }
 }
 
 #[test]

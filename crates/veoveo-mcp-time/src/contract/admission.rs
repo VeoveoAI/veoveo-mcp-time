@@ -27,6 +27,20 @@ pub fn zone(value: &str) -> Result<(), TimeValueError> {
     Ok(())
 }
 
+/// Publish the lexical shape without replacing Chrono's date/range admission.
+/// Keep its existing unpadded numbers, signed years and fractional-second spellings.
+pub(super) fn local_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let whitespace = r"[\s\u0085]*";
+    let year = format!(r"{whitespace}(?:[+-][0-9]+|[0-9]{{1,4}})");
+    let number = format!(r"{whitespace}[0-9]{{1,2}}");
+    schemars::json_schema!({
+        "type": "string",
+        "pattern": format!(r"^{year}-{number}-{number}T{number}:{number}:{number}(?:\.[0-9]+)?(?![\s\S])"),
+        "description": "Full local ISO 8601 date and time including the date, without a UTC offset or Z suffix. Use YYYY-MM-DDTHH:MM:SS with optional fractional seconds; interpret in the calendar's zoneId. A time of day alone is invalid. Calendar validity and window ordering are checked separately.",
+        "examples": ["2030-01-01T09:00:00", "2030-01-01T09:00:00.123456789"]
+    })
+}
+
 pub fn local(value: &str) -> Result<NaiveDateTime, TimeValueError> {
     NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S")
         .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S%.f"))
