@@ -30,13 +30,22 @@ async fn rpc(
 
 /// Calls `tool` as an MCP Task from a client that declares the Tasks extension.
 async fn task(fixture: &Fixture, grants: &[TimePermission], tool: &str) -> serde_json::Value {
+    task_with_arguments(fixture, grants, tool, json!({})).await
+}
+
+async fn task_with_arguments(
+    fixture: &Fixture,
+    grants: &[TimePermission],
+    tool: &str,
+    arguments: serde_json::Value,
+) -> serde_json::Value {
     let body = json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
         "params": {
             "name": tool,
-            "arguments": {},
+            "arguments": arguments,
             "_meta": {
                 "io.modelcontextprotocol/protocolVersion": testing::TEST_PROTOCOL_VERSION,
                 "io.modelcontextprotocol/clientInfo": {"name": "test-hub", "version": "1"},
@@ -168,6 +177,99 @@ async fn task_tools_require_their_permission_before_a_task_exists() {
     })
     .await
     .expect("task permission checks exceeded 90 seconds");
+}
+
+#[tokio::test]
+async fn task_only_tools_require_the_capability_after_permission_without_creating_work() {
+    tokio::time::timeout(Duration::from_secs(90), async {
+        let fixture = Fixture::new().await;
+        let timeline = json!({"points": [], "constraints": []});
+        for (tool, required, input) in [
+            (
+                "expand_schedule",
+                SchedulesExpand,
+                arguments("expand_schedule"),
+            ),
+            ("validate_timeline", TimelinesValidate, timeline.clone()),
+        ] {
+            let params = json!({"name": tool, "arguments": input});
+            let unauthorized =
+                rpc(&fixture, &[AuthoritiesRead], "tools/call", params.clone()).await;
+            assert!(denied(&unauthorized, required), "{tool}: {unauthorized}");
+            assert_eq!(
+                unauthorized["error"]["code"], -32600,
+                "{tool}: {unauthorized}"
+            );
+            let refused = rpc(&fixture, &[required], "tools/call", params).await;
+            assert_eq!(refused["error"]["code"], -32021, "{tool}: {refused}");
+            assert_eq!(
+                refused["error"]["data"]["requiredCapabilities"],
+                json!({
+                    "extensions": {"io.modelcontextprotocol/tasks": {}}
+                }),
+                "{tool}: {refused}"
+            );
+            assert!(refused.get("result").is_none(), "{tool}: {refused}");
+        }
+        // Use core's owner-scoped read API, not a query into its schema.
+        let principal = testing::principal();
+        let mut authority = testing::authority();
+        authority.tenant = TENANT.parse().unwrap();
+        let owner = veoveo_task::TaskOwner {
+            principal_key: principal.id,
+            principal_kind: veoveo_task::PrincipalKind::User,
+            issuer: principal.issuer,
+            subject: principal.subject,
+            surface: "operations".parse().unwrap(),
+            tenant_key: Some(TENANT.parse().unwrap()),
+            data_labels: principal.data_labels,
+            authority,
+        };
+        let tasks = fixture.state.tasks.for_owner(&owner);
+        assert!(
+            tasks
+                .page(veoveo_task::TaskPageOrder::OldestFirst, None, 1)
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        let resolved = rpc(
+            &fixture,
+            &[AuthoritiesRead],
+            "tools/call",
+            json!({
+                "name": "resolve_time", "arguments": arguments("resolve_time")
+            }),
+        )
+        .await;
+        assert!(
+            resolved["result"]["structuredContent"]["instant"].is_object(),
+            "{resolved}"
+        );
+
+        // Declaring Tasks still creates exactly one Task through the same host.
+        let created = task_with_arguments(
+            &fixture,
+            &[TimelinesValidate],
+            "validate_timeline",
+            timeline,
+        )
+        .await;
+        assert_eq!(created["result"]["resultType"], "task", "{created}");
+        let retained = tasks
+            .page(veoveo_task::TaskPageOrder::OldestFirst, None, 2)
+            .await
+            .unwrap();
+        assert_eq!(retained.items.len(), 1);
+        assert_eq!(
+            created["result"]["taskId"],
+            retained.items[0].task_id.to_string(),
+            "{created}"
+        );
+    })
+    .await
+    .expect("Task capability checks exceeded 90 seconds");
 }
 
 #[tokio::test]

@@ -2,7 +2,7 @@ use std::sync::{Arc, LazyLock};
 
 use rmcp::{
     ErrorData as McpError, RoleServer,
-    model::{CompleteRequestParams, CompleteResult, CompletionInfo, Reference},
+    model::{ClientCapabilities, CompleteRequestParams, CompleteResult, CompletionInfo, Reference},
     service::RequestContext,
 };
 use uuid::Uuid;
@@ -135,9 +135,8 @@ impl TimeMcp {
         _request: ExpandScheduleRequest,
         _context: RequestContext<RoleServer>,
     ) -> Result<ExpandScheduleOutput, McpError> {
-        Err(McpError::invalid_request(
-            "`expand_schedule` must be called as an MCP Task. Resend the call with task parameters.",
-            None,
+        Err(McpError::missing_required_client_capability(
+            ClientCapabilities::builder().enable_tasks().build(),
         ))
     }
 
@@ -146,9 +145,8 @@ impl TimeMcp {
         _request: ValidateTimelineRequest,
         _context: RequestContext<RoleServer>,
     ) -> Result<ValidateTimelineOutput, McpError> {
-        Err(McpError::invalid_request(
-            "`validate_timeline` must be called as an MCP Task. Resend the call with task parameters.",
-            None,
+        Err(McpError::missing_required_client_capability(
+            ClientCapabilities::builder().enable_tasks().build(),
         ))
     }
 
