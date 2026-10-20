@@ -28,13 +28,31 @@ The administrative ones carry the `administer` risk, so only roles that allow it
 ## Configuration
 
 Every flag has a matching `VEOVEO_` environment variable.
+The required `VEOVEO_DEPLOYMENT_ID` is a trusted-provisioned UUIDv7 shared by
+registration and Task execution. Preserve it and the private key directory on
+ordinary restart; a new contract/build uses a separately admitted deployment.
+
+Before issuing its scoped registration admission, describe a candidate offline:
+
+```sh
+veoveo-mcp-time --describe-registration \
+  --deployment-id <allocated-uuidv7> \
+  --public-base-url https://candidate.example \
+  --key-directory /sandbox/builds/<build-id>/keys
+```
+
+This emits native public metadata only and reuses the worker key. It neither
+registers nor connects to Hub/database. Serving uses the same metadata and native
+saved registration; process stop does not retire it. A failed/expired resume needs
+fresh trusted admission rather than fallback to global bootstrap credentials.
 
 | Variable | Meaning |
 |---|---|
+| `VEOVEO_DEPLOYMENT_ID` | Required stable UUIDv7 of this admitted deployment; shared by registration, trust and Task execution. |
 | `VEOVEO_PUBLIC_BASE_URL` | Origin where the Hub reaches Time. Time serves MCP at `{origin}/time/mcp` and registers that URL. |
 | `VEOVEO_HUB_ISSUER` | The Hub's issuer URL. Time reads its registration endpoint from the issuer's RFC 8414 metadata. |
-| `VEOVEO_REGISTRATION_SECRET` | The installation's registration secret, or its native provider's opaque reference bound only to the initial registration request. |
-| `VEOVEO_KEY_DIRECTORY` | Directory holding Time's registration key; default `/var/lib/veoveo/time/keys`. |
+| `VEOVEO_REGISTRATION_SECRET` | Namespace initial access or deployment-scoped admission (possibly a native opaque reference), used only for initial registration; resume uses saved native credentials. |
+| `VEOVEO_KEY_DIRECTORY` | Private directory holding the deployment's key and saved native registration; default `/var/lib/veoveo/time/keys`. |
 | `VEOVEO_ACQUISITION_SCRATCH_DIRECTORY` | Acquisition workspace; default `/var/lib/veoveo/time/acquisitions`. |
 | `VEOVEO_RELEASE_DIRECTORY` | Compiled authority releases; default `/var/lib/veoveo/time/releases`. |
 | `VEOVEO_PORT` | Listening port; default `8800`. |

@@ -32,7 +32,7 @@ port         8800
 | [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
-| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/src/registration/DESIGN.md) | Time registers with the Hub through OAuth 2.0 Dynamic Client Registration (RFC 7591) and removes the registration through RFC 7592 when it stops. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
+| [Veoveo server registration](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/src/registration/DESIGN.md) | Time initially registers through RFC 7591 and resumes native saved RFC 7592 credentials across process restarts; explicit retirement deletes registration. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
 | [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Hub forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. When a token names a key Time does not hold, Time reads the issuer's RFC 8414 metadata and fetches its `jwks_uri` with the registration's HTTP client, at most once per refresh interval. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
 | [RFC 9557](https://www.rfc-editor.org/rfc/rfc9557.html) | Timestamp input with an IANA time-zone annotation and explicit ambiguity policy. |
@@ -986,30 +986,33 @@ completion under the SDK's `mcp.*` classes, with Time as the target server.
 
 ## Registration
 
-Time registers with the Hub at startup, before it serves traffic:
+Time has a required immutable `VEOVEO_DEPLOYMENT_ID` (`--deployment-id`), allocated
+by trusted provisioning. Its registration, forwarded-token trust and Task runtime
+share this identity. A process restart keeps the same ID and private key directory;
+a new build/contract/endpoint uses a new admitted deployment rather than rebinding it.
 
-1. `KeyDirectory` loads Time's Ed25519 key from `VEOVEO_KEY_DIRECTORY`, generating it on
-   first start. The key keeps Time's registration identity across restarts.
-2. `RegistrationClient::discover` reads the registration endpoint from the RFC 8414
-   metadata of `VEOVEO_HUB_ISSUER`.
-3. Time registers its slug, URI scheme, version, MCP endpoint
-   `{VEOVEO_PUBLIC_BASE_URL}/time/mcp` and authorization declaration. The
-   installation's registration secret, `VEOVEO_REGISTRATION_SECRET`, is the initial
-   access token. In a native sandbox it may be an opaque provider reference bound
-   only to this initial registration request; it is not the later management token.
-4. The response supplies the issuer and keys that verify forwarded access tokens and
-   the `veoveo_database` grant: the database URL and the login and password the
-   Hub created for this registration, a member of `server_time`.
-5. Time connects as that login, applies its migrations, starts its process instance,
-   its change listener and its due loop, and serves.
-6. On SIGTERM or Ctrl-C Time stops serving and stops its instance.
-   `RegistrationClient::maintain` then deletes the registration through RFC 7592, which
-   drops the login.
+`--describe-registration` prints native public `ClientMetadata` JSON and exits. It
+requires only deployment ID, `--public-base-url` and `--key-directory`; no Hub issuer,
+initial access credential, database connection or telemetry startup is used. Both
+offline description and serving use `KeyDirectory::prepare`, deriving authorization
+from the same typed routes. Preparation creates/reuses the private signing key but
+creates no registration credentials. Trusted admission binds this exact metadata.
 
-The registration lasts while Time's login holds a live process instance. When Time
-exits without deleting it, the Hub removes it after the installation's grace period.
-Time sends no updates or renewals. A registration without a database grant stops
-startup, and Time still deletes it.
+Serving discovers the Hub's registration endpoint from `VEOVEO_HUB_ISSUER` and calls
+`resume_or_register` with the deployment's key directory. Initial registration uses
+`VEOVEO_REGISTRATION_SECRET`, either namespace bootstrap or a one-use scoped
+admission. Native `registration.json` persists the returned private ClientInformation
+(mode0600), including management credentials and the explicit shared-schema database
+grant. Resume validates exact metadata/key/Hub authority and preserves the private
+original database grant only for that same verified registration. A missing/expired
+remote registration requires freshly issued scoped admission, never automatic
+namespace/global fallback. Reissuance/retirement remains trusted operator work.
+
+The issued login starts the process instance, migrates Time's schema and serves.
+On SIGTERM or Ctrl-C serving and the instance stop; saved registration is retained
+for resume. The Hub can still prune a login after its configured orphan grace.
+Explicit retirement is RFC7592 delete. Time adds no renewal loop or static trust/DB
+credentials. Core Task claims and recovery remain restricted to this deployment.
 
 ## Deployment
 

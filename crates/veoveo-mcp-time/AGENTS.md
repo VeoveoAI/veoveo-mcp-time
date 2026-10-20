@@ -28,9 +28,10 @@ leap second assumptions.
   credentials to configuration. The registration's HTTP client also refreshes the
   forwarded-token keys from the issuer's RFC 8414 metadata, which Time reads through
   the Hub's native HTTPS application origin, with verified hostname and provisioned
-  workload CA trust. `RegistrationClient::maintain` deletes the
-  registration after serving ends; the live process instance keeps it, so do not add
-  renewal or update calls.
+  workload CA trust. Native `resume_or_register` retains the same immutable deployment
+  and key across process restarts; `maintain` does not delete on process stop.
+  Explicit retirement deletes registration, and the Hub keeps its existing orphan
+  grace. Do not add renewal loops or a global-bootstrap fallback when resume fails.
 - Owns the `time://` URI scheme. Identity: slug `time`, MCP `/time/mcp`,
   port 8800.
 - The canonical instant is `TimeInstant`: integral TAI seconds plus nanosecond,

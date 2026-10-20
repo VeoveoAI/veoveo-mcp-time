@@ -15,10 +15,12 @@ pub(crate) static REGISTRATION: OnceLock<RegistrationDeclaration> = OnceLock::ne
 /// `{public_base_url}/time/mcp`.
 pub(crate) fn registration(
     deployment: &PublicDeployment,
+    deployment_id: veoveo_hub_sdk::DeploymentId,
 ) -> anyhow::Result<RegistrationDeclaration> {
     let endpoint = deployment.server(crate::changes::server().as_str())?;
     let url = url::Url::parse(&format!("{}/mcp", endpoint.public_url()))?;
     Ok(RegistrationDeclaration {
+        deployment: deployment_id,
         slug: crate::changes::server(),
         uri_scheme: TimeContract::scheme(),
         version: ServerVersion::new(env!("CARGO_PKG_VERSION"))?,
@@ -33,7 +35,11 @@ mod tests {
     #[test]
     fn the_registered_endpoint_is_the_mounted_mcp_url() {
         let deployment = PublicDeployment::new("http://vv-mcp-time.internal:8800").unwrap();
-        let registration = registration(&deployment).unwrap();
+        let registration = registration(
+            &deployment,
+            veoveo_hub_sdk::hosting::testing::deployment_id(),
+        )
+        .unwrap();
         assert_eq!(
             registration.endpoint.url().as_str(),
             "http://vv-mcp-time.internal:8800/time/mcp"

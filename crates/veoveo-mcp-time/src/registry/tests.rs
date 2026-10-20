@@ -116,7 +116,12 @@ impl AuthorityFiles {
         let instance = veoveo_store::Instance::start(store, &slug).await.unwrap();
         Arc::new(crate::state::TimeApplication {
             store: store.clone(),
-            tasks: veoveo_task::TaskRuntime::new(store.clone(), slug, Arc::new(instance)),
+            tasks: veoveo_task::TaskRuntime::new(
+                store.clone(),
+                slug,
+                veoveo_types::DeploymentId::parse("019a5b30-0000-7000-8000-000000000001").unwrap(),
+                Arc::new(instance),
+            ),
             catalog,
             authorities: self.registry(),
             clock: crate::clock::ClockMonitor::new(

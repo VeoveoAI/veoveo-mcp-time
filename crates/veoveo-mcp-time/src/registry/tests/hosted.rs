@@ -59,6 +59,8 @@ pub(super) fn token_granting(
     veoveo_hub_sdk::HubInternalTokenIssuer::new(trust.issuer.clone(), testing::signing_key())
         .unwrap()
         .issue(veoveo_hub_sdk::ForwardedRequest {
+            deployment: trust.deployment,
+            delegation_context: None,
             profile: "operations".parse().unwrap(),
             server: "time".parse().unwrap(),
             audience: trust.resource.clone(),

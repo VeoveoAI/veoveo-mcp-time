@@ -10,6 +10,12 @@ use veoveo_hub_sdk::{PublicDeployment, parse_allowed_host_authority};
 #[derive(Parser)]
 #[command(name = "veoveo-mcp-time", about = "Time MCP server")]
 pub(super) struct Args {
+    /// Print native public registration metadata and exit without network/DB access.
+    #[arg(long)]
+    pub describe_registration: bool,
+    /// Immutable deployment identity, reused by this worker across process restarts.
+    #[arg(long, env = "VEOVEO_DEPLOYMENT_ID")]
+    pub deployment_id: veoveo_hub_sdk::DeploymentId,
     #[arg(long, env = "VEOVEO_PORT", default_value_t = 8800)]
     pub port: u16,
     /// The origin where the Hub reaches Time; Time serves MCP at
@@ -17,17 +23,22 @@ pub(super) struct Args {
     #[arg(long, env = "VEOVEO_PUBLIC_BASE_URL")]
     pub public_base_url: String,
     /// The Hub's RFC 8414 issuer; registration discovers its endpoint from there.
-    #[arg(long, env = "VEOVEO_HUB_ISSUER")]
-    pub hub_issuer: url::Url,
-    /// The installation's registration secret, or the placeholder the installation's edge replaces.
+    #[arg(
+        long,
+        env = "VEOVEO_HUB_ISSUER",
+        required_unless_present = "describe_registration"
+    )]
+    pub hub_issuer: Option<url::Url>,
+    /// Initial namespace or deployment-scoped admission; never used instead of saved resume credentials.
     #[arg(
         long,
         env = "VEOVEO_REGISTRATION_SECRET",
+        required_unless_present = "describe_registration",
         hide_env_values = true,
         value_parser = parse_secret
     )]
-    pub registration_secret: SecretString,
-    /// Holds Time's registration key, which keeps its namespace across restarts.
+    pub registration_secret: Option<SecretString>,
+    /// Private deployment key and saved native registration retained across process restarts.
     #[arg(
         long,
         env = "VEOVEO_KEY_DIRECTORY",
@@ -129,6 +140,8 @@ mod tests {
     fn args(extra: &[&str]) -> Result<Args, clap::Error> {
         let mut argv = vec![
             "veoveo-mcp-time",
+            "--deployment-id",
+            "019a5b30-0000-7000-8000-000000000001",
             "--public-base-url",
             "https://time.example",
             "--hub-issuer",
@@ -143,7 +156,10 @@ mod tests {
     #[test]
     fn registration_inputs_are_required_and_database_inputs_are_gone() {
         let parsed = args(&[]).unwrap();
-        assert_eq!(parsed.hub_issuer.as_str(), "https://hub.example/");
+        assert_eq!(
+            parsed.hub_issuer.as_ref().unwrap().as_str(),
+            "https://hub.example/"
+        );
         assert_eq!(
             parsed.key_directory,
             PathBuf::from("/var/lib/veoveo/time/keys")
@@ -160,5 +176,40 @@ mod tests {
         let parsed = args(&["--allowed-host", "vv-mcp-time.internal:8800"]).unwrap();
         assert_eq!(parsed.allowed_hosts, ["vv-mcp-time.internal:8800"]);
         assert!(args(&["--allowed-host", "two hosts"]).is_err());
+    }
+    #[test]
+    fn offline_description_needs_only_immutable_identity_and_endpoint() {
+        let parsed = Args::try_parse_from([
+            "veoveo-mcp-time",
+            "--describe-registration",
+            "--deployment-id",
+            "019a5b30-0000-7000-8000-000000000001",
+            "--public-base-url",
+            "https://time.example",
+        ])
+        .unwrap();
+        assert!(parsed.describe_registration);
+        assert!(parsed.hub_issuer.is_none());
+        assert!(parsed.registration_secret.is_none());
+        assert!(
+            Args::try_parse_from([
+                "veoveo-mcp-time",
+                "--describe-registration",
+                "--public-base-url",
+                "https://time.example"
+            ])
+            .is_err()
+        );
+        assert!(
+            Args::try_parse_from([
+                "veoveo-mcp-time",
+                "--describe-registration",
+                "--deployment-id",
+                "not-an-id",
+                "--public-base-url",
+                "https://time.example"
+            ])
+            .is_err()
+        );
     }
 }

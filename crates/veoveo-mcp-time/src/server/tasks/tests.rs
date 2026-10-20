@@ -47,7 +47,12 @@ fn owner() -> TaskOwner {
 /// A Time Task runtime with its own process instance, as one replica runs it.
 async fn runtime(store: &PlatformStore) -> TaskRuntime {
     let instance = Instance::start(store, &slug()).await.unwrap();
-    TaskRuntime::new(store.clone(), slug(), Arc::new(instance))
+    TaskRuntime::new(
+        store.clone(),
+        slug(),
+        veoveo_types::DeploymentId::parse("019a5b30-0000-7000-8000-000000000001").unwrap(),
+        Arc::new(instance),
+    )
 }
 
 #[tokio::test]

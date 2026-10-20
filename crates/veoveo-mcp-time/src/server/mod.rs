@@ -37,20 +37,25 @@ use tasks::TimeTaskExtension;
 pub async fn run() -> Result<()> {
     install_rustls_provider();
     let _ = dotenvy::dotenv();
-    let _telemetry: TelemetryGuard =
-        init_server_telemetry("veoveo-mcp-time", "info,veoveo_mcp_time=debug")?;
     let args = Args::parse();
     let public_deployment = args.public_deployment()?;
-    let declaration = declarations::registration(&public_deployment)?;
+    let declaration = declarations::registration(&public_deployment, args.deployment_id)?;
     declarations::REGISTRATION
         .set(declaration.clone())
         .map_err(|_| anyhow::anyhow!("Time's registration was declared twice"))?;
     std::sync::LazyLock::force(&crate::mcp::SERVER_SETUP);
+    if args.describe_registration {
+        let metadata = registration::prepare(&args, declaration)?;
+        serde_json::to_writer_pretty(std::io::stdout().lock(), &metadata)?;
+        println!();
+        return Ok(());
+    }
+    let _telemetry: TelemetryGuard =
+        init_server_telemetry("veoveo-mcp-time", "info,veoveo_mcp_time=debug")?;
     let (registration_client, registration, http) =
         registration::register(&args, declaration).await?;
-    // The registration lasts while Time's login holds a live process instance. Once
-    // serving ends, on SIGTERM or Ctrl-C or on a failure, the client deletes it, which
-    // also drops the login. Time never renews it.
+    // Process shutdown preserves native registration credentials for resume. Explicit
+    // retirement is a separate delete; the Hub retains its existing orphan grace.
     let issued = registration.clone();
     let mut served = None;
     let maintained = registration_client
@@ -59,7 +64,7 @@ pub async fn run() -> Result<()> {
         })
         .await;
     if let Err(error) = maintained {
-        tracing::warn!(%error, "Time could not remove its registration");
+        tracing::warn!(%error, "Time registration lifecycle failed");
     }
     served.context("Time's registration ended before serving finished")?
 }
@@ -85,6 +90,7 @@ async fn serve(
             grant.password.clone(),
         )?,
         changes::server(),
+        registration.access_tokens().deployment,
     )
     .await
     .context("connecting to the installation database")?;
