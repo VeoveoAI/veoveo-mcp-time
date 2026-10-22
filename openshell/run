@@ -1,0 +1,12 @@
+#!/bin/sh
+# Builds this branch, then replaces itself with the Time server. The installation
+# runs it from the branch's checkout after every fetch and supplies the server's
+# deployment, Hub and registration settings in the environment.
+set -e
+cargo build --locked --release --bin veoveo-mcp-time
+state=/sandbox/state/time
+mkdir -p "$state/keys" "$state/acquisitions" "$state/releases"
+export VEOVEO_KEY_DIRECTORY="$state/keys"
+export VEOVEO_ACQUISITION_SCRATCH_DIRECTORY="$state/acquisitions"
+export VEOVEO_RELEASE_DIRECTORY="$state/releases"
+exec target/release/veoveo-mcp-time
