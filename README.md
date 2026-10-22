@@ -28,11 +28,16 @@ The administrative ones carry the `administer` risk, so only roles that allow it
 ## Configuration
 
 Every flag has a matching `VEOVEO_` environment variable.
-The required `VEOVEO_DEPLOYMENT_ID` is a trusted-provisioned UUIDv7 shared by
-registration and Task execution. Preserve it and the private key directory on
-ordinary restart; a new contract/build uses a separately admitted deployment.
+The required `VEOVEO_DEPLOYMENT_ID` is a UUIDv7 shared by registration and Task
+execution; Hub supplies it with the registration token. Preserve it and the private
+key directory on ordinary restart.
 
-Before issuing its scoped registration admission, describe a candidate offline:
+Time registers with `VEOVEO_REGISTRATION_SECRET` on its first start and resumes its
+saved registration afterwards; process stop does not retire it. When its
+declarations change, or the Hub no longer knows the saved registration, Time
+registers again with the same token and replaces the saved state.
+
+To print the public registration metadata offline:
 
 ```sh
 veoveo-mcp-time --describe-registration \
@@ -41,10 +46,8 @@ veoveo-mcp-time --describe-registration \
   --key-directory /sandbox/builds/<build-id>/keys
 ```
 
-This emits native public metadata only and reuses the worker key. It neither
-registers nor connects to Hub/database. Serving uses the same metadata and native
-saved registration; process stop does not retire it. A failed/expired resume needs
-fresh trusted admission rather than fallback to global bootstrap credentials.
+This reuses the key in `--key-directory` and neither registers nor connects to Hub
+or the database.
 
 | Variable | Meaning |
 |---|---|
@@ -70,8 +73,8 @@ remaining limits.
 
 ## Database
 
-Time stores its catalog in the schema `time` of the installation's PostgreSQL 18
-database. `migrations/` in the crate defines the schema, and every statement is a
+Time stores its catalog in the schema `time` of the PostgreSQL 18 database its
+registration grant names. `migrations/` in the crate defines the schema, and every statement is a
 `.sql` file that sqlx checks at compile time. `.cargo/config.toml` sets `SQLX_OFFLINE`,
 so every build uses the committed `.sqlx` metadata. After changing a query or a
 migration, regenerate it against a database with the kernel migrations of the pinned
