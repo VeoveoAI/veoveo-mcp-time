@@ -1021,15 +1021,17 @@ Time is served from its factory sandbox. A branch of Time's Lore repository that
 an executable `openshell/run` gets one OpenShell sandbox, which the Hub's
 [factory sandboxes](https://github.com/VeoveoAI/veoveo-hub/blob/main/crates/veoveo-hub/DESIGN.md#factory-sandboxes)
 build and run. `openshell/image/` is its environment: the Rust toolchain, CA roots and
-`tzdata`. Every start fetches the branch into `/sandbox/src` and runs `openshell/run`,
+`tzdata`, and nothing else; the installation mounts Lore's command line, which fetches
+the branch. Every start fetches the branch into `/sandbox/src` and runs `openshell/run`,
 which builds the release binary from the checkout and then becomes the server. The
 sandbox runs as UID 10001, and its writable paths are its persistent disk `/sandbox`
 and `/tmp`. `openshell/run` keeps Time's state on that disk under `/sandbox/state/time`:
 the registration keys in `keys`, acquisition scratch in `acquisitions` and compiled
 releases in `releases`, so all of it survives every restart, as do the build output
 in the checkout's `target/` and Cargo's crates under `/sandbox/.cargo`. A push that
-changes `openshell/image/` or `openshell/policy.yaml` gives the branch a new sandbox
-with an empty disk, on which Time registers again with its instance token under the
+changes `openshell/image/` or `openshell/policy.yaml`, or the first push after the
+installation changed its factory template, gives the branch a new sandbox with an empty
+disk, on which Time registers again with its instance token under the
 same deployment.
 
 The Hub supplies `VEOVEO_DEPLOYMENT_ID`, `VEOVEO_PUBLIC_BASE_URL`, `VEOVEO_PORT`,
