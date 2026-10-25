@@ -1016,27 +1016,48 @@ credentials. Core Task claims and recovery remain restricted to this deployment.
 
 ## Deployment
 
-The image runs as UID 10001 and can use a read-only root filesystem. Writable paths
-are the Time persistent volume and `/tmp`. The container includes CA roots, `tzdata`,
-`zic`, and the `veoveo-mcp-time` binary.
+Time is served from its factory sandbox. A branch of Time's Lore repository that has
+an executable `openshell/run` gets one OpenShell sandbox, which the Hub's
+[factory sandboxes](https://github.com/VeoveoAI/veoveo-hub/blob/main/crates/veoveo-hub/DESIGN.md#factory-sandboxes)
+build and run. `openshell/image/` is its environment: the Rust toolchain, CA roots and
+`tzdata`. Every start fetches the branch into `/sandbox/src` and runs `openshell/run`,
+which builds the release binary from the checkout and then becomes the server. The
+sandbox runs as UID 10001, and its writable paths are its persistent disk `/sandbox`
+and `/tmp`. `openshell/run` keeps Time's state on that disk under `/sandbox/state/time`:
+the registration keys in `keys`, acquisition scratch in `acquisitions` and compiled
+releases in `releases`, so all of it survives every restart, as do the build output
+in the checkout's `target/` and Cargo's crates under `/sandbox/.cargo`. A push that
+changes `openshell/image/` or `openshell/policy.yaml` gives the branch a new sandbox
+with an empty disk, on which Time registers again with its instance token under the
+same deployment.
 
-An installation runs one replica with a `ReadWriteOnce` volume because acquisition
-artifacts live on that volume. Activation, due transitions and change notifications
-coordinate through PostgreSQL, which holds the durable state. Time connects to
-PostgreSQL directly, without a pooler that multiplexes sessions, because its instance
-lock and change listener hold session state. The Hub reaches the service only over
-an admitted logical HTTP endpoint transported by authenticated native OpenShell
-`ForwardTcp` to Time's loopback listener. Hub preserves its URI, Host and token
-audience. Time reaches Hub's native HTTPS application origin for registration and
-issuer metadata, with the provisioned workload CA roots and hostname verification.
-The author factory is separate from this service and receives no Time state or
-registration keys. Deployed native forwarding and lifecycle acceptance remain
-installation qualification gates.
+The Hub supplies `VEOVEO_DEPLOYMENT_ID`, `VEOVEO_PUBLIC_BASE_URL`, `VEOVEO_PORT`,
+`VEOVEO_HUB_ISSUER` and `VEOVEO_REGISTRATION_SECRET`, a provider placeholder. Time
+listens on that port and serves MCP at `{public base URL}/time/mcp`, the endpoint it
+registers. It registers before it serves and receives from that registration its
+database login, in its branch's data environment, and the trust for forwarded tokens;
+later starts resume the saved registration. The Hub reaches Time only through
+authenticated OpenShell `ForwardTcp` to the sandbox's port and preserves the
+registered URI, Host and token audience. Time reaches the Hub's HTTPS origin for
+registration and issuer metadata with the workload's CA roots and hostname
+verification.
 
-Connected installations grant the pod HTTPS egress only to approved IANA mirrors or
-installation-controlled authority endpoints. Source endpoints remain tenant admin
-records. Offline installations use the image bootstrap authority and can stage
-content through an approved internal HTTPS endpoint.
+One sandbox serves a branch, so one process holds that branch's acquisition
+artifacts. Activation, due transitions and change notifications coordinate through
+PostgreSQL, which holds the durable state. Time connects to PostgreSQL directly,
+without a pooler that multiplexes sessions, because its instance lock and change
+listener hold session state.
+
+Time fetches authority sources over HTTPS from the endpoints tenant administrators
+record; what it may reach is its sandbox's policy, which for a factory instance is the
+installation's base policy plus any rule in `openshell/policy.yaml`. Offline
+installations use the bootstrap TZif and leap-second files of the environment's
+`tzdata` and can stage content through an approved internal HTTPS endpoint.
+
+The root `Dockerfile` builds the release image: a `runtime` stage with CA roots,
+`tzdata` with `zic` and the binary, running as UID 10001 with a read-only root
+filesystem and state under `/var/lib/veoveo/time`, the paths Time uses when
+`openshell/run` does not set them.
 
 The optional ntpd-rs observation socket is supplied with
 `--ntpd-observation-socket` or `VEOVEO_NTPD_OBSERVATION_SOCKET`. A node deployment mounts that Unix socket and grants the
@@ -1109,8 +1130,7 @@ reconciliation after a reconnect, and administration refused to a member and adm
 for an admin. Prepared bearer sources select member and optional admin identities
 through named environment variables; they use SDK `StaticBearer`, without private
 caller keys or test-owned renewal. The full suite runs in a trusted qualification
-runner with both identities. The author factory receives only its member reference
-for the separate SDK access preflight. Input regressions inject their environment
+runner with both identities. Input regressions inject their environment
 lookup and run without a deployment. The schedule Task keeps working long enough that its subscription opens on
 a Working status. Its completion and result must then arrive as a pushed status
 notification, and the test polls the Task only afterwards. The event test likewise reads
