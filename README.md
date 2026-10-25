@@ -116,7 +116,7 @@ the checkout and becomes the server, with its state on the sandbox's disk under
 `/sandbox/state/time`. The Hub supplies the deployment ID, public base URL, port,
 issuer and registration placeholder, and reaches Time only through OpenShell's
 `ForwardTcp` to that port; Time needs no public exposure. Every push of the branch
-rebuilds and restarts it, and the person who pushed chooses the branch they use. The
+rebuilds and restarts it, and each person's selection chooses the branch they use. The
 installation's part is its
 [factory section](https://github.com/VeoveoAI/veoveo-template-installation/blob/main/DESIGN.md#factory);
 the installation runs no Time sandbox of its own.
