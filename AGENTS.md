@@ -2,6 +2,8 @@
 
 These rules apply to veoveo-mcp-time.
 
+- The design is in [crates/veoveo-mcp-time/DESIGN.md](crates/veoveo-mcp-time/DESIGN.md). Change it in the
+  same change as the code.
 - Use upstream runtimes such as PostgreSQL unmodified. Adapt through
   supported configuration.
 - Every SQL statement is a `.sql` file run through sqlx's checked `query_file*!`
