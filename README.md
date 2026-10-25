@@ -43,7 +43,7 @@ To print the public registration metadata offline:
 veoveo-mcp-time --describe-registration \
   --deployment-id <allocated-uuidv7> \
   --public-base-url https://candidate.example \
-  --key-directory /sandbox/builds/<build-id>/keys
+  --key-directory /sandbox/state/time/keys
 ```
 
 This reuses the key in `--key-directory` and neither registers nor connects to Hub
@@ -105,47 +105,24 @@ The `Dockerfile` defines the `dev` environment, the `check` gate, the release `b
 docker build --target dev -t veoveo-mcp-time:dev .
 ```
 
-The native installation workflow is owned by
-[veoveo-template-installation](https://github.com/VeoveoAI/veoveo-template-installation/tree/main/openshell).
-Use an explicitly selected runtime image for the Time service sandbox. The `dev`
-image supplies the toolchain for a separate author factory; it is not the service
-runtime. The shared factory layer adds Lore and agent support over this `dev` image.
+## Serving
 
-### Native service placement
+Time is served from its factory sandbox, as its
+[design](crates/veoveo-mcp-time/DESIGN.md#deployment) describes: a pushed branch of
+Time's Lore repository that has `openshell/run` gets one sandbox, which the Hub's
+[factory](https://github.com/VeoveoAI/veoveo-hub/blob/main/crates/veoveo-hub/DESIGN.md#factory-sandboxes)
+builds from `openshell/image/` and runs. `openshell/run` builds the release binary from
+the checkout and becomes the server, with its state on the sandbox's disk under
+`/sandbox/state/time`. The Hub supplies the deployment ID, public base URL, port,
+issuer and registration placeholder, and reaches Time only through OpenShell's
+`ForwardTcp` to that port; Time needs no public exposure. Every push of the branch
+rebuilds and restarts it, and the person who pushed chooses the branch they use. The
+installation's part is its
+[factory section](https://github.com/VeoveoAI/veoveo-template-installation/blob/main/DESIGN.md#factory);
+the installation runs no Time sandbox of its own.
 
-Start PostgreSQL, then Hub, then Time. Time registers before opening its listener.
-Set `VEOVEO_HUB_ISSUER` to Hub's native HTTPS application origin, preserving its
-hostname, request authority and verified TLS. Bind the registration provider only
-to the initial registration POST; subsequent management uses the SDK's registration
-credentials. Time receives forwarded-token trust and its database login from that
-registration. Permit its direct PostgreSQL session, including process-instance
-locks and LISTEN/NOTIFY.
-
-Set `VEOVEO_PUBLIC_BASE_URL` to the logical HTTP origin admitted by the Hub's native
-upstream binding. Hub preserves the registered `/time/mcp` URI, Host and token
-audience while its authenticated OpenShell `ForwardTcp` transport reaches Time's
-loopback port 8800. This private service path does not require a public Time exposure.
-Placement bindings are fixed at Hub startup; changing placement requires a restart.
-Mount Time's persistent state writable for runtime UID 10001. The author factory
-runs separately and receives neither that state nor private caller keys.
-
-The installation's execution checklist owns deployed qualification. These settings
-do not establish registration, database, forwarding, refresh or restart acceptance
-until checked in the actual sandboxes.
-
-### Prepared factory build
-
-Prepare and validate Time in development, publish the Git tree, then seed that exact
-tree and revision into Lore. Before a model run, the no-model preflight must prove
-Lore clone, dependency access, writable Cargo state, a fresh release build and
-member access to Time through Hub. Use a writable `CARGO_HOME` beneath `/sandbox`
-after any login-shell profile and a separate fresh target directory. SQLx uses the
-committed offline metadata for the build.
-
-The bounded model task clones the specified prepared Lore revision and runs
-`cargo build --locked --release --bin veoveo-mcp-time`. Source or environment
-failures return to development. The trusted operator later deploys the runtime
-from that same Lore revision and verifies readiness and a Hub-routed call.
+The root `Dockerfile`'s `runtime` image holds the same binary for a deployment outside a
+factory; it reads its state from `/var/lib/veoveo/time`.
 
 ## Acceptance
 
@@ -175,9 +152,8 @@ cargo nextest run --test acceptance --run-ignored only -E 'not (test(restart_per
 nonempty bearer/opaque references. Missing inputs, ambiguous member/admin inputs
 and the retired `VEOVEO_ACCEPTANCE_KEY_DIRECTORY` fail explicitly without printing
 credentials. A member-only runner may omit the admin selector and run the member
-cases; the full suite requires both identities. The author factory receives only
-its member reference and uses the SDK client's `--bearer-env` input for its access
-preflight. It does not receive the admin reference or private caller keys.
+cases; the full suite requires both identities. No runner receives private caller
+keys.
 
 The pinned reqwest transport uses platform certificate verification. In Linux
 sandboxes, provision the workload/interception CA bundle through the supported
