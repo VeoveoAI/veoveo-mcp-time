@@ -943,10 +943,11 @@ checks its tenant, positive version, stored release-ID syntax and previous-relea
 history. Catalog decoding then checks the selected release body. These checks leave
 stored records unchanged and apply after every restart.
 
-Compiled authority products live under `/var/lib/veoveo/time/releases`. Acquisition
-scratch data lives under `/var/lib/veoveo/time/acquisitions` and is removed at terminal
-completion. Time's registration key lives under `/var/lib/veoveo/time/keys`. A
-deployment mounts `/var/lib/veoveo/time` from a persistent volume.
+Compiled authority products live in the release directory, acquisition scratch data
+in the acquisition directory, removed at terminal completion, and Time's registration
+key in the key directory. In a factory sandbox `openshell/run` puts all three under
+`/sandbox/state/time` on the sandbox's persistent disk; by default they are under
+`/var/lib/veoveo/time` (see [Deployment](#deployment)).
 
 ## Authorization
 
