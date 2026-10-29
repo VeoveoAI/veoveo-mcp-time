@@ -12,13 +12,13 @@ publish = false
 
 [workspace.dependencies]
 # veoveo-core, pinned to one revision for every core crate.
-veoveo-fixtures = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "d473011e5dcb840c0ca9c6dcf2df231bfeab6956" }
-veoveo-store = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "d473011e5dcb840c0ca9c6dcf2df231bfeab6956" }
-veoveo-task = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "d473011e5dcb840c0ca9c6dcf2df231bfeab6956" }
-veoveo-types = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "d473011e5dcb840c0ca9c6dcf2df231bfeab6956" }
+veoveo-fixtures = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "120306eb969c6134dadd422dca701a2ce63e9492" }
+veoveo-store = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "120306eb969c6134dadd422dca701a2ce63e9492" }
+veoveo-task = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "120306eb969c6134dadd422dca701a2ce63e9492" }
+veoveo-types = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "120306eb969c6134dadd422dca701a2ce63e9492" }
 # veoveo-hub-sdk, pinned to one revision for the SDK library and its test fixture.
-veoveo-hub-sdk = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "581fdcb5af2f85a7f59293f3f92e3cb32e37c8f3", default-features = false }
-veoveo-hub-sdk-fixture = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "581fdcb5af2f85a7f59293f3f92e3cb32e37c8f3" }
+veoveo-hub-sdk = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "05273d1f90b9a08e90e377187f4eddd084605fe5", default-features = false }
+veoveo-hub-sdk-fixture = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "05273d1f90b9a08e90e377187f4eddd084605fe5" }
 
 anyhow = "=1.0.104"
 axum = "0.8.9"
@@ -33,7 +33,7 @@ jsonschema = "=0.58.6"
 jiff = { version = "0.2.35", features = ["tz-system"] }
 rangemap = "1.8.0"
 reqwest = { version = "=0.13.5", default-features = false }
-rmcp = { version = "=3.5.0", git = "https://github.com/VeoveoAI/rust-sdk", rev = "917e7914c93975fc1eddbff8792f1e2de933bc17" }
+rmcp = { version = "=3.5.0", git = "https://github.com/VeoveoAI/rust-sdk", rev = "faa4e9d57dcb834740b6053c483ed2de7b8b8076" }
 rustls = { version = "0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
 schemars = "1.2.2"
 serde = { version = "=1.0.229", features = ["derive"] }
