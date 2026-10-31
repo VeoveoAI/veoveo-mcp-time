@@ -52,6 +52,10 @@ required-features = ["contract"]
 name = "acceptance"
 required-features = ["mcp"]
 
+[[test]]
+name = "app_view"
+required-features = ["mcp"]
+
 [features]
 default = ["mcp"]
 contract = [

@@ -1,0 +1,1101 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-mode="inline">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time</title>
+<style>
+:root {
+  --bg: var(--color-background-primary, #ffffff);
+  --bg-soft: var(--color-background-secondary, #f4f5f7);
+  --fg: var(--color-text-primary, #16181d);
+  --fg-soft: var(--color-text-secondary, #5b616e);
+  --line: var(--color-border-primary, #dfe2e7);
+  --accent: var(--color-text-info, #2557d6);
+  --danger: var(--color-text-danger, #b42318);
+  --ok: var(--color-text-success, #1a7f37);
+  --radius: var(--border-radius-md, 8px);
+  --sans: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+  --mono: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: var(--color-background-primary, #14161a);
+  --bg-soft: var(--color-background-secondary, #1d2026);
+  --fg: var(--color-text-primary, #e8eaee);
+  --fg-soft: var(--color-text-secondary, #9aa1ad);
+  --line: var(--color-border-primary, #2c3038);
+  --accent: var(--color-text-info, #7aa2ff);
+  --danger: var(--color-text-danger, #ff8a80);
+  --ok: var(--color-text-success, #5fd38a);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans); }
+main { padding: 12px; display: grid; gap: 12px; }
+[data-mode="fullscreen"] body { min-height: 100vh; }
+[data-mode="fullscreen"] main { padding: 20px; max-width: 1200px; margin: 0 auto; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); align-items: start; }
+[data-mode="fullscreen"] header, [data-mode="fullscreen"] #view-error { grid-column: 1 / -1; }
+[data-mode="inline"] .full-only { display: none !important; }
+[data-mode="fullscreen"] .inline-only { display: none !important; }
+header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+h1 { font-size: 15px; margin: 0; font-weight: 600; }
+h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; color: var(--fg-soft); text-transform: uppercase; letter-spacing: .04em; }
+.spacer { flex: 1; }
+.live { font-size: 12px; color: var(--fg-soft); }
+.live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: var(--fg-soft); vertical-align: 1px; }
+.live[data-live="true"]::before { background: var(--ok); }
+section { background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; min-width: 0; }
+.big { font: 600 34px/1.1 var(--mono); letter-spacing: -.01em; }
+[data-mode="inline"] .big { font-size: 28px; }
+.subtle { color: var(--fg-soft); font-size: 12px; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 8px 0 0; }
+dt { color: var(--fg-soft); }
+dd { margin: 0; font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--fg-soft); font-weight: 500; }
+td.mono { font-family: var(--mono); overflow-wrap: anywhere; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+input, select, button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+input { flex: 1 1 200px; min-width: 0; font-family: var(--mono); }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .55; }
+button.link { border: none; background: none; color: var(--accent); padding: 0 2px; }
+ol, ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.name { font-weight: 500; }
+.chip { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--fg-soft); }
+.error { color: var(--danger); margin: 8px 0 0; overflow-wrap: anywhere; }
+.status { margin: 8px 0 0; }
+p { margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Time</h1>
+    <span class="subtle" id="zone-label"></span>
+    <span class="spacer"></span>
+    <span class="live" id="live" data-live="false">Not live</span>
+    <button type="button" id="mode" hidden></button>
+  </header>
+  <p class="error" id="view-error" hidden></p>
+
+  <section id="clock" aria-labelledby="clock-title">
+    <h2 id="clock-title">Now</h2>
+    <div class="big" id="local-time">--:--:--</div>
+    <div class="subtle" id="local-date"></div>
+    <dl id="clock-lines"></dl>
+    <dl class="full-only" id="clock-details"></dl>
+    <p class="subtle"><span id="clock-read">Reading the current time</span> <button type="button" class="link" id="refresh">Refresh</button></p>
+    <p class="error" id="zone-error" hidden></p>
+    <p class="error" id="clock-error" hidden></p>
+  </section>
+
+  <section id="quality" class="full-only" aria-labelledby="quality-title">
+    <h2 id="quality-title">Clock quality</h2>
+    <table>
+      <thead><tr><th></th><th>Measured</th><th>Policy</th></tr></thead>
+      <tbody id="quality-rows"></tbody>
+    </table>
+    <dl id="quality-details"></dl>
+  </section>
+
+  <section id="resolver" aria-labelledby="resolver-title">
+    <h2 id="resolver-title">Resolve a time</h2>
+    <!-- A frame sandboxed with allow-scripts alone submits no form, so the resolver is a row. -->
+    <div class="row" role="search">
+      <input id="expression" autocomplete="off" aria-label="Time expression" placeholder="141530ZJUL26, 2026-11-01T09:00, 1767225600">
+      <select id="format" class="full-only" aria-label="Format">
+        <option value="auto">Detect format</option>
+        <option value="military_dtg">Military DTG</option>
+        <option value="rfc3339">RFC 3339</option>
+        <option value="rfc9557">RFC 9557</option>
+        <option value="civil">Civil time in your zone</option>
+        <option value="unix">Unix seconds</option>
+        <option value="tai">TAI seconds since 1970</option>
+        <option value="gps">GPS week and seconds</option>
+        <option value="julian_tai">Julian day, TAI</option>
+      </select>
+      <select id="disambiguation" class="full-only" aria-label="When a local time is repeated or skipped">
+        <option value="reject">Refuse a repeated or skipped local time</option>
+        <option value="earlier">Take the earlier instant</option>
+        <option value="later">Take the later instant</option>
+      </select>
+      <button type="button" id="resolve">Resolve</button>
+    </div>
+    <p class="subtle" id="resolved-source" hidden></p>
+    <dl id="resolved" hidden></dl>
+    <p class="error" id="resolve-error" hidden></p>
+  </section>
+
+  <section id="events" aria-labelledby="events-title">
+    <h2 id="events-title">Your events</h2>
+    <p class="inline-only" id="next-event">Reading your events</p>
+    <ol class="full-only" id="event-list"></ol>
+    <p class="subtle full-only" id="event-summary"></p>
+    <p class="error" id="events-error" hidden></p>
+  </section>
+
+  <section id="calendars" class="full-only" aria-labelledby="calendars-title">
+    <h2 id="calendars-title">Calendars</h2>
+    <ul id="calendar-list"></ul>
+    <p class="subtle" id="calendar-summary"></p>
+    <p class="error" id="calendars-error" hidden></p>
+    <div id="expansion" hidden>
+      <p class="status"><button type="button" id="cancel-task" hidden>Cancel</button> <span id="expansion-status"></span></p>
+      <table id="occurrences" hidden>
+        <thead><tr><th>#</th><th>Starts</th><th>Lasts</th><th>Labels</th></tr></thead>
+        <tbody id="occurrence-rows"></tbody>
+      </table>
+      <p class="subtle" id="expansion-note"></p>
+    </div>
+    <p class="error" id="expansion-error" hidden></p>
+  </section>
+</main>
+<script>
+"use strict";
+(() => {
+  /* The tools linked to ui://time/now, by the names Time lists them under. */
+  const TOOLS = Object.freeze({ resolve: "resolve_time", convert: "convert_time", expand: "expand_schedule" });
+  const APP_INFO = { name: "time-now", version: "1.0.0" };
+  const APPS_PROTOCOL = "2026-01-26";
+  const DISPLAY_MODES = ["inline", "fullscreen"];
+  const CLOCK = "time://clock/current";
+  const EVENTS = "time://events";
+  const CALENDARS = "time://calendars";
+  const SUBSCRIBED = [EVENTS, CLOCK, CALENDARS];
+  const EVENT_PAGES = 5;
+  const SHOWN_EVENTS = 8;
+  const HORIZON_SECONDS = 7 * 86400;
+  const MAXIMUM_OCCURRENCES = 50;
+  const CONVERSIONS_AT_ONCE = 4;
+  const REQUEST_TIMEOUT_MS = 30000;
+  const ZONE_NAME = /^[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)*$/;
+  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  const root = document.documentElement;
+  const $ = (id) => document.getElementById(id);
+
+  const state = {
+    context: {},
+    zone: "UTC",
+    zones: ["UTC"],
+    clock: null,
+    zoneView: null,
+    events: null,
+    calendars: null,
+    task: null,
+    listenId: null,
+    initialized: false,
+    tornDown: false,
+  };
+
+  /* ---------------------------------------------------------------- bridge -- */
+
+  class BridgeError extends Error {
+    constructor(method, error) {
+      const message = error && typeof error.message === "string" && error.message ? error.message : `${method} failed`;
+      super(message);
+      this.code = error && error.code;
+    }
+  }
+
+  const pending = new Map();
+  let nextId = 1;
+
+  function post(message) {
+    window.parent.postMessage(message, "*");
+  }
+
+  function notify(method, params) {
+    if (!state.tornDown) post({ jsonrpc: "2.0", method, params });
+  }
+
+  function send(method, params, timeoutMs) {
+    if (state.tornDown) return { id: null, promise: Promise.reject(new Error("the view has closed")) };
+    const id = nextId++;
+    const promise = new Promise((resolve, reject) => {
+      const timer = timeoutMs > 0
+        ? setTimeout(() => { pending.delete(id); reject(new Error(`the host did not answer ${method}`)); }, timeoutMs)
+        : undefined;
+      pending.set(id, { method, resolve, reject, timer });
+    });
+    post({ jsonrpc: "2.0", id, method, params });
+    return { id, promise };
+  }
+
+  function request(method, params) {
+    return send(method, params, REQUEST_TIMEOUT_MS).promise;
+  }
+
+  function respond(id, result) {
+    post({ jsonrpc: "2.0", id, result });
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
+    const message = event.data;
+    if (!message || typeof message !== "object" || message.jsonrpc !== "2.0") return;
+    if (typeof message.method === "string") {
+      if (message.id === undefined || message.id === null) onNotification(message.method, message.params || {});
+      else onRequest(message.id, message.method, message.params || {});
+      return;
+    }
+    const call = pending.get(message.id);
+    if (!call) return;
+    pending.delete(message.id);
+    clearTimeout(call.timer);
+    if (message.error) call.reject(new BridgeError(call.method, message.error));
+    else call.resolve(message.result);
+  });
+
+  function onRequest(id, method) {
+    if (method === "ui/resource-teardown") {
+      teardown();
+      respond(id, {});
+    } else if (method === "ping") {
+      respond(id, {});
+    } else {
+      post({ jsonrpc: "2.0", id, error: { code: -32601, message: `Time's view does not handle ${method}` } });
+    }
+  }
+
+  function onNotification(method, params) {
+    if (state.tornDown) return;
+    if (method === "ui/notifications/host-context-changed") applyHostContext(params);
+    else if (method === "ui/notifications/resource-updated") wake(params.uri);
+    else if (method === "notifications/subscriptions/acknowledged") setLive(true);
+    else if (method === "ui/notifications/tool-result") showPushedResult(params);
+  }
+
+  async function readJson(uri) {
+    const result = await request("resources/read", { uri });
+    const contents = result && Array.isArray(result.contents) ? result.contents : [];
+    const item = contents.find((entry) => entry && entry.uri === uri && typeof entry.text === "string")
+      || contents.find((entry) => entry && typeof entry.text === "string");
+    if (!item) throw new Error(`${uri} returned no text`);
+    try {
+      return JSON.parse(item.text);
+    } catch {
+      throw new Error(`${uri} returned content that is not JSON`);
+    }
+  }
+
+  function toolText(result) {
+    const content = result && Array.isArray(result.content) ? result.content : [];
+    const text = content.find((entry) => entry && entry.type === "text" && typeof entry.text === "string");
+    return text ? text.text : "";
+  }
+
+  function toolValue(name, result) {
+    if (!result || typeof result !== "object") throw new Error(`${name} returned no result`);
+    if (result.isError) throw new Error(toolText(result) || `${name} failed`);
+    if (result.structuredContent && typeof result.structuredContent === "object") return result.structuredContent;
+    throw new Error(`${name} returned no structured content`);
+  }
+
+  async function callDirect(name, args) {
+    const result = await request("tools/call", { name, arguments: args });
+    if (result && result.resultType === "task") throw new Error(`${name} started a Task where a direct result was expected`);
+    return toolValue(name, result);
+  }
+
+  /* ------------------------------------------------------- host context -- */
+
+  /* The zones to try, in order: the host context's, the browser's, then UTC. */
+  function callerZones() {
+    const candidates = [state.context.timeZone];
+    try {
+      candidates.push(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    } catch {
+      /* The browser names no zone. */
+    }
+    candidates.push("UTC");
+    return candidates.filter((zone, index) => typeof zone === "string" && ZONE_NAME.test(zone) && candidates.indexOf(zone) === index);
+  }
+
+  function useZone(zone) {
+    state.zone = zone;
+    $("zone-label").textContent = zone;
+  }
+
+  function applyHostContext(update) {
+    if (!update || typeof update !== "object") return;
+    state.context = { ...state.context, ...update };
+    const context = state.context;
+    if (context.theme === "dark" || context.theme === "light") root.dataset.theme = context.theme;
+    const variables = context.styles && context.styles.variables;
+    if (variables && typeof variables === "object") {
+      for (const [name, value] of Object.entries(variables)) {
+        if (name.startsWith("--") && typeof value === "string") root.style.setProperty(name, value);
+      }
+    }
+    if (DISPLAY_MODES.includes(context.displayMode)) setMode(context.displayMode);
+    updateModeButton();
+    const zones = callerZones();
+    if (zones.join() !== state.zones.join()) {
+      state.zones = zones;
+      /* Once running, the view changes zone only after Time has read the new one. */
+      if (state.initialized) refresh("zone");
+      else useZone(zones[0]);
+    }
+  }
+
+  function setMode(mode) {
+    if (root.dataset.mode === mode) return;
+    root.dataset.mode = mode;
+    if (state.initialized) renderEvents();
+  }
+
+  function availableModes() {
+    const modes = state.context.availableDisplayModes;
+    return Array.isArray(modes) ? modes : [];
+  }
+
+  function updateModeButton() {
+    const target = root.dataset.mode === "fullscreen" ? "inline" : "fullscreen";
+    const button = $("mode");
+    button.dataset.target = target;
+    button.textContent = target === "fullscreen" ? "Open full page" : "Back to card";
+    button.hidden = !availableModes().includes(target);
+  }
+
+  async function switchMode() {
+    const target = $("mode").dataset.target;
+    showError("view-error", "");
+    try {
+      const result = await request("ui/request-display-mode", { mode: target });
+      const mode = result && DISPLAY_MODES.includes(result.mode) ? result.mode : null;
+      if (mode) {
+        state.context.displayMode = mode;
+        setMode(mode);
+        updateModeButton();
+      }
+    } catch (error) {
+      showError("view-error", `The host kept the current display: ${describe(error)}`);
+    }
+  }
+
+  function setLive(live) {
+    const indicator = $("live");
+    indicator.dataset.live = String(live);
+    indicator.textContent = live ? "Live" : "Not live";
+  }
+
+  /* -------------------------------------------------------------- size -- */
+
+  let reportedHeight = 0;
+  const sizes = new ResizeObserver(() => {
+    if (!state.initialized || state.tornDown) return;
+    const height = Math.ceil(document.body.getBoundingClientRect().height);
+    if (height === reportedHeight) return;
+    reportedHeight = height;
+    notify("ui/notifications/size-changed", { height });
+  });
+
+  /* --------------------------------------------------------- formatting -- */
+
+  function describe(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  function showError(id, message) {
+    const node = $(id);
+    node.textContent = message;
+    node.hidden = !message;
+  }
+
+  function element(tag, text, className) {
+    const node = document.createElement(tag);
+    if (text !== undefined && text !== null) node.textContent = text;
+    if (className) node.className = className;
+    return node;
+  }
+
+  /* Rows of [term, value, full]; a full row shows only on the full page. */
+  function fillTerms(target, rows) {
+    target.replaceChildren(...rows.flatMap(([term, value, full]) => {
+      const className = full ? "full-only" : "";
+      return [element("dt", term, className), element("dd", value, className)];
+    }));
+  }
+
+  /* Whether every number in a value survived JSON parsing exactly, so it can be sent back. */
+  function exact(value) {
+    if (typeof value === "number") return Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));
+    if (Array.isArray(value)) return value.every(exact);
+    if (value && typeof value === "object") return Object.values(value).every(exact);
+    return true;
+  }
+
+  function nanoseconds(value) {
+    if (!Number.isSafeInteger(value)) return "unbounded";
+    if (value < 1e3) return `${value} ns`;
+    if (value < 1e6) return `${(value / 1e3).toFixed(1)} µs`;
+    if (value < 1e9) return `${(value / 1e6).toFixed(1)} ms`;
+    return `${(value / 1e9).toFixed(3)} s`;
+  }
+
+  function nine(value) {
+    return String(value).padStart(9, "0");
+  }
+
+  function taiSeconds(instant) {
+    return `${instant.taiSecondsSince1970}.${nine(instant.nanosecond)} s`;
+  }
+
+  /* Elapsed seconds from one instant to another: a difference of TAI coordinates. */
+  function elapsed(from, to) {
+    return (to.taiSecondsSince1970 - from.taiSecondsSince1970) + (to.nanosecond - from.nanosecond) / 1e9;
+  }
+
+  function duration(seconds) {
+    const total = Math.round(Math.abs(seconds));
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (days) return hours ? `${days} d ${hours} h` : `${days} d`;
+    if (hours) return minutes ? `${hours} h ${minutes} min` : `${hours} h`;
+    if (minutes) return `${minutes} min`;
+    return `${total} s`;
+  }
+
+  function relative(seconds) {
+    if (Math.abs(seconds) < 1) return "now";
+    return seconds > 0 ? `in ${duration(seconds)}` : `${duration(seconds)} ago`;
+  }
+
+  /* The parts of an RFC 9557 zoned time, as Time wrote them. */
+  function zonedParts(text) {
+    const match = /^(-?\d{4,})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2}(?::\d{2})?)(?:\[([^\]]+)\])?$/.exec(text || "");
+    if (!match) return null;
+    const [, year, month, day, time, offset, zone] = match;
+    const weekday = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay();
+    return {
+      date: `${year}-${month}-${day}`,
+      weekday: Number.isInteger(weekday) ? WEEKDAYS[weekday] : "",
+      time,
+      offset: offset === "Z" ? "UTC" : `UTC${offset}`,
+      zone: zone || "",
+    };
+  }
+
+  function zonedShort(text) {
+    const parts = zonedParts(text);
+    return parts ? `${parts.weekday.slice(0, 3)} ${parts.date} ${parts.time} ${parts.offset}` : text;
+  }
+
+  /* ------------------------------------------------------------ reading -- */
+
+  const loaders = { clock: loadClock, zone: loadZone, events: loadEvents, calendars: loadCalendars };
+  const loading = {};
+
+  /* Reads a panel's resources again; a wake during a read reads once more after it. */
+  function refresh(name) {
+    const entry = loading[name] || (loading[name] = { busy: false, again: false });
+    if (entry.busy) {
+      entry.again = true;
+      return;
+    }
+    entry.busy = true;
+    loaders[name]().finally(() => {
+      entry.busy = false;
+      if (entry.again && !state.tornDown) {
+        entry.again = false;
+        refresh(name);
+      }
+    });
+  }
+
+  function wake(uri) {
+    if (typeof uri !== "string") return;
+    if (uri === EVENTS || uri.startsWith(`${EVENTS}/`)) {
+      refresh("events");
+      refresh("clock");
+    } else if (uri === CLOCK) {
+      refresh("clock");
+      refresh("zone");
+    } else if (uri === CALENDARS) {
+      refresh("calendars");
+    }
+  }
+
+  function listen() {
+    const { id, promise } = send("subscriptions/listen", { notifications: { resourceSubscriptions: SUBSCRIBED } }, 0);
+    state.listenId = id;
+    promise.then(
+      () => { if (!state.tornDown) setLive(false); },
+      (error) => {
+        if (state.tornDown) return;
+        setLive(false);
+        showError("view-error", `Live updates are off: ${describe(error)}. Refresh reads the current state.`);
+      },
+    );
+  }
+
+  async function loadClock() {
+    try {
+      state.clock = await readJson(CLOCK);
+      showError("clock-error", "");
+    } catch (error) {
+      showError("clock-error", `The current time could not be read: ${describe(error)}`);
+    }
+    renderClock();
+    renderEvents();
+  }
+
+  /* The current time in the first of the caller's zones that the active authority knows. */
+  async function loadZone() {
+    const zones = state.zones;
+    const failures = [];
+    for (const zone of zones) {
+      try {
+        const view = await readJson(`time://zones/${zone}`);
+        if (zones !== state.zones) return;
+        const changed = zone !== state.zone;
+        useZone(zone);
+        state.zoneView = view;
+        showError("zone-error", failures.length ? `${failures.join(" ")} Showing ${zone}.` : "");
+        renderClock();
+        if (changed) renderEvents();
+        return;
+      } catch (error) {
+        if (zones !== state.zones) return;
+        failures.push(`The time in ${zone} could not be read: ${describe(error)}.`);
+      }
+    }
+    state.zoneView = null;
+    showError("zone-error", failures.join(" "));
+    renderClock();
+  }
+
+  async function loadEvents() {
+    try {
+      const items = [];
+      let uri = EVENTS;
+      for (let pages = 0; uri && pages < EVENT_PAGES; pages += 1) {
+        const page = await readJson(uri);
+        if (!page || !Array.isArray(page.items)) throw new Error("the events page holds no items");
+        items.push(...page.items);
+        uri = typeof page.nextCursor === "string" && page.nextCursor
+          ? `${EVENTS}?cursor=${encodeURIComponent(page.nextCursor)}`
+          : null;
+      }
+      state.events = { items, more: uri !== null };
+      showError("events-error", "");
+    } catch (error) {
+      showError("events-error", `Your events could not be read: ${describe(error)}`);
+    }
+    renderEvents();
+  }
+
+  async function loadCalendars() {
+    try {
+      const page = await readJson(CALENDARS);
+      if (!page || !Array.isArray(page.items)) throw new Error("the calendars page holds no items");
+      /* A page orders each calendar's versions newest first. */
+      const latest = page.items.filter((item, index, items) => index === 0 || items[index - 1].calendarId !== item.calendarId);
+      state.calendars = { items: latest, more: Boolean(page.nextCursor) };
+      showError("calendars-error", "");
+    } catch (error) {
+      showError("calendars-error", `Calendars could not be read: ${describe(error)}`);
+    }
+    renderCalendars();
+  }
+
+  /* ---------------------------------------------------------- converting -- */
+
+  const conversions = new Map();
+  const queue = [];
+  let converting = 0;
+
+  /* An instant's wall-clock time in a zone, from convert_time, at most a few calls at once. */
+  function localTime(instant, zone) {
+    if (!exact(instant)) {
+      return Promise.reject(new Error("its uncertainty is larger than the browser can carry exactly"));
+    }
+    const key = `${zone} ${JSON.stringify(instant)}`;
+    if (!conversions.has(key)) {
+      conversions.set(key, new Promise((resolve, reject) => {
+        queue.push({ instant, zone, resolve, reject });
+        drain();
+      }).catch((error) => {
+        conversions.delete(key);
+        throw error;
+      }));
+    }
+    return conversions.get(key);
+  }
+
+  function drain() {
+    while (converting < CONVERSIONS_AT_ONCE && queue.length) {
+      const job = queue.shift();
+      converting += 1;
+      callDirect(TOOLS.convert, { instant: job.instant, zoneIds: [job.zone] })
+        .then((output) => {
+          const zoned = Array.isArray(output.zoned) ? output.zoned.find((entry) => entry.zoneId === job.zone) : null;
+          if (!zoned) throw new Error(`convert_time returned no time in ${job.zone}`);
+          job.resolve(zoned.rfc9557);
+        })
+        .catch(job.reject)
+        .finally(() => {
+          converting -= 1;
+          drain();
+        });
+    }
+  }
+
+  function fillLocal(node, instant, zone) {
+    node.textContent = "…";
+    localTime(instant, zone).then(
+      (text) => { if (node.isConnected) node.textContent = zonedShort(text); },
+      (error) => { if (node.isConnected) node.textContent = `unavailable: ${describe(error)}`; },
+    );
+  }
+
+  /* ---------------------------------------------------------- rendering -- */
+
+  function renderClock() {
+    const clock = state.clock;
+    const zoned = state.zoneView && state.zoneView.current ? zonedParts(state.zoneView.current.rfc9557) : null;
+    if (zoned) {
+      $("local-time").textContent = zoned.time;
+      $("local-date").textContent = `${zoned.weekday} ${zoned.date}, ${zoned.offset} (${state.zone})`;
+    } else if (clock) {
+      const utc = /T(\d{2}:\d{2}:\d{2})/.exec(clock.time.utcRfc3339);
+      $("local-time").textContent = utc ? utc[1] : clock.time.utcRfc3339;
+      $("local-date").textContent = "UTC";
+    }
+    if (!clock) return;
+    const time = clock.time;
+    const instant = time.instant;
+    fillTerms($("clock-lines"), [
+      ["UTC", `${time.utcRfc3339}${time.utcIsLeapSecond ? " (leap second)" : ""}`],
+      ["Military", time.militaryDtg],
+    ]);
+    const authority = time.effectiveAuthority || {};
+    fillTerms($("clock-details"), [
+      ["TAI", taiSeconds(instant)],
+      ["Unix", String(time.unixSeconds)],
+      ["GPS", time.gpsWeek === null || time.gpsWeek === undefined ? "before the GPS epoch" : `week ${time.gpsWeek}, ${time.gpsSecondsOfWeek} s`],
+      ["Julian day", `${Number(time.julianDayTai).toFixed(6)} TAI`],
+      ["Uncertainty", nanoseconds(instant.uncertaintyNanoseconds)],
+      ["Time zones", release(authority.tzdb)],
+      ["Leap seconds", release(authority.leapSeconds)],
+    ]);
+    const utcRead = /T(\d{2}:\d{2}:\d{2})/.exec(time.utcRfc3339);
+    $("clock-read").textContent = `Read at ${utcRead ? utcRead[1] : time.utcRfc3339} UTC`;
+    renderQuality(clock.clockQuality, clock.effectivePolicy);
+  }
+
+  function release(reference) {
+    if (!reference) return "unknown";
+    const source = reference.source && reference.source.kind === "acquisition" ? "acquired" : "packaged";
+    return `${reference.versionLabel} (${source})`;
+  }
+
+  function renderQuality(quality, policy) {
+    if (!quality || !policy) return;
+    const rows = [
+      ["Error bound", nanoseconds(quality.errorBoundNanoseconds), `at most ${nanoseconds(policy.maximumErrorNanoseconds)}`],
+      ["Stratum", String(quality.stratum), `at most ${policy.maximumStratum}`],
+      ["Sources", String(quality.sourceDiversity), `at least ${policy.minimumSourceDiversity}`],
+      ["Holdover", quality.holdoverAgeSeconds === null || quality.holdoverAgeSeconds === undefined ? "none" : `${quality.holdoverAgeSeconds} s`, `at most ${policy.maximumHoldoverSeconds} s`],
+    ];
+    $("quality-rows").replaceChildren(...rows.map((cells) => {
+      const row = element("tr");
+      row.append(element("th", cells[0]), element("td", cells[1], "mono"), element("td", cells[2], "mono"));
+      return row;
+    }));
+    fillTerms($("quality-details"), [
+      ["Synchronized", quality.synchronized ? "yes" : "no"],
+      ["Offset", `${quality.estimatedOffsetNanoseconds} ns`],
+      ["Traceability", (quality.traceability || []).join(", ") || "none"],
+      ["Observed", quality.observedAt],
+    ]);
+  }
+
+  function renderEvents() {
+    const events = state.events;
+    if (!events) return;
+    const scheduled = events.items.filter((event) => event.state === "scheduled");
+    const due = events.items.filter((event) => event.state === "due").length;
+    const cancelled = events.items.filter((event) => event.state === "cancelled").length;
+    const now = state.clock && state.clock.time.instant;
+    const until = (event) => (now ? relative(elapsed(now, event.due)) : "");
+
+    const next = scheduled[0];
+    $("next-event").textContent = next ? `Next: ${next.name}, ${until(next)}` : "No scheduled events";
+
+    if (root.dataset.mode !== "fullscreen") return;
+    $("event-list").replaceChildren(...scheduled.slice(0, SHOWN_EVENTS).map((event) => {
+      const item = element("li");
+      const local = element("span", "", "subtle");
+      item.append(element("span", event.name, "name"), element("span", until(event), "chip"), local);
+      fillLocal(local, event.due, state.zone);
+      return item;
+    }));
+    const summary = [];
+    if (!scheduled.length) summary.push("No scheduled events.");
+    else if (scheduled.length > SHOWN_EVENTS) summary.push(`${scheduled.length - SHOWN_EVENTS} more scheduled.`);
+    summary.push(`${due} due, ${cancelled} cancelled.`);
+    if (events.more) summary.push(`Only the first ${events.items.length} events were read.`);
+    if (now) summary.push("Times until are from the clock's last read.");
+    $("event-summary").textContent = summary.join(" ");
+  }
+
+  function renderCalendars() {
+    const calendars = state.calendars;
+    if (!calendars) return;
+    const running = Boolean(state.task);
+    $("calendar-list").replaceChildren(...calendars.items.map((calendar) => {
+      const item = element("li");
+      const button = element("button", "Expand the next 7 days");
+      button.type = "button";
+      button.disabled = running;
+      button.addEventListener("click", () => expand(calendar));
+      item.append(
+        element("span", calendar.name, "name"),
+        element("span", `${calendar.calendarId} v${calendar.version}`, "chip"),
+        element("span", calendar.zoneId, "subtle"),
+        button,
+      );
+      return item;
+    }));
+    const summary = calendars.items.length ? [] : ["No calendars yet."];
+    if (calendars.more) summary.push("More calendars exist than one page shows.");
+    $("calendar-summary").textContent = summary.join(" ");
+  }
+
+  /* ----------------------------------------------------------- resolving -- */
+
+  function splitSeconds(text) {
+    const match = /^([+-]?)(\d+)(?:\.(\d{1,9}))?$/.exec(text.trim());
+    if (!match) throw new Error("Write seconds as digits with at most nine decimals.");
+    const whole = Number(match[2]);
+    if (!Number.isSafeInteger(whole)) throw new Error("Those seconds are too large to send exactly.");
+    const fraction = Number((match[3] || "").padEnd(9, "0"));
+    if (match[1] !== "-") return { seconds: whole, nanosecond: fraction };
+    return fraction ? { seconds: -whole - 1, nanosecond: 1e9 - fraction } : { seconds: -whole, nanosecond: 0 };
+  }
+
+  function detectFormat(text) {
+    const compact = text.replace(/\s+/g, "").toUpperCase();
+    if (/^\d{6}(?:\d{2})?[A-IK-Z][A-Z]{3}\d{2}$/.test(compact)) return "military_dtg";
+    if (/\[[^\]]+\]$/.test(text)) return "rfc9557";
+    if (/^[+-]?\d+(?:\.\d{1,9})?$/.test(text)) return "unix";
+    if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?$/.test(text)) return "civil";
+    return "rfc3339";
+  }
+
+  function expression(text, format, disambiguation) {
+    switch (format === "auto" ? detectFormat(text) : format) {
+      case "military_dtg":
+        return { format: "military_dtg", value: text.replace(/\s+/g, "").toUpperCase() };
+      case "rfc9557":
+        return { format: "rfc9557", value: text, disambiguation };
+      case "unix":
+        return { format: "unix", ...splitSeconds(text) };
+      case "tai": {
+        const { seconds, nanosecond } = splitSeconds(text);
+        return { format: "tai", secondsSince1970: seconds, nanosecond };
+      }
+      case "gps": {
+        const parts = text.split(/[\s,]+/).filter(Boolean).map(Number);
+        if (parts.length !== 2 || !Number.isSafeInteger(parts[0]) || parts[0] < 0 || !Number.isFinite(parts[1])) {
+          throw new Error("Write a GPS time as the week and the seconds of the week, such as 2400 345600.");
+        }
+        return { format: "gps", week: parts[0], secondsOfWeek: parts[1] };
+      }
+      case "julian_tai": {
+        const day = Number(text);
+        if (!Number.isFinite(day)) throw new Error("Write a Julian day as a number, such as 2461000.5.");
+        return { format: "julian_tai", day };
+      }
+      case "civil": {
+        const tzdb = state.clock && state.clock.time.effectiveAuthority && state.clock.time.effectiveAuthority.tzdb;
+        if (!tzdb) throw new Error("A civil time needs the active time zone release, which has not been read yet.");
+        let local = text.replace(" ", "T");
+        if (/T\d{2}:\d{2}$/.test(local)) local += ":00";
+        return { format: "civil", value: { localDatetime: local, zoneId: state.zone, tzdbReleaseId: tzdb.releaseId, disambiguation } };
+      }
+      default:
+        return { format: "rfc3339", value: text.replace(" ", "T") };
+    }
+  }
+
+  async function resolveTyped() {
+    if ($("resolve").disabled) return;
+    const text = $("expression").value.trim();
+    showError("resolve-error", "");
+    $("resolved-source").hidden = true;
+    if (!text) {
+      showError("resolve-error", "Type a time to resolve.");
+      return;
+    }
+    const fullscreen = root.dataset.mode === "fullscreen";
+    let typed;
+    try {
+      typed = expression(text, fullscreen ? $("format").value : "auto", fullscreen ? $("disambiguation").value : "reject");
+    } catch (error) {
+      showError("resolve-error", describe(error));
+      return;
+    }
+    $("resolve").disabled = true;
+    $("resolved").hidden = true;
+    try {
+      const resolved = await callDirect(TOOLS.resolve, { expression: typed });
+      await showResolved(resolved, null);
+    } catch (error) {
+      showError("resolve-error", `That time could not be resolved: ${describe(error)}`);
+    } finally {
+      $("resolve").disabled = false;
+    }
+  }
+
+  async function showResolved(resolved, converted) {
+    renderResolved(resolved, converted);
+    if (converted || !exact(resolved.instant)) return;
+    try {
+      const projected = await callDirect(TOOLS.convert, { instant: resolved.instant, zoneIds: [state.zone], scales: ["tai", "tt", "gpst"] });
+      renderResolved(resolved, projected);
+    } catch (error) {
+      showError("resolve-error", `The resolved time could not be converted: ${describe(error)}`);
+    }
+  }
+
+  function renderResolved(resolved, converted) {
+    const instant = resolved.instant;
+    const zoned = converted && Array.isArray(converted.zoned) ? converted.zoned.find((entry) => entry.zoneId === state.zone) : null;
+    const now = state.clock && state.clock.time.instant;
+    const rows = [
+      [state.zone, zoned ? zonedShort(zoned.rfc9557) : "…"],
+      ["UTC", `${resolved.utcRfc3339}${resolved.utcIsLeapSecond ? " (leap second)" : ""}`],
+      ["Military", resolved.militaryDtg],
+    ];
+    if (now) rows.push(["From now", relative(elapsed(now, instant))]);
+    rows.push(
+      ["Unix", String(resolved.unixSeconds), true],
+      ["TAI", taiSeconds(instant), true],
+      ["GPS", resolved.gpsWeek === null || resolved.gpsWeek === undefined ? "before the GPS epoch" : `week ${resolved.gpsWeek}, ${resolved.gpsSecondsOfWeek} s`, true],
+      ["Julian day", `${Number(resolved.julianDayTai).toFixed(6)} TAI`, true],
+      ["Uncertainty", nanoseconds(instant.uncertaintyNanoseconds), true],
+    );
+    for (const scale of (converted && converted.scales) || []) {
+      rows.push([scale.scale.toUpperCase(), `${scale.seconds} s since ${scale.referenceEpoch}`, true]);
+    }
+    const authority = resolved.effectiveAuthority || {};
+    rows.push(["Time zones", release(authority.tzdb), true], ["Leap seconds", release(authority.leapSeconds), true]);
+    fillTerms($("resolved"), rows);
+    $("resolved").hidden = false;
+  }
+
+  /* A resolve_time or convert_time result the host delivers for this view. */
+  function showPushedResult(params) {
+    const result = params && params.structuredContent ? params : params && params.result;
+    const value = result && result.structuredContent;
+    if (!value || typeof value !== "object" || result.isError) return;
+    let shown = null;
+    if (value.canonical && value.canonical.instant) shown = showResolved(value.canonical, value);
+    else if (value.instant && typeof value.utcRfc3339 === "string") shown = showResolved(value, null);
+    if (!shown) return;
+    showError("resolve-error", "");
+    $("resolved-source").textContent = "From the conversation";
+    $("resolved-source").hidden = false;
+  }
+
+  /* --------------------------------------------------------- expanding -- */
+
+  async function resolveTai(seconds, nanosecond) {
+    const output = await callDirect(TOOLS.resolve, { expression: { format: "tai", secondsSince1970: seconds, nanosecond } });
+    return output.instant;
+  }
+
+  function setExpansion(status) {
+    $("expansion").hidden = false;
+    $("expansion-status").textContent = status;
+  }
+
+  async function expand(calendar) {
+    if (state.task) return;
+    showError("expansion-error", "");
+    $("occurrences").hidden = true;
+    $("expansion-note").textContent = "";
+    const now = state.clock && state.clock.time.instant;
+    if (!now) {
+      showError("expansion-error", "The current time has not been read yet.");
+      return;
+    }
+    if (!exact(calendar)) {
+      showError("expansion-error", "This calendar holds a number the browser cannot send back exactly.");
+      return;
+    }
+    state.task = { taskId: null, calendar, timer: undefined, cancelling: false };
+    renderCalendars();
+    setExpansion(`Expanding ${calendar.name} over the next 7 days`);
+    try {
+      /* The horizon starts at the clock's last read; Time resolves both bounds. */
+      const start = await resolveTai(now.taiSecondsSince1970, now.nanosecond);
+      const end = await resolveTai(now.taiSecondsSince1970 + HORIZON_SECONDS, now.nanosecond);
+      const reply = await request("tools/call", {
+        name: TOOLS.expand,
+        arguments: { calendar, horizon: { start, end }, maximumOccurrences: MAXIMUM_OCCURRENCES },
+      });
+      if (state.tornDown) return;
+      if (reply && reply.resultType === "task") {
+        state.task.taskId = reply.taskId;
+        showTask(reply);
+        schedulePoll(reply.pollIntervalMs);
+        return;
+      }
+      state.task = null;
+      showOccurrences(calendar, toolValue(TOOLS.expand, reply));
+    } catch (error) {
+      state.task = null;
+      setExpansion("");
+      showError("expansion-error", `The calendar could not be expanded: ${describe(error)}`);
+    }
+    renderCalendars();
+  }
+
+  function showTask(task) {
+    const message = task.statusMessage ? `: ${task.statusMessage}` : "";
+    setExpansion(`Task ${task.taskId} is ${String(task.status).replace("_", " ")}${message}`);
+    const cancel = $("cancel-task");
+    const live = state.task && state.task.taskId === task.taskId;
+    cancel.hidden = !live || !(task.status === "working" || task.status === "input_required");
+    cancel.disabled = Boolean(live && state.task.cancelling);
+  }
+
+  function schedulePoll(interval) {
+    const current = state.task;
+    if (!current || state.tornDown) return;
+    const wait = Math.min(Math.max(Number(interval) || 1000, 250), 10000);
+    current.timer = setTimeout(() => poll(current), wait);
+  }
+
+  async function poll(current) {
+    if (state.task !== current || state.tornDown) return;
+    let task;
+    try {
+      task = await request("tasks/get", { taskId: current.taskId });
+    } catch (error) {
+      if (state.task !== current) return;
+      state.task = null;
+      $("cancel-task").hidden = true;
+      showError("expansion-error", `Task ${current.taskId} could not be read: ${describe(error)}`);
+      renderCalendars();
+      return;
+    }
+    if (state.task !== current) return;
+    showTask(task);
+    if (task.status === "working" || task.status === "input_required") {
+      schedulePoll(task.pollIntervalMs);
+      return;
+    }
+    state.task = null;
+    $("cancel-task").hidden = true;
+    if (task.status === "completed") {
+      try {
+        showOccurrences(current.calendar, toolValue(TOOLS.expand, task.result));
+      } catch (error) {
+        showError("expansion-error", `The expansion failed: ${describe(error)}`);
+      }
+    } else if (task.status === "failed") {
+      const reason = task.error && task.error.message ? task.error.message : task.statusMessage || "no reason given";
+      showError("expansion-error", `The expansion failed: ${reason}`);
+    }
+    renderCalendars();
+  }
+
+  async function cancelTask() {
+    const current = state.task;
+    if (!current || !current.taskId || current.cancelling) return;
+    current.cancelling = true;
+    $("cancel-task").disabled = true;
+    try {
+      await request("tasks/cancel", { taskId: current.taskId });
+      setExpansion(`Task ${current.taskId}: cancellation requested`);
+    } catch (error) {
+      current.cancelling = false;
+      $("cancel-task").disabled = false;
+      showError("expansion-error", `Task ${current.taskId} could not be cancelled: ${describe(error)}`);
+    }
+  }
+
+  function showOccurrences(calendar, output) {
+    const occurrences = Array.isArray(output.occurrences) ? output.occurrences : [];
+    setExpansion(`${calendar.name}: ${occurrences.length} occurrence${occurrences.length === 1 ? "" : "s"} in the next 7 days`);
+    $("occurrence-rows").replaceChildren(...occurrences.map((occurrence) => {
+      const row = element("tr");
+      const starts = element("td", "", "mono");
+      row.append(
+        element("td", String(occurrence.sequence)),
+        starts,
+        element("td", duration(elapsed(occurrence.window.start, occurrence.window.end))),
+        element("td", (occurrence.labels || []).join(", ")),
+      );
+      fillLocal(starts, occurrence.window.start, calendar.zoneId);
+      return row;
+    }));
+    $("occurrences").hidden = !occurrences.length;
+    $("expansion-note").textContent = output.truncated
+      ? `Only the first ${MAXIMUM_OCCURRENCES} occurrences are shown. Starts are in ${calendar.zoneId}.`
+      : `Starts are in ${calendar.zoneId}.`;
+  }
+
+  /* ---------------------------------------------------------- lifecycle -- */
+
+  function teardown() {
+    if (state.tornDown) return;
+    if (state.listenId !== null) notify("notifications/cancelled", { requestId: state.listenId, reason: "The view is closing." });
+    if (state.task) clearTimeout(state.task.timer);
+    state.task = null;
+    state.tornDown = true;
+    sizes.disconnect();
+    for (const call of pending.values()) clearTimeout(call.timer);
+    pending.clear();
+    queue.length = 0;
+  }
+
+  async function start() {
+    state.zones = callerZones();
+    useZone(state.zones[0]);
+    $("mode").addEventListener("click", switchMode);
+    $("refresh").addEventListener("click", () => { refresh("clock"); refresh("zone"); });
+    $("resolve").addEventListener("click", resolveTyped);
+    $("expression").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") resolveTyped();
+    });
+    $("cancel-task").addEventListener("click", cancelTask);
+    let initialized;
+    try {
+      initialized = await request("ui/initialize", {
+        protocolVersion: APPS_PROTOCOL,
+        appInfo: APP_INFO,
+        appCapabilities: { availableDisplayModes: DISPLAY_MODES },
+      });
+    } catch (error) {
+      showError("view-error", `Time's view could not connect to its host: ${describe(error)}`);
+      return;
+    }
+    applyHostContext(initialized && initialized.hostContext);
+    state.initialized = true;
+    notify("ui/notifications/initialized", {});
+    sizes.observe(document.body);
+    listen();
+    refresh("clock");
+    refresh("zone");
+    refresh("events");
+    refresh("calendars");
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>
