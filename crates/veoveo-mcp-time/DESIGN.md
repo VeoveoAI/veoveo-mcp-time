@@ -33,7 +33,7 @@ port         8800
 | [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
-| MCP Apps SEP-1865 `ext-apps` | Version `2026-01-26` under the SDK's [MCP Apps contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/17cb319bad2ae5e919d25384360303fdcb9a9957/crates/veoveo-hub-sdk/src/apps/DESIGN.md): one self-contained view, `ui://time/now`, with its linked tools, host context, `inline` and `fullscreen` display modes, and the Veoveo reactive resource adapter for its wakes. |
+| MCP Apps SEP-1865 `ext-apps` | Version `2026-01-26` under the SDK's [MCP Apps contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/154a473/crates/veoveo-hub-sdk/src/apps/DESIGN.md): one self-contained view, `ui://time/now`, with its linked tools, host context and `inline` and `fullscreen` display modes. The host forwards MCP's own `subscriptions/listen` and Tasks methods, so the view's wakes are Time's `notifications/resources/updated`; nothing is added to the `ui/` namespace. |
 | [Veoveo server registration](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/src/registration/DESIGN.md) | Time initially registers through RFC 7591 and resumes native saved RFC 7592 credentials across process restarts; explicit retirement deletes registration. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
 | [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Hub forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. When a token names a key Time does not hold, Time reads the issuer's RFC 8414 metadata and fetches its `jwks_uri` with the registration's HTTP client, at most once per refresh interval. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
@@ -524,7 +524,15 @@ requests and persisted policies share this contract.
 
 The readiness probe reports ready while Time observes the configured clock. Mission acceptance remains a policy decision returned by `assess_clock` and
 `time://clock/quality`. The clock-derived `time://clock/current` resource includes
-the effective policy and measured quality, including holdover age.
+the effective policy and measured quality, including holdover age, and
+`utcOffsetHoldsUntil`: the instant until which the served instant's TAI-UTC offset holds,
+which is the start of the next leap second the active leap-second release lists, the
+served instant itself when it lies inside a leap second, or null when the release lists
+none. `time://zones/{+zone_id}` likewise carries `offsetHoldsUntil`, the earlier of the
+zone's next UTC offset change under the active TZDB and that leap-second boundary, or
+null when neither is listed. A client that advances a served instant by elapsed TAI time
+keeps every projection exact before those instants; Time states them so that no client
+interprets a leap second or zone rule itself.
 
 ## MCP Surface
 
@@ -657,7 +665,7 @@ creation rejects a document larger than 64 KiB before writing it.
 
 | URI | Content |
 |---|---|
-| `time://clock/current` | current resolved instant with effective policy and measured clock quality |
+| `time://clock/current` | current resolved instant with effective policy, measured clock quality and `utcOffsetHoldsUntil` (see [Clock Quality](#clock-quality)) |
 | `time://clock/quality` | measured clock-quality record |
 | `time://authorities/current` | effective compiler-ready authority references, including bootstrap authorities |
 | `time://calendars` | a page of tenant calendar versions |
@@ -788,8 +796,8 @@ waiting for a tool result:
 
 | Resource | Use in the view |
 |---|---|
-| `time://clock/current` | the current instant with its projections, clock quality and effective policy, and the TZDB release a civil expression names |
-| `time://zones/{+zone_id}` | the current time in the caller's zone: the first of the host context's `timeZone`, the browser's zone and `UTC` that the active TZDB knows; conversions and civil expressions use that zone |
+| `time://clock/current` | the current instant with its projections, `utcOffsetHoldsUntil`, clock quality and effective policy, and the TZDB release a civil expression names |
+| `time://zones/{+zone_id}` | the current time and `offsetHoldsUntil` in the caller's zone: the first of the host context's `timeZone`, the browser's zone and `UTC` that the active TZDB knows; conversions and civil expressions use that zone |
 | `time://events` | the caller's events: the scheduled ones in due order, and how many are due or cancelled |
 | `time://calendars` | the tenant's calendars, each one the view can expand |
 
@@ -801,7 +809,7 @@ can call it. The view calls them by these names:
 |---|---|
 | `resolve_time` | resolves the expression the person types, read as a military DTG, RFC 9557, RFC 3339, Unix seconds or a civil time in the caller's zone, or in the format the person chooses |
 | `convert_time` | projects a resolved instant into the caller's zone and into TAI, TT and GPS time, and an event's due instant or an occurrence's start into the caller's or the calendar's zone |
-| `expand_schedule` | expands a calendar over the seven days after the clock's last read as an MCP Task, which the view polls with `tasks/get` at the Task's poll interval and can cancel with `tasks/cancel` |
+| `expand_schedule` | expands a calendar over the seven days after the instant the clock panel shows as an MCP Task, which the view polls with `tasks/get` at the Task's poll interval and can cancel with `tasks/cancel` |
 
 Wall-clock times come from `convert_time` and resource reads, and durations, such as how
 long until an event or how long an occurrence lasts, are differences of TAI
@@ -809,18 +817,42 @@ coordinates, which are elapsed time. The view therefore interprets no zone rule 
 second itself. Time's numbers stay within the JSON range, so the view sends instants
 back as it read them. The expansion horizon is a window the person chooses rather than a
 measurement, so its bounds are `resolve_time` results for the TAI coordinates of the
-clock's last read and seven days later, which carry no uncertainty, rather than the
+instant the clock panel shows and seven days later, which carry no uncertainty, rather than the
 clock's instant with its measured uncertainty.
 
-The view opens one `subscriptions/listen` for `time://events`, `time://clock/current`
-and `time://calendars` and treats each `ui/notifications/resource-updated` as a wake to
-read that resource again. It uses no timer in place of an update; the clock panel shows
-the instant of its last read and rereads it when the person asks. It reports its size with
-`ui/notifications/size-changed` whenever its layout changes. It answers
-`ui/resource-teardown` after ending its subscription and its Task polling; a Task it
+The view sends MCP's `subscriptions/listen` with
+`{"notifications":{"resourceSubscriptions":["time://events","time://clock/current","time://calendars"]}}`,
+which the host forwards to Time. Time's `notifications/subscriptions/acknowledged` marks
+the resources it accepted as live, and each `notifications/resources/updated` `{uri}` is a
+wake to read that resource again; the events wake also rereads the clock, so times until
+events start from a fresh instant. A host that refuses the listen, such as with -32601,
+leaves the view working without wakes: the header says updates are off and Refresh reads
+current state. The view reads again only on a wake and when the person presses Refresh,
+never on a timer, and ends the listen with `notifications/cancelled` naming its request.
+
+The clock ticks between reads. Each read of `time://clock/current` anchors its served
+instant at the midpoint of the read's request and response on the browser's monotonic
+clock, `performance.now()`, and the panel advances that TAI instant by the monotonic time
+elapsed since, never by the browser's wall clock. TAI seconds, GPS week and seconds, and
+the Julian TAI day advance exactly, because none of them has leap seconds. UTC, Unix
+seconds and the military DTG advance with the served TAI-UTC offset until
+`utcOffsetHoldsUntil`, and the local time with the served zone offset until the zone's
+`offsetHoldsUntil`. A field that reaches its boundary stays at it and asks the person to
+Refresh, so the view never guesses a leap second or a daylight-saving change. The panel
+shows whole seconds, the instant and age of its last read, and the served uncertainty at
+that read; the advanced time can differ from Time's by the read's one-way latency and
+the browser clock's drift. Times until events and the resolved time's distance from now
+advance with the panel. The display updates at each displayed second; that update reads
+nothing.
+
+It reports its height with `ui/notifications/size-changed` whenever its layout changes;
+ticking digits are fixed-width, so ticking alone changes no size. It answers
+`ui/resource-teardown` after ending its listen, its Task polling and its tick; a Task it
 started keeps running and stays the person's. A failed read or call, including an
 authorization refusal, appears in the panel that made it, and the rest of the view keeps
-working.
+working. Every control is a button or an input reachable from the keyboard, with a
+visible focus ring; status and error lines are announced politely to assistive
+technology.
 
 ## Events
 
@@ -1280,9 +1312,15 @@ check its own Content Security Policy and that it names no network origin. Throu
 the hosted router they find `ui://time/now` in `resources/list` under the App MIME
 type with its title, description and icon, read the same document back under that MIME
 type, find the App link to that exact URI with `app` visibility on `resolve_time`,
-`convert_time` and `expand_schedule` and on no other tool, and find the
-`io.modelcontextprotocol/ui` extension in `initialize`. The view's behavior inside a host,
-its bridge traffic, Tasks and wakes, is qualified through the Hub's App host.
+`convert_time` and `expand_schedule` and on no other tool, find the
+`io.modelcontextprotocol/ui` extension in `initialize`, read `utcOffsetHoldsUntil` and
+`offsetHoldsUntil` from the clock and a zone, and see the server accept the view's listen
+for its three resources. Engine cases place `utcOffsetHoldsUntil` at the start of a listed
+leap second, at the served instant inside one and nowhere when none is listed, and a
+zone's `offsetHoldsUntil` at its next offset change. The document's own cases find the
+MCP wake and acknowledgement, the monotonic clock and no wall clock or interval timer.
+The view's behavior inside a host, its bridge traffic, Tasks and wakes, is qualified
+through the Hub's App host.
 
 Local controls qualify fixture and receipt handling, clock classification, touching
 and one-nanosecond interval assertions, and incomplete HTTP response tracing. Installed execution,
