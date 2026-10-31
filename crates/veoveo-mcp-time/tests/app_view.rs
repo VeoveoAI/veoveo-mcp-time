@@ -161,9 +161,11 @@ fn the_clock_ticks_from_the_monotonic_clock_and_reads_only_on_wakes_and_refresh(
     for hold in ["utcOffsetHoldsUntil", "offsetHoldsUntil"] {
         assert!(html.contains(&format!(".{hold}")), "{hold}");
     }
-    // Reads happen in the loaders, which only wakes, Refresh and startup start.
+    // Reads happen in the loaders, which only startup, wakes, acknowledgements and Refresh
+    // start.
     assert_eq!(html.matches("request(\"resources/read\"").count(), 1);
-    assert_eq!(html.matches("refreshAll();").count(), 1);
+    assert_eq!(html.matches("refreshAll();").count(), 2);
+    assert!(function(&html, "acknowledged").contains("refreshAll();"));
     assert!(html.contains("$(\"refresh\").addEventListener(\"click\", refreshAll);"));
 }
 
@@ -175,4 +177,49 @@ fn every_control_is_a_button_or_input_with_a_visible_focus_ring() {
     for control in ["<a ", "onclick=", "contenteditable"] {
         assert!(!html.contains(control), "{control}");
     }
+}
+
+/// The body of the view's function `name`, up to the closing brace at its own indent.
+fn function<'a>(html: &'a str, name: &str) -> &'a str {
+    let start = html
+        .find(&format!("  function {name}("))
+        .unwrap_or_else(|| panic!("the view defines {name}"));
+    let end = html[start..]
+        .find("\n  }\n")
+        .unwrap_or_else(|| panic!("{name} ends"));
+    &html[start..start + end]
+}
+
+#[test]
+fn an_ended_listen_is_listened_again_with_a_bounded_backoff_except_for_method_not_found() {
+    let html = document();
+    assert!(html.contains("const LISTEN_RETRY_FIRST_MS = 1000;"));
+    assert!(html.contains("const LISTEN_RETRY_MAX_MS = 30000;"));
+    // Each listen is a fresh request; one listen is open at a time.
+    let listen = function(&html, "listen");
+    assert!(listen.contains("send(\"subscriptions/listen\""));
+    assert!(listen.contains("state.listenId = id;"));
+    // An end the view did not cause backs off, doubling up to the ceiling, and listens again.
+    let ended = function(&html, "listenEnded");
+    assert!(ended.contains("state.tornDown || state.listenId !== id"));
+    assert!(ended.contains("Math.min(delay * 2, LISTEN_RETRY_MAX_MS)"));
+    let retry = ended.find("setTimeout(listen, delay)").expect("a relisten");
+    assert!(ended.contains("setLive(\"reconnecting\""));
+    // A host that answers -32601 forwards no listens: the view stops before any retry.
+    let refused = ended.find("METHOD_NOT_FOUND").expect("a -32601 branch");
+    let stop = refused
+        + ended[refused..]
+            .find("return;")
+            .expect("the branch returns");
+    assert!(stop < retry);
+    assert!(ended[refused..stop].contains("Live updates are off"));
+    // An acknowledgement resets the backoff, marks the view live and rereads everything.
+    let acknowledged = function(&html, "acknowledged");
+    assert!(acknowledged.contains("state.retryDelay = LISTEN_RETRY_FIRST_MS;"));
+    assert!(acknowledged.contains("setLive(\"live\")"));
+    assert!(html.contains("reconnecting: \"Reconnecting…\""));
+    // Teardown cancels the open listen and any pending relisten.
+    let teardown = function(&html, "teardown");
+    assert!(teardown.contains("notifications/cancelled"));
+    assert!(teardown.contains("clearTimeout(state.retryTimer);"));
 }

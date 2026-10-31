@@ -200,6 +200,9 @@ p { margin: 6px 0 0; }
   const CONVERSIONS_AT_ONCE = 4;
   const REQUEST_TIMEOUT_MS = 30000;
   const METHOD_NOT_FOUND = -32601;
+  /* After a listen ends, the next one waits 1 s, doubling to 30 s, until an acknowledgement. */
+  const LISTEN_RETRY_FIRST_MS = 1000;
+  const LISTEN_RETRY_MAX_MS = 30000;
   const ZONE_NAME = /^[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)*$/;
   const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
@@ -222,6 +225,8 @@ p { margin: 6px 0 0; }
     calendars: null,
     task: null,
     listenId: null,
+    retryDelay: LISTEN_RETRY_FIRST_MS,
+    retryTimer: undefined,
     accepted: new Set(),
     initialized: false,
     tornDown: false,
@@ -415,7 +420,7 @@ p { margin: 6px 0 0; }
 
   /* --------------------------------------------------------------- live -- */
 
-  const LIVE_LABELS = { connecting: "Connecting", live: "Live", partial: "Partly live", off: "Updates off", ended: "Updates ended" };
+  const LIVE_LABELS = { connecting: "Connecting", live: "Live", partial: "Partly live", reconnecting: "Reconnecting…", off: "Updates off" };
 
   function setLive(status, note) {
     const indicator = $("live");
@@ -426,35 +431,45 @@ p { margin: 6px 0 0; }
     line.hidden = !note;
   }
 
+  /* One listen at a time, each under a fresh request id. */
   function listen() {
+    clearTimeout(state.retryTimer);
+    if (state.tornDown) return;
     const { id, promise } = send("subscriptions/listen", { notifications: { resourceSubscriptions: SUBSCRIBED } }, 0);
     state.listenId = id;
-    setLive("connecting");
-    promise.then(
-      () => {
-        if (state.tornDown) return;
-        state.listenId = null;
-        setLive("ended", "Live updates ended. Refresh reads the current state.");
-      },
-      (error) => {
-        if (state.tornDown) return;
-        state.listenId = null;
-        setLive("off", error && error.code === METHOD_NOT_FOUND
-          ? "This host does not deliver live updates. Refresh reads the current state."
-          : `Live updates are off: ${describe(error)}. Refresh reads the current state.`);
-      },
-    );
+    promise.then(() => listenEnded(id, null), (error) => listenEnded(id, error));
   }
 
-  /* Time's acknowledgement names the resources it accepted. */
+  /* The host answered the listen's id: it ended without the view ending it. Unless the host
+     does not forward listens at all, listen again after the backoff. */
+  function listenEnded(id, error) {
+    if (state.tornDown || state.listenId !== id) return;
+    state.listenId = null;
+    state.accepted = new Set();
+    if (error && error.code === METHOD_NOT_FOUND) {
+      setLive("off", "Live updates are off: this host does not forward them. Refresh reads the current state.");
+      return;
+    }
+    const delay = state.retryDelay;
+    state.retryDelay = Math.min(delay * 2, LISTEN_RETRY_MAX_MS);
+    const reason = error ? describe(error) : "the host ended them";
+    setLive("reconnecting", `Live updates stopped (${reason}). Listening again in ${duration(delay / 1000)}.`);
+    state.retryTimer = setTimeout(listen, delay);
+  }
+
+  /* Time's acknowledgement names the resources it accepted. Updates during any gap before it
+     are not replayed, so every listened resource is read again. */
   function acknowledged(params) {
+    if (state.listenId === null) return;
     const notifications = params && params.notifications;
     const accepted = notifications && Array.isArray(notifications.resourceSubscriptions) ? notifications.resourceSubscriptions : [];
     state.accepted = new Set(accepted.filter((uri) => SUBSCRIBED.includes(uri)));
+    state.retryDelay = LISTEN_RETRY_FIRST_MS;
     const missing = SUBSCRIBED.filter((uri) => !state.accepted.has(uri));
     if (!missing.length) setLive("live");
     else if (state.accepted.size) setLive("partial", `Time does not send updates for ${missing.join(", ")}. Refresh reads them.`);
     else setLive("off", "Time accepted no live updates. Refresh reads the current state.");
+    refreshAll();
   }
 
   /* -------------------------------------------------------------- size -- */
@@ -1285,6 +1300,7 @@ p { margin: 6px 0 0; }
   function teardown() {
     if (state.tornDown) return;
     if (state.listenId !== null) notify("notifications/cancelled", { requestId: state.listenId, reason: "The view is closing." });
+    clearTimeout(state.retryTimer);
     if (state.task) clearTimeout(state.task.timer);
     state.task = null;
     state.tornDown = true;
@@ -1326,6 +1342,7 @@ p { margin: 6px 0 0; }
     state.initialized = true;
     notify("ui/notifications/initialized", {});
     sizes.observe(document.body);
+    setLive("connecting");
     listen();
     refreshAll();
   }
