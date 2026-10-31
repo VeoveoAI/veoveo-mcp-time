@@ -15,7 +15,7 @@ impl TimePersistence {
         if body_bytes(&draft.body) > MAX_CALENDAR_BYTES {
             return Err(invalid("calendar", "must fit the 64 KiB resource limit"));
         }
-        sqlx::query_file_as!(
+        let inserted = sqlx::query_file_as!(
             TimeCalendarVersionRecord,
             "src/persistence/queries/insert_calendar_version.sql",
             draft.identity.tenant_id as TenantId,
@@ -31,13 +31,26 @@ impl TimePersistence {
             draft.work_context.as_str(),
         )
         .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| {
-            conflict(
+        .await?;
+        if let Some(record) = inserted {
+            return Ok(record);
+        }
+        // A version is immutable: publishing it again with the same content answers it,
+        // and other content conflicts with it.
+        match self
+            .time_calendar_version(
+                draft.identity.tenant_id,
+                &draft.calendar_key,
+                draft.calendar_version,
+            )
+            .await?
+        {
+            Some(record) if record.body == draft.body => Ok(record),
+            _ => Err(conflict(
                 "calendar version",
                 format!("{}@{}", draft.calendar_key, draft.calendar_version.get()),
-            )
-        })
+            )),
+        }
     }
 
     pub(crate) async fn time_calendar_version(
@@ -65,7 +78,7 @@ impl TimePersistence {
         validate_key("epoch_key", &draft.epoch_key, "epoch-")?;
         validate_text("name", &draft.name, 256)?;
         validate_body(&draft.body)?;
-        sqlx::query_file_as!(
+        let inserted = sqlx::query_file_as!(
             TimeEpochRecord,
             "src/persistence/queries/insert_epoch.sql",
             draft.identity.tenant_id as TenantId,
@@ -81,13 +94,24 @@ impl TimePersistence {
             draft.work_context.as_str(),
         )
         .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| {
-            conflict(
+        .await?;
+        if let Some(record) = inserted {
+            return Ok(record);
+        }
+        match self
+            .time_epoch(
+                draft.identity.tenant_id,
+                &draft.epoch_key,
+                draft.epoch_version,
+            )
+            .await?
+        {
+            Some(record) if record.body == draft.body => Ok(record),
+            _ => Err(conflict(
                 "epoch version",
                 format!("{}@{}", draft.epoch_key, draft.epoch_version.get()),
-            )
-        })
+            )),
+        }
     }
 
     pub(crate) async fn time_epoch(

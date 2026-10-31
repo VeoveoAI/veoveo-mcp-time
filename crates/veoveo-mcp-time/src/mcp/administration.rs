@@ -224,7 +224,6 @@ impl TimeMcp {
         context: RequestContext<RoleServer>,
     ) -> Result<OperationalCalendar, ToolError> {
         let identity = hub_identity(&context)?;
-        let request = CreateCalendarRequestValue::from(request);
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let calendar = match self
             .state
@@ -244,7 +243,6 @@ impl TimeMcp {
         context: RequestContext<RoleServer>,
     ) -> Result<Epoch, ToolError> {
         let identity = hub_identity(&context)?;
-        let request = UpsertEpochRequestValue::from(request);
         let scope = self.state.scope(&identity).await.map_err(internal)?;
         let epoch = match self.state.catalog.create_epoch(&scope, request.epoch).await {
             Ok(epoch) => epoch,

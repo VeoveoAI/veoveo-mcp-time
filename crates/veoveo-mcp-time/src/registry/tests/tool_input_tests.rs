@@ -95,12 +95,9 @@ async fn unknown_tool_arguments_complete_before_time_resolution() {
             crate::contract::CalendarId::parse("calendar-0195dabe-7777-7abc-8def-000000000007")
                 .unwrap();
         let calendar = calendar.build().unwrap();
-        let create = CreateCalendarRequestValue {
+        let create = CreateCalendarRequest {
             calendar: calendar.clone(),
-            idempotency_key: "calendar-fixture".into(),
-        }
-        .build()
-        .unwrap();
+        };
         let (_, created) = hub
             .rpc_with(
                 "tools/call",

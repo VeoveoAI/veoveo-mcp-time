@@ -436,7 +436,10 @@ representations.
 
 An `OperationalCalendar` is immutable by `(calendar_id, version)`. It declares one
 IANA zone, local windows, daily or weekly recurrence, optional weekday filters,
-count or until bounds, excluded civil dates, and caller-defined labels.
+count or until bounds, excluded civil dates, and caller-defined labels. The version
+is its own idempotency: `create_calendar` with a version that exists answers the
+stored version when the content is the same and conflicts otherwise, so a caller
+retries a publication without a separate key. An epoch version behaves the same.
 
 `expand_schedule` resolves the local windows through the active TZDB and clips them
 to an authority-bound horizon. The output is ordered, numbered, and bounded by
@@ -920,8 +923,8 @@ task state as the domain tools. Every tool requires a permission that carries th
 | `cancel_acquisition` | `time.authorities.administer` | request cancellation |
 | `list_active_authorities` | `time.authorities.inspect` | read active family pointers |
 | `activate_release` | `time.authorities.administer` | preflight and activate a staged release |
-| `create_calendar` | `time.calendars.write` | publish an immutable calendar version |
-| `create_epoch` | `time.epochs.write` | publish an epoch version |
+| `create_calendar` | `time.calendars.write` | publish an immutable calendar version; the same version again with the same content answers it |
+| `create_epoch` | `time.epochs.write` | publish an immutable epoch version, idempotent as a calendar's |
 | `replace_clock_policy` | `time.clock-policies.write` | replace the clock policy under optimistic concurrency |
 
 Releases, calendars, epochs and the clock policy are read through Time's resources.

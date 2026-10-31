@@ -326,6 +326,47 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
             )
             .await
             .unwrap();
+        // A version published again: the same content answers it, other content conflicts.
+        let again = crate::OperationalCalendarValue {
+            calendar_id: CalendarId::parse("calendar-00000000-0000-7000-8000-000000000002")
+                .unwrap(),
+            version: crate::TimeVersion::new(42).unwrap(),
+            name: "Other".into(),
+            zone_id: "UTC".into(),
+            windows: Vec::new(),
+            excluded_dates: Vec::new(),
+        };
+        let replayed = catalog
+            .create_calendar(&owner, again.clone().build().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(replayed, again.clone().build().unwrap());
+        let renamed = crate::OperationalCalendarValue {
+            name: "Renamed".into(),
+            ..again
+        };
+        assert!(
+            catalog
+                .create_calendar(&owner, renamed.build().unwrap())
+                .await
+                .is_err()
+        );
+        let epoch = |name: &str| Epoch {
+            epoch_id: EpochId::parse("epoch-00000000-0000-7000-8000-000000000001").unwrap(),
+            name: name.into(),
+            instant: instant(),
+            version: crate::TimeVersion::new(12).unwrap(),
+        };
+        assert_eq!(
+            catalog.create_epoch(&owner, epoch("launch")).await.unwrap(),
+            epoch("launch")
+        );
+        assert!(
+            catalog
+                .create_epoch(&owner, epoch("relaunch"))
+                .await
+                .is_err()
+        );
         let epoch_id = EpochId::parse("epoch-00000000-0000-7000-8000-000000000001").unwrap();
         assert_eq!(
             catalog
