@@ -123,3 +123,90 @@ async fn exactly_the_linked_tools_carry_the_app_link() {
     .await
     .unwrap();
 }
+
+/// The JSON a resource read returns as text.
+async fn read_json(fixture: &Fixture, uri: &str) -> Value {
+    let read = rpc(
+        fixture,
+        &[AuthoritiesRead],
+        "resources/read",
+        json!({"uri": uri}),
+    )
+    .await;
+    let text = read["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{uri}: {read}"));
+    serde_json::from_str(text).unwrap()
+}
+
+#[tokio::test]
+async fn the_clock_and_a_zone_state_how_long_their_offsets_hold() {
+    tokio::time::timeout(Duration::from_secs(90), async {
+        let fixture = Fixture::new().await;
+        // The fixture's leap-second table lists no change after its only entry, and UTC
+        // has no offset change, so both offsets hold without a stated end.
+        let clock = read_json(&fixture, "time://clock/current").await;
+        assert!(
+            clock
+                .as_object()
+                .unwrap()
+                .contains_key("utcOffsetHoldsUntil"),
+            "{clock}"
+        );
+        assert_eq!(clock["utcOffsetHoldsUntil"], Value::Null, "{clock}");
+        let zone = read_json(&fixture, "time://zones/UTC").await;
+        assert!(
+            zone.as_object().unwrap().contains_key("offsetHoldsUntil"),
+            "{zone}"
+        );
+        assert_eq!(zone["offsetHoldsUntil"], Value::Null, "{zone}");
+        assert!(zone["current"]["rfc9557"].as_str().is_some(), "{zone}");
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn time_acknowledges_the_views_listen_for_its_three_resources() {
+    use futures::StreamExt;
+    tokio::time::timeout(Duration::from_secs(90), async {
+        let fixture = Fixture::new().await;
+        let subscribed = ["time://events", "time://clock/current", "time://calendars"];
+        let response = fixture
+            .hub
+            .open(
+                "subscriptions/listen",
+                json!({"notifications": {"resourceSubscriptions": subscribed}}),
+            )
+            .await;
+        assert!(response.status().is_success(), "{}", response.status());
+        let mut stream = response.into_body().into_data_stream();
+        let mut text = String::new();
+        let acknowledged = loop {
+            let chunk = stream
+                .next()
+                .await
+                .expect("the listen stays open until it acknowledges")
+                .unwrap();
+            text.push_str(&String::from_utf8_lossy(&chunk));
+            let found = text
+                .lines()
+                .filter_map(|line| line.strip_prefix("data:"))
+                .filter_map(|data| serde_json::from_str::<Value>(data.trim()).ok())
+                .find(|message| message["method"] == "notifications/subscriptions/acknowledged");
+            if let Some(message) = found {
+                break message;
+            }
+        };
+        let accepted: BTreeSet<&str> =
+            acknowledged["params"]["notifications"]["resourceSubscriptions"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{acknowledged}"))
+                .iter()
+                .map(|uri| uri.as_str().unwrap())
+                .collect();
+        assert_eq!(accepted, subscribed.into_iter().collect::<BTreeSet<_>>());
+    })
+    .await
+    .unwrap();
+}

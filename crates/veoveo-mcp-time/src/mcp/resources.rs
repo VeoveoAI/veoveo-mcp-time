@@ -372,8 +372,10 @@ async fn clock_current(
             additional_uncertainty: quality.error_bound,
         })
         .map_err(invalid_params)?;
+    let utc_offset_holds_until = engine.utc_offset_holds_until(&time).map_err(internal)?;
     Ok(ClockCurrent {
         time,
+        utc_offset_holds_until,
         effective_policy: policy,
         clock_quality: quality,
     })
@@ -395,9 +397,14 @@ async fn zone(domain: TimeMcp, read: ReadZone, context: Context) -> Result<ZoneV
             additional_uncertainty: NanosecondBound::ZERO,
         })
         .map_err(invalid_params)?;
+    let leap = engine.utc_offset_holds_until(&now).map_err(internal)?;
+    let instant = now.into_instant();
+    let offset_holds_until = engine
+        .zone_offset_holds_until(&instant, read.zone.as_str(), leap)
+        .map_err(invalid_params)?;
     let projection = engine
         .convert(&ConvertTimeRequest {
-            instant: now.into_instant(),
+            instant,
             zone_ids: vec![read.zone.as_str().to_owned()],
             scales: Vec::new(),
         })
@@ -406,5 +413,6 @@ async fn zone(domain: TimeMcp, read: ReadZone, context: Context) -> Result<ZoneV
         zone_id: read.zone.as_str().to_owned(),
         tzdb_release_id: engine.authority().binding().tzdb_release_id().clone(),
         current: projection.zoned.into_iter().next(),
+        offset_holds_until,
     })
 }

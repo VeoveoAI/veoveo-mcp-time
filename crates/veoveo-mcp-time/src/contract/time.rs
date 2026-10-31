@@ -444,6 +444,11 @@ impl veoveo_types::Check for ClockAssessmentValue {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClockCurrent {
     pub time: ResolveTimeOutput,
+    /// The instant until which `time`'s TAI-UTC offset holds: the start of the next leap
+    /// second the active release lists, `time`'s own instant inside a leap second, or null
+    /// when the release lists none. Advancing `time` by elapsed TAI time keeps its UTC
+    /// projections exact before this instant.
+    pub utc_offset_holds_until: Option<TimeInstant>,
     pub effective_policy: ClockQualityPolicy,
     pub clock_quality: ClockQuality,
 }

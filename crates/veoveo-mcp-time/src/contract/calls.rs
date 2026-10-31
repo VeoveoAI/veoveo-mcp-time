@@ -268,6 +268,10 @@ pub struct ZoneView {
     pub zone_id: String,
     pub tzdb_release_id: AuthorityReleaseId,
     pub current: Option<ZonedRepresentation>,
+    /// The instant until which `current`'s offset holds: the earlier of the zone's next
+    /// UTC offset change under the active TZDB and the next leap second, or null when
+    /// neither is listed. Advancing `current` by elapsed time keeps it exact before this.
+    pub offset_holds_until: Option<TimeInstant>,
 }
 #[derive(Clone, Debug)]
 #[veoveo_hub_sdk::resource_read(provider = TimeProvider, address_type = TimeResource, content = ZoneView,

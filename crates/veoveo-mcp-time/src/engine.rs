@@ -116,6 +116,78 @@ impl TemporalEngine {
         })
     }
 
+    /// The instant until which `resolved`'s TAI-UTC offset holds, so that advancing it by
+    /// elapsed TAI time keeps its UTC projections exact: the start of the next leap second
+    /// the active release lists, `resolved`'s own instant when it lies inside a leap
+    /// second, or none when the release lists no later change.
+    pub fn utc_offset_holds_until(
+        &self,
+        resolved: &ResolveTimeOutput,
+    ) -> Result<Option<TimeInstant>> {
+        let instant = resolved.instant();
+        self.ensure_authority(instant)?;
+        let binding = self.authority.binding().clone();
+        if resolved.projection().utc_is_leap_second {
+            return exact_instant(instant.tai_seconds_since_1970, instant.nanosecond, binding)
+                .map(Some);
+        }
+        // A change takes effect at its effective UTC midnight. A positive leap second
+        // begins one TAI second earlier, under the old offset; a negative one removes the
+        // last second of the day, under the new offset. Both begin at the smaller offset.
+        let entries = self.authority.leap_seconds().entries();
+        for pair in entries.windows(2) {
+            let offset = pair[0]
+                .tai_minus_utc_seconds
+                .min(pair[1].tai_minus_utc_seconds);
+            let change = pair[1]
+                .effective_unix_seconds
+                .checked_add(offset)
+                .context("leap-second change exceeds the supported range")?;
+            if change > instant.tai_seconds_since_1970 {
+                return exact_instant(change, SubsecondNanoseconds::ZERO, binding).map(Some);
+            }
+        }
+        Ok(None)
+    }
+
+    /// The instant until which `instant`'s offset in `zone_id` holds: the zone's next UTC
+    /// offset change under the active TZDB, or `leap`, the end of the UTC offset's hold,
+    /// when that comes first; none when neither is known.
+    pub fn zone_offset_holds_until(
+        &self,
+        instant: &TimeInstant,
+        zone_id: &str,
+        leap: Option<TimeInstant>,
+    ) -> Result<Option<TimeInstant>> {
+        self.ensure_authority(instant)?;
+        validate_zone_id(zone_id)?;
+        let zone = self.authority.tzdb().get(zone_id)?;
+        let (timestamp, _) = timestamp_from_instant(instant, &self.authority)?;
+        let offset = zone.to_offset(timestamp);
+        // A transition that changes only an abbreviation keeps the offset; a bounded scan
+        // passes over such transitions to the next real change.
+        let change = zone
+            .following(timestamp)
+            .take(ZONE_TRANSITION_SCAN)
+            .find(|transition| transition.offset() != offset)
+            .map(|transition| {
+                let (seconds, nanosecond) =
+                    instant_parts_from_timestamp(transition.timestamp(), &self.authority)?;
+                exact_instant(seconds, nanosecond, self.authority.binding().clone())
+            })
+            .transpose()?;
+        Ok(match (change, leap) {
+            (Some(change), Some(leap)) => {
+                Some(if change.total_nanoseconds() <= leap.total_nanoseconds() {
+                    change
+                } else {
+                    leap
+                })
+            }
+            (change, leap) => change.or(leap),
+        })
+    }
+
     /// The earliest UTC instant at microsecond precision that does not precede `instant`.
     /// An instant inside a positive leap second maps to the start of the next second.
     /// Event storage compares this instant with the database clock.
@@ -643,6 +715,9 @@ fn civil_to_instant(
     )
 }
 
+/// How many following zone transitions a hold looks through for a real offset change.
+const ZONE_TRANSITION_SCAN: usize = 16;
+
 /// An instant at a resolved coordinate with no uncertainty of its own, whose seconds lie
 /// within the JSON integer range.
 fn exact_instant(
@@ -709,6 +784,10 @@ mod tests {
     const LEAPS: &str = "2272060800 10\n2287785600 11\n2303683200 12\n2335219200 13\n2366755200 14\n2398291200 15\n2429913600 16\n2461449600 17\n2492985600 18\n2524521600 19\n2571782400 20\n2603318400 21\n2634854400 22\n2698012800 23\n2776982400 24\n2840140800 25\n2871676800 26\n2918937600 27\n2950473600 28\n2982009600 29\n3029443200 30\n3076704000 31\n3124137600 32\n3345062400 33\n3439756800 34\n3550089600 35\n3644697600 36\n3692217600 37\n";
 
     fn engine() -> TemporalEngine {
+        engine_with_leaps(LEAPS)
+    }
+
+    fn engine_with_leaps(leaps: &str) -> TemporalEngine {
         let tzdb_release_id = AuthorityReleaseId::parse("time-release-tzdb-test").unwrap();
         let leap_release_id = AuthorityReleaseId::parse("time-release-leaps-test").unwrap();
         let authority = AuthorityContext::from_paths(
@@ -718,10 +797,105 @@ mod tests {
             )
             .unwrap(),
             "/usr/share/zoneinfo",
-            LeapSecondTable::from_iana_content(LEAPS).unwrap(),
+            LeapSecondTable::from_iana_content(leaps).unwrap(),
         )
         .unwrap();
         TemporalEngine::new(authority)
+    }
+
+    fn resolve_rfc3339(engine: &TemporalEngine, value: &str) -> ResolveTimeOutput {
+        engine
+            .resolve(&ResolveTimeRequest {
+                expression: crate::TimeExpressionValue::Rfc3339 {
+                    value: value.to_owned(),
+                }
+                .build()
+                .unwrap(),
+                additional_uncertainty: crate::NanosecondBound::ZERO,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn the_utc_offset_holds_until_the_next_listed_leap_second() {
+        // The released table lists no change after 2017, so the offset holds without end.
+        let engine = engine();
+        let now = resolve_rfc3339(&engine, "2024-06-01T00:00:00Z");
+        assert_eq!(engine.utc_offset_holds_until(&now).unwrap(), None);
+
+        // A table that schedules a positive leap second at the end of 2026: 2027-01-01 is
+        // NTP 4007750400, and the leap second begins at TAI 1798761600 + 37.
+        let engine = engine_with_leaps(&format!("{LEAPS}4007750400 38\n"));
+        let before = resolve_rfc3339(&engine, "2026-12-31T23:59:59.5Z");
+        let holds = engine.utc_offset_holds_until(&before).unwrap().unwrap();
+        assert_eq!(holds.tai_seconds_since_1970, 1_798_761_637);
+        assert_eq!(holds.nanosecond, SubsecondNanoseconds::ZERO);
+        assert_eq!(holds.uncertainty, crate::NanosecondBound::ZERO);
+        assert_eq!(holds.authority, before.instant().authority);
+        // The leap second itself, a quarter second in, projected from its TAI coordinate.
+        let leap = engine
+            .convert(&ConvertTimeRequest {
+                instant: TimeInstant {
+                    nanosecond: SubsecondNanoseconds::new(250_000_000).unwrap(),
+                    ..holds.clone()
+                },
+                zone_ids: Vec::new(),
+                scales: Vec::new(),
+            })
+            .unwrap()
+            .canonical;
+        assert!(leap.projection().utc_is_leap_second);
+        assert_eq!(leap.projection().utc_rfc3339, "2026-12-31T23:59:60.25Z");
+        // Inside the leap second the served offset holds for no time at all.
+        assert_eq!(
+            engine.utc_offset_holds_until(&leap).unwrap().as_ref(),
+            Some(leap.instant())
+        );
+        let after = resolve_rfc3339(&engine, "2027-01-01T00:00:00Z");
+        assert_eq!(engine.utc_offset_holds_until(&after).unwrap(), None);
+    }
+
+    #[test]
+    fn a_zone_offset_holds_until_its_next_change_or_the_leap_second_first() {
+        let engine = engine();
+        let winter = resolve_rfc3339(&engine, "2026-03-01T12:00:00Z");
+        let spring = resolve_rfc3339(&engine, "2026-03-08T07:00:00Z").into_instant();
+        assert_eq!(
+            engine
+                .zone_offset_holds_until(winter.instant(), "America/New_York", None)
+                .unwrap(),
+            Some(spring.clone())
+        );
+        // UTC has no offset change, so only a leap second ends its hold.
+        assert_eq!(
+            engine
+                .zone_offset_holds_until(winter.instant(), "UTC", None)
+                .unwrap(),
+            None
+        );
+        let leap = spring.clone();
+        let earlier = resolve_rfc3339(&engine, "2026-03-05T00:00:00Z").into_instant();
+        assert_eq!(
+            engine
+                .zone_offset_holds_until(winter.instant(), "UTC", Some(leap.clone()))
+                .unwrap(),
+            Some(leap)
+        );
+        assert_eq!(
+            engine
+                .zone_offset_holds_until(
+                    winter.instant(),
+                    "America/New_York",
+                    Some(earlier.clone())
+                )
+                .unwrap(),
+            Some(earlier)
+        );
+        assert!(
+            engine
+                .zone_offset_holds_until(winter.instant(), "../etc/passwd", None)
+                .is_err()
+        );
     }
 
     fn test_authority_reference(
