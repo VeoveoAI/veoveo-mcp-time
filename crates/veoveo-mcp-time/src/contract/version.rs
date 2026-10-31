@@ -14,8 +14,8 @@ pub enum TimeVersionError {
 impl fmt::Display for TimeVersionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::InvalidVersion => "Time version must be in 1..=9223372036854775807",
-            Self::InvalidGuard => "Time version guard must be in 0..=9223372036854775807",
+            Self::InvalidVersion => "Time version must be in 1..=9007199254740991",
+            Self::InvalidGuard => "Time version guard must be in 0..=9007199254740991",
             Self::InvalidCreation => "Time source creation requires record_version 0",
             Self::Exhausted => "Time record_version is exhausted",
         })
@@ -67,7 +67,7 @@ impl TimeVersion {
     pub const FIRST: Self = Self(1);
 
     pub fn new(value: u64) -> Result<Self, TimeVersionError> {
-        if value == 0 || value > i64::MAX as u64 {
+        if value == 0 || value > super::JSON_INTEGER_MAX as u64 {
             return Err(TimeVersionError::InvalidVersion);
         }
         Ok(Self(value))
@@ -80,7 +80,7 @@ impl TimeVersion {
     pub fn checked_next(self) -> Result<Self, TimeVersionError> {
         self.0
             .checked_add(1)
-            .filter(|next| *next <= i64::MAX as u64)
+            .filter(|next| *next <= super::JSON_INTEGER_MAX as u64)
             .map(Self)
             .ok_or(TimeVersionError::Exhausted)
     }
@@ -107,7 +107,7 @@ impl JsonSchema for TimeVersion {
         "TimeVersion".into()
     }
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        schemars::json_schema!({"type":"integer", "minimum":1, "maximum":i64::MAX})
+        schemars::json_schema!({"type":"integer", "minimum":1, "maximum":super::JSON_INTEGER_MAX})
     }
 }
 
@@ -169,6 +169,6 @@ impl JsonSchema for TimeWriteGuard {
         "TimeWriteGuard".into()
     }
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        schemars::json_schema!({"type":"integer", "minimum":0, "maximum":i64::MAX})
+        schemars::json_schema!({"type":"integer", "minimum":0, "maximum":super::JSON_INTEGER_MAX})
     }
 }

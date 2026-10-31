@@ -67,13 +67,10 @@ impl TimeWindow {
             return Err(TimeWindowError::AuthorityMismatch);
         }
         let start = std::cmp::max_by_key(&self.0.start, &other.0.start, |instant| {
-            (instant.total_nanoseconds(), instant.uncertainty_nanoseconds)
+            (instant.total_nanoseconds(), instant.uncertainty)
         });
         let end = std::cmp::min_by_key(&self.0.end, &other.0.end, |instant| {
-            (
-                instant.total_nanoseconds(),
-                Reverse(instant.uncertainty_nanoseconds),
-            )
+            (instant.total_nanoseconds(), Reverse(instant.uncertainty))
         });
         if start.total_nanoseconds() >= end.total_nanoseconds() {
             return Ok(None);

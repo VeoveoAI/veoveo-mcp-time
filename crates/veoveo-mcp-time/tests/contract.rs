@@ -91,7 +91,7 @@ fn public_id_deserialization_applies_domain_validation() {
     check_id::<EventId>("event-launch", "epoch-launch");
     assert!(
         serde_json::from_value::<TimeExpression>(serde_json::json!({
-            "format": "epoch_relative", "epochId": "calendar-mission", "offsetNanoseconds": 0,
+            "format": "epoch_relative", "epochId": "calendar-mission", "offset": {"seconds": 0},
         }))
         .is_err()
     );
@@ -175,7 +175,7 @@ fn time_expression_variants_and_resolution_requests_are_closed() {
         json!({"format":"gps","week":1,"secondsOfWeek":2}),
         json!({"format":"julian_tai","day":2440587.5}),
         json!({"format":"military_dtg","value":"010000ZJAN26"}),
-        json!({"format":"epoch_relative","epochId":"epoch-launch","offsetNanoseconds":0}),
+        json!({"format":"epoch_relative","epochId":"epoch-launch","offset":{"seconds":0,"nanosecond":0}}),
     ];
     for input in expressions {
         assert!(serde_json::from_value::<TimeExpression>(input.clone()).is_ok());
@@ -334,7 +334,7 @@ fn actual_owner_request_variants_refuse_retired_and_mixed_nested_members() {
         due: TimeInstant {
             tai_seconds_since_1970: 100,
             nanosecond: Default::default(),
-            uncertainty_nanoseconds: 10,
+            uncertainty: veoveo_mcp_time::NanosecondBound::bounded(10).unwrap(),
             authority: AuthorityBinding::new(
                 AuthorityReleaseId::parse("time-release-tzdb").unwrap(),
                 AuthorityReleaseId::parse("time-release-leaps").unwrap(),
@@ -398,7 +398,7 @@ fn authority_source_and_current_page_refuse_retired_members() {
         due: TimeInstant {
             tai_seconds_since_1970: 0,
             nanosecond: SubsecondNanoseconds::ZERO,
-            uncertainty_nanoseconds: 0,
+            uncertainty: veoveo_mcp_time::NanosecondBound::ZERO,
             authority: AuthorityBinding::new(
                 AuthorityReleaseId::parse("time-release-tzdb").unwrap(),
                 AuthorityReleaseId::parse("time-release-leaps").unwrap(),

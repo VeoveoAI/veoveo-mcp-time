@@ -10,6 +10,7 @@ fn authority() -> AuthorityBinding {
 }
 
 fn instant(total: i128, uncertainty: u64) -> TimeInstant {
+    let uncertainty = veoveo_mcp_time::NanosecondBound::bounded(uncertainty).unwrap();
     TimeInstant::from_total_nanoseconds(total, uncertainty, authority()).unwrap()
 }
 
@@ -71,10 +72,10 @@ fn intersection_preserves_selected_bound_metadata_and_maximum_tied_uncertainty()
     assert_eq!(inner.intersection(&outer).unwrap(), Some(inner));
     let same = TimeWindow::new(instant(-10, 13), instant(10, 1)).unwrap();
     let clipped = outer.intersection(&same).unwrap().unwrap();
-    assert_eq!(clipped.start().uncertainty_nanoseconds, 13);
-    assert_eq!(clipped.end().uncertainty_nanoseconds, 3);
-    assert_eq!(outer.start().uncertainty_nanoseconds, 2);
-    assert_eq!(same.end().uncertainty_nanoseconds, 1);
+    assert_eq!(clipped.start().uncertainty.nanoseconds(), Some(13));
+    assert_eq!(clipped.end().uncertainty.nanoseconds(), Some(3));
+    assert_eq!(outer.start().uncertainty.nanoseconds(), Some(2));
+    assert_eq!(same.end().uncertainty.nanoseconds(), Some(1));
     for start in [10, 11] {
         let after = TimeWindow::new(instant(start, 5), instant(20, 7)).unwrap();
         assert_eq!(outer.intersection(&after).unwrap(), None);
@@ -97,8 +98,8 @@ fn intersection_preserves_selected_bound_metadata_and_maximum_tied_uncertainty()
 
 #[test]
 fn windows_span_the_full_coordinate_range_without_narrowing() {
-    let minimum = i128::from(i64::MIN) * 1_000_000_000;
-    let maximum = i128::from(i64::MAX) * 1_000_000_000 + 999_999_999;
+    let minimum = -i128::from(veoveo_mcp_time::JSON_INTEGER_MAX) * 1_000_000_000;
+    let maximum = i128::from(veoveo_mcp_time::JSON_INTEGER_MAX) * 1_000_000_000 + 999_999_999;
     let whole = TimeWindow::new(instant(minimum, 7), instant(maximum, 11)).unwrap();
     let tail = TimeWindow::new(instant(maximum - 1, 13), instant(maximum, 17)).unwrap();
     assert_eq!(whole.intersection(&tail).unwrap(), Some(tail));

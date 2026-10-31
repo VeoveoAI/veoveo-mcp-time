@@ -267,7 +267,7 @@ fn resolved(engine: &TemporalEngine) -> TimeInstant {
             }
             .build()
             .unwrap(),
-            additional_uncertainty_nanoseconds: 0,
+            additional_uncertainty: crate::NanosecondBound::ZERO,
         })
         .unwrap()
         .into_instant()
@@ -377,11 +377,11 @@ async fn replicas_load_persisted_authority_before_serving_and_validate_cache_reu
                 .resolve(&ResolveTimeRequest {
                     expression: crate::TimeExpressionValue::EpochRelative {
                         epoch_id,
-                        offset_nanoseconds: 0
+                        offset: crate::TimeSpan::ZERO
                     }
                     .build()
                     .unwrap(),
-                    additional_uncertainty_nanoseconds: 0
+                    additional_uncertainty: crate::NanosecondBound::ZERO
                 })
                 .is_err()
         );

@@ -26,7 +26,7 @@ impl fmt::Display for TimeResourceError {
             Self::Uri(error) => error.fmt(f),
             Self::UnknownResource => f.write_str("unknown or noncanonical Time resource address"),
             Self::InvalidId => f.write_str("invalid Time resource identifier"),
-            Self::InvalidVersion => f.write_str("Time version must be in 1..=9223372036854775807"),
+            Self::InvalidVersion => f.write_str("Time version must be in 1..=9007199254740991"),
             Self::InvalidZone => {
                 f.write_str("expected a relative TZDB zone key with nonempty name components")
             }

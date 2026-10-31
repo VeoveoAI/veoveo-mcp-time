@@ -102,12 +102,12 @@ async fn clock_policy_rows_admit_only_policy_ranges_and_positive_versions() {
         let winner = left.or(right).unwrap();
         assert_eq!(winner.1.get(), 2);
         assert_eq!(catalog.clock_policy(&owner).await.unwrap().unwrap(), winner);
-        set_record_version(&db.a, tenant, Row::ClockPolicy, i64::MAX)
+        set_record_version(&db.a, tenant, Row::ClockPolicy, crate::JSON_INTEGER_MAX)
             .await
             .unwrap();
         let retained = clock_row(&db.a, tenant).await;
         let (_, max) = catalog.clock_policy(&owner).await.unwrap().unwrap();
-        assert_eq!(max.get(), i64::MAX as u64);
+        assert_eq!(max.get(), crate::JSON_INTEGER_MAX as u64);
         assert!(
             catalog
                 .replace_clock_policy(&owner, policy(6), TimeWriteGuard::Existing(max))
@@ -127,7 +127,7 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
         let owner = scope(&db.a, "time-version-numeric", "owner").await;
         let tenant = owner.identity.tenant_id;
         let catalog = TimeCatalog::new(db.b.pool().clone());
-        let max = TimeVersion::new(i64::MAX as u64).unwrap();
+        let max = TimeVersion::new(crate::JSON_INTEGER_MAX as u64).unwrap();
         let source = catalog
             .create_source(
                 &owner,
@@ -148,9 +148,14 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
             )
             .await
             .unwrap();
-        set_record_version(&db.a, tenant, Row::Source(&source.source_id), i64::MAX)
-            .await
-            .unwrap();
+        set_record_version(
+            &db.a,
+            tenant,
+            Row::Source(&source.source_id),
+            crate::JSON_INTEGER_MAX,
+        )
+        .await
+        .unwrap();
         let retained = catalog
             .source(&owner, &source.source_id)
             .await
@@ -200,7 +205,7 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
             &db.a,
             tenant,
             Row::Acquisition(&acquisition.acquisition_id),
-            i64::MAX,
+            crate::JSON_INTEGER_MAX,
         )
         .await
         .unwrap();
@@ -209,14 +214,20 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
             .await
             .unwrap()
             .unwrap();
-        for version in [0, i64::MAX as u64, u64::MAX] {
+        for version in [
+            0,
+            crate::JSON_INTEGER_MAX as u64,
+            crate::JSON_INTEGER_MAX as u64 + 1,
+            i64::MAX as u64,
+            u64::MAX,
+        ] {
             let mut wire = serde_json::to_value(&retained).unwrap();
             wire["recordVersion"] = version.into();
             wire["status"] = "running".into();
             wire["phase"] = "downloading".into();
             match serde_json::from_value::<TimeAcquisition>(wire) {
                 Ok(changed) => {
-                    assert_eq!(version, i64::MAX as u64);
+                    assert_eq!(version, crate::JSON_INTEGER_MAX as u64);
                     assert!(catalog.update_acquisition(&owner, changed).await.is_err());
                 }
                 Err(error) => assert!(
@@ -248,9 +259,14 @@ async fn exhausted_source_acquisition_and_event_versions_cannot_advance() {
             )
             .await
             .unwrap();
-        set_record_version(&db.a, tenant, Row::Event(&event.event_id), i64::MAX)
-            .await
-            .unwrap();
+        set_record_version(
+            &db.a,
+            tenant,
+            Row::Event(&event.event_id),
+            crate::JSON_INTEGER_MAX,
+        )
+        .await
+        .unwrap();
         let retained = catalog
             .event(&owner, &event.event_id)
             .await

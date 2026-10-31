@@ -32,6 +32,7 @@ pub struct TimeProjectionValue {
     pub utc_rfc3339: String,
     pub utc_is_leap_second: bool,
     pub military_dtg: String,
+    #[schemars(range(min = -9_007_199_254_740_991_i64, max = 9_007_199_254_740_991_i64))]
     pub unix_seconds: i64,
     pub gps_week: Option<u32>,
     pub gps_seconds_of_week: Option<super::admission::GpsSecondsOfWeek>,
@@ -147,6 +148,7 @@ impl veoveo_types::Check for TimeProjectionValue {
     fn check(&self) -> Result<(), Self::Error> {
         if !self.julian_day_tai.is_finite()
             || self.gps_week.is_some() != self.gps_seconds_of_week.is_some()
+            || !super::json_integer(self.unix_seconds)
         {
             return Err(super::admission::TimeValueError(
                 "inconsistent temporal projection",

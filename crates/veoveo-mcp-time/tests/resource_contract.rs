@@ -144,11 +144,13 @@ fn subscriptions_share_resource_validation_and_exclude_cursor_pages() {
 }
 
 #[test]
-fn version_schema_enforces_the_database_range() {
+fn version_schema_enforces_the_json_integer_range() {
     let schema = serde_json::to_value(schemars::schema_for!(TimeVersion)).unwrap();
     assert_eq!(schema["minimum"], 1);
-    assert_eq!(schema["maximum"], i64::MAX);
-    for version in [0, -1, i64::MAX as i128 + 1] {
+    assert_eq!(schema["maximum"], veoveo_mcp_time::JSON_INTEGER_MAX);
+    let max = veoveo_mcp_time::JSON_INTEGER_MAX as i128;
+    assert!(serde_json::from_value::<TimeVersion>(serde_json::json!(max)).is_ok());
+    for version in [0, -1, max + 1, i64::MAX as i128, i64::MAX as i128 + 1] {
         assert!(serde_json::from_value::<TimeVersion>(serde_json::json!(version)).is_err());
     }
     let parsed: TimeVersion = serde_json::from_value(serde_json::json!(12)).unwrap();

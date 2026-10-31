@@ -137,13 +137,13 @@ impl ClockQualityPolicyBuilder {
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 struct ClockQualityPolicyFields {
-    #[schemars(range(min = 1, max = 9223372036854775807_u64))]
+    #[schemars(range(min = 1, max = 9_007_199_254_740_991_u64))]
     maximum_error_nanoseconds: u64,
     #[schemars(range(min = 1, max = 15))]
     maximum_stratum: u8,
     #[schemars(range(min = 1, max = 4294967295_u64))]
     minimum_source_diversity: u32,
-    #[schemars(range(min = 1, max = 9223372036854775807_u64))]
+    #[schemars(range(min = 1, max = 9_007_199_254_740_991_u64))]
     maximum_holdover_seconds: u64,
 }
 
@@ -152,7 +152,7 @@ impl TryFrom<ClockQualityPolicyFields> for ClockQualityPolicy {
     fn try_from(value: ClockQualityPolicyFields) -> Result<Self, Self::Error> {
         use ClockPolicyError::OutOfRange;
         use ClockPolicyField::*;
-        if !(1..=i64::MAX as u64).contains(&value.maximum_error_nanoseconds) {
+        if !(1..=super::JSON_INTEGER_MAX as u64).contains(&value.maximum_error_nanoseconds) {
             return Err(OutOfRange(MaximumErrorNanoseconds));
         }
         if !(1..=15).contains(&value.maximum_stratum) {
@@ -161,7 +161,7 @@ impl TryFrom<ClockQualityPolicyFields> for ClockQualityPolicy {
         if value.minimum_source_diversity == 0 {
             return Err(OutOfRange(MinimumSourceDiversity));
         }
-        if !(1..=i64::MAX as u64).contains(&value.maximum_holdover_seconds) {
+        if !(1..=super::JSON_INTEGER_MAX as u64).contains(&value.maximum_holdover_seconds) {
             return Err(OutOfRange(MaximumHoldoverSeconds));
         }
         Ok(Self {

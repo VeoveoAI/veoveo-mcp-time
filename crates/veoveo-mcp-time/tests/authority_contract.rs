@@ -168,7 +168,7 @@ fn instant_bindings_reject_one_identity_assigned_to_both_families() {
     assert!(serde_json::from_value::<AuthorityBinding>(wire.clone()).is_err());
     assert!(
         serde_json::from_value::<TimeInstant>(json!({"taiSecondsSince1970":0,
-        "nanosecond":0,"uncertaintyNanoseconds":0,"authority":wire}))
+        "nanosecond":0,"uncertainty":{"kind":"bounded","nanoseconds":0},"authority":wire}))
         .is_err()
     );
 }
@@ -188,8 +188,12 @@ fn resolution() -> ResolveTimeOutput {
     )
     .unwrap();
     ResolveTimeOutput::new(
-        TimeInstant::from_total_nanoseconds(63_072_010_000_000_000, 7, authority.binding())
-            .unwrap(),
+        TimeInstant::from_total_nanoseconds(
+            63_072_010_000_000_000,
+            veoveo_mcp_time::NanosecondBound::bounded(7).unwrap(),
+            authority.binding(),
+        )
+        .unwrap(),
         authority,
         veoveo_mcp_time::TimeProjectionValue {
             utc_rfc3339: "1972-01-01T00:00:00Z".into(),

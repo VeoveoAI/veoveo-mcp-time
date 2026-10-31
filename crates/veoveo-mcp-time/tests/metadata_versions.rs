@@ -6,8 +6,11 @@ use veoveo_mcp_time::*;
 fn check<T: DeserializeOwned + Serialize + JsonSchema>(mut wire: Value, field: &str) {
     let schema = serde_json::to_value(schemars::schema_for!(T)).unwrap();
     assert_eq!(schema["properties"][field]["minimum"], 1);
-    assert_eq!(schema["properties"][field]["maximum"], i64::MAX);
-    for version in [1, i64::MAX as u64] {
+    assert_eq!(
+        schema["properties"][field]["maximum"],
+        veoveo_mcp_time::JSON_INTEGER_MAX
+    );
+    for version in [1, veoveo_mcp_time::JSON_INTEGER_MAX as u64] {
         wire[field] = version.into();
         let value: T = serde_json::from_value(wire.clone()).unwrap();
         assert_eq!(serde_json::to_value(value).unwrap(), wire);
@@ -15,7 +18,7 @@ fn check<T: DeserializeOwned + Serialize + JsonSchema>(mut wire: Value, field: &
     for invalid in [
         json!(0),
         json!(-1),
-        json!(i64::MAX as u64 + 1),
+        json!(veoveo_mcp_time::JSON_INTEGER_MAX as u64 + 1),
         json!(u64::MAX),
         json!(1.5),
         json!("1"),
@@ -35,7 +38,7 @@ fn source() -> Value {
 }
 
 fn instant() -> Value {
-    json!({"taiSecondsSince1970":0, "nanosecond":0, "uncertaintyNanoseconds":0,
+    json!({"taiSecondsSince1970":0, "nanosecond":0, "uncertainty":{"kind":"bounded","nanoseconds":0},
         "authority":{"tzdbReleaseId":"time-release-tzdb", "leapSecondsReleaseId":"time-release-leaps"}})
 }
 

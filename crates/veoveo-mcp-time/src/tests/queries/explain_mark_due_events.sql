@@ -19,7 +19,7 @@ SET
 FROM (
     SELECT tenant, event_key
     FROM time.event
-    WHERE state = 'scheduled' AND due <= now() AND record_version < 9223372036854775807
+    WHERE state = 'scheduled' AND due <= now() AND record_version < 9007199254740991
     ORDER BY due
     LIMIT $1
     FOR UPDATE SKIP LOCKED

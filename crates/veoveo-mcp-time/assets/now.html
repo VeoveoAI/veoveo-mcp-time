@@ -432,12 +432,19 @@ p { margin: 6px 0 0; }
     return true;
   }
 
+  /* A nanosecond count within the JSON range, as Time writes them. */
   function nanoseconds(value) {
-    if (!Number.isSafeInteger(value)) return "unbounded";
+    if (!Number.isSafeInteger(value)) return "unknown";
     if (value < 1e3) return `${value} ns`;
     if (value < 1e6) return `${(value / 1e3).toFixed(1)} µs`;
     if (value < 1e9) return `${(value / 1e6).toFixed(1)} ms`;
     return `${(value / 1e9).toFixed(3)} s`;
+  }
+
+  /* A NanosecondBound: bounded nanoseconds, or unbounded when no finite bound is stated. */
+  function bound(value) {
+    if (value && value.kind === "bounded") return nanoseconds(value.nanoseconds);
+    return value && value.kind === "unbounded" ? "unbounded" : "unknown";
   }
 
   function nine(value) {
@@ -616,7 +623,7 @@ p { margin: 6px 0 0; }
   /* An instant's wall-clock time in a zone, from convert_time, at most a few calls at once. */
   function localTime(instant, zone) {
     if (!exact(instant)) {
-      return Promise.reject(new Error("its uncertainty is larger than the browser can carry exactly"));
+      return Promise.reject(new Error("it holds a number the browser cannot carry exactly"));
     }
     const key = `${zone} ${JSON.stringify(instant)}`;
     if (!conversions.has(key)) {
@@ -683,7 +690,7 @@ p { margin: 6px 0 0; }
       ["Unix", String(time.unixSeconds)],
       ["GPS", time.gpsWeek === null || time.gpsWeek === undefined ? "before the GPS epoch" : `week ${time.gpsWeek}, ${time.gpsSecondsOfWeek} s`],
       ["Julian day", `${Number(time.julianDayTai).toFixed(6)} TAI`],
-      ["Uncertainty", nanoseconds(instant.uncertaintyNanoseconds)],
+      ["Uncertainty", bound(instant.uncertainty)],
       ["Time zones", release(authority.tzdb)],
       ["Leap seconds", release(authority.leapSeconds)],
     ]);
@@ -701,7 +708,7 @@ p { margin: 6px 0 0; }
   function renderQuality(quality, policy) {
     if (!quality || !policy) return;
     const rows = [
-      ["Error bound", nanoseconds(quality.errorBoundNanoseconds), `at most ${nanoseconds(policy.maximumErrorNanoseconds)}`],
+      ["Error bound", bound(quality.errorBound), `at most ${nanoseconds(policy.maximumErrorNanoseconds)}`],
       ["Stratum", String(quality.stratum), `at most ${policy.maximumStratum}`],
       ["Sources", String(quality.sourceDiversity), `at least ${policy.minimumSourceDiversity}`],
       ["Holdover", quality.holdoverAgeSeconds === null || quality.holdoverAgeSeconds === undefined ? "none" : `${quality.holdoverAgeSeconds} s`, `at most ${policy.maximumHoldoverSeconds} s`],
@@ -883,7 +890,7 @@ p { margin: 6px 0 0; }
       ["TAI", taiSeconds(instant), true],
       ["GPS", resolved.gpsWeek === null || resolved.gpsWeek === undefined ? "before the GPS epoch" : `week ${resolved.gpsWeek}, ${resolved.gpsSecondsOfWeek} s`, true],
       ["Julian day", `${Number(resolved.julianDayTai).toFixed(6)} TAI`, true],
-      ["Uncertainty", nanoseconds(instant.uncertaintyNanoseconds), true],
+      ["Uncertainty", bound(instant.uncertainty), true],
     );
     for (const scale of (converted && converted.scales) || []) {
       rows.push([scale.scale.toUpperCase(), `${scale.seconds} s since ${scale.referenceEpoch}`, true]);
@@ -938,7 +945,8 @@ p { margin: 6px 0 0; }
     renderCalendars();
     setExpansion(`Expanding ${calendar.name} over the next 7 days`);
     try {
-      /* The horizon starts at the clock's last read; Time resolves both bounds. */
+      /* The horizon is a chosen window: Time resolves its bounds from the clock's TAI
+         coordinates, without the clock's measured uncertainty. */
       const start = await resolveTai(now.taiSecondsSince1970, now.nanosecond);
       const end = await resolveTai(now.taiSecondsSince1970 + HORIZON_SECONDS, now.nanosecond);
       const reply = await request("tools/call", {

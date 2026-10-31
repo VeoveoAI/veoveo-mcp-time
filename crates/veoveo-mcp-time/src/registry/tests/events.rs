@@ -22,7 +22,7 @@ async fn future_cancelled_and_overdue_events_reach_due_through_the_due_loop() {
                 }
                 .build()
                 .unwrap(),
-                additional_uncertainty_nanoseconds: 0,
+                additional_uncertainty: crate::NanosecondBound::ZERO,
             })
             .unwrap()
             .into_instant();
@@ -43,7 +43,7 @@ async fn future_cancelled_and_overdue_events_reach_due_through_the_due_loop() {
         {
             let due = TimeInstant::from_total_nanoseconds(
                 now.total_nanoseconds() + offset,
-                0,
+                crate::NanosecondBound::ZERO,
                 now.authority.clone(),
             )
             .unwrap();

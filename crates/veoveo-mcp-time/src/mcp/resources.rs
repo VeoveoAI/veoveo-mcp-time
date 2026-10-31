@@ -369,7 +369,7 @@ async fn clock_current(
             }
             .build()
             .map_err(invalid_params)?,
-            additional_uncertainty_nanoseconds: quality.error_bound_nanoseconds,
+            additional_uncertainty: quality.error_bound,
         })
         .map_err(invalid_params)?;
     Ok(ClockCurrent {
@@ -392,7 +392,7 @@ async fn zone(domain: TimeMcp, read: ReadZone, context: Context) -> Result<ZoneV
             }
             .build()
             .map_err(invalid_params)?,
-            additional_uncertainty_nanoseconds: 0,
+            additional_uncertainty: NanosecondBound::ZERO,
         })
         .map_err(invalid_params)?;
     let projection = engine

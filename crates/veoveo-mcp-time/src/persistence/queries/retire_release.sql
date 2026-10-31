@@ -5,5 +5,5 @@ WHERE tenant = $1
     AND release_key = $3
     AND state = 'active'
     AND record_version = $4
-    AND record_version < 9223372036854775807
+    AND record_version < 9007199254740991
 RETURNING record_version

@@ -77,10 +77,10 @@ impl TemporalEngine {
 
     pub fn resolve(&self, request: &ResolveTimeRequest) -> Result<ResolveTimeOutput> {
         let mut instant = self.resolve_expression(&request.expression)?;
-        instant.uncertainty_nanoseconds = instant
-            .uncertainty_nanoseconds
-            .checked_add(request.additional_uncertainty_nanoseconds)
-            .context("time uncertainty exceeds the supported unsigned 64-bit nanoseconds range")?;
+        instant.uncertainty = instant
+            .uncertainty
+            .checked_add(request.additional_uncertainty)
+            .context("time uncertainty exceeds 2^53 - 1 nanoseconds")?;
         self.project(instant)
     }
 
@@ -297,11 +297,12 @@ impl TemporalEngine {
         let mut violations = Vec::new();
         for (index, constraint) in request.constraints.iter().enumerate() {
             calculation_checkpoint(stop)?;
-            if constraint
-                .maximum_separation_nanoseconds
-                .is_some_and(|maximum| maximum < constraint.minimum_separation_nanoseconds)
+            if constraint.minimum_separation.is_negative()
+                || constraint
+                    .maximum_separation
+                    .is_some_and(|maximum| maximum < constraint.minimum_separation)
             {
-                bail!("timeline maximum separation must not be below its minimum");
+                bail!("timeline separations must not be negative or a maximum below its minimum");
             }
             let Some(predecessor) = points.get(&constraint.predecessor) else {
                 bail!("timeline constraint references an unknown predecessor");
@@ -310,14 +311,14 @@ impl TemporalEngine {
                 bail!("timeline constraint references an unknown successor");
             };
             let separation = successor.total_nanoseconds() - predecessor.total_nanoseconds();
-            if separation < i128::from(constraint.minimum_separation_nanoseconds) {
+            if separation < constraint.minimum_separation.total_nanoseconds() {
                 violations.push(TimelineViolation {
                     constraint_index: index.try_into().unwrap_or(u32::MAX),
                     message: "minimum separation is not satisfied".to_owned(),
                 });
             } else if constraint
-                .maximum_separation_nanoseconds
-                .is_some_and(|maximum| separation > i128::from(maximum))
+                .maximum_separation
+                .is_some_and(|maximum| separation > maximum.total_nanoseconds())
             {
                 violations.push(TimelineViolation {
                     constraint_index: index.try_into().unwrap_or(u32::MAX),
@@ -398,27 +399,23 @@ impl TemporalEngine {
                     &self.authority,
                 )?
             }
-            crate::TimeExpressionValue::EpochRelative {
-                epoch_id,
-                offset_nanoseconds,
-            } => {
+            crate::TimeExpressionValue::EpochRelative { epoch_id, offset } => {
                 let epochs = self.epochs.read().expect("epoch lock poisoned");
                 let epoch = epochs.get(epoch_id).context("epoch is not active")?;
                 self.ensure_authority(&epoch.instant)?;
-                let total = epoch.instant.total_nanoseconds() + i128::from(*offset_nanoseconds);
+                let total = epoch.instant.total_nanoseconds() + offset.total_nanoseconds();
                 return Ok(TimeInstant::from_total_nanoseconds(
                     total,
-                    epoch.instant.uncertainty_nanoseconds,
+                    epoch.instant.uncertainty,
                     epoch.instant.authority.clone(),
                 )?);
             }
         };
-        Ok(TimeInstant {
+        exact_instant(
             tai_seconds_since_1970,
             nanosecond,
-            uncertainty_nanoseconds: 0,
-            authority: self.authority.binding().clone(),
-        })
+            self.authority.binding().clone(),
+        )
     }
 
     fn project(&self, instant: TimeInstant) -> Result<ResolveTimeOutput> {
@@ -639,11 +636,28 @@ fn civil_to_instant(
         .disambiguate(to_jiff_disambiguation(disambiguation))?;
     let (tai_seconds_since_1970, nanosecond) =
         instant_parts_from_timestamp(zoned.timestamp(), authority)?;
+    exact_instant(
+        tai_seconds_since_1970,
+        nanosecond,
+        authority.binding().clone(),
+    )
+}
+
+/// An instant at a resolved coordinate with no uncertainty of its own, whose seconds lie
+/// within the JSON integer range.
+fn exact_instant(
+    tai_seconds_since_1970: i64,
+    nanosecond: SubsecondNanoseconds,
+    authority: crate::AuthorityBinding,
+) -> Result<TimeInstant> {
+    if !crate::json_integer(tai_seconds_since_1970) {
+        bail!("the instant's TAI seconds lie outside -(2^53 - 1)..=2^53 - 1");
+    }
     Ok(TimeInstant {
         tai_seconds_since_1970,
         nanosecond,
-        uncertainty_nanoseconds: 0,
-        authority: authority.binding().clone(),
+        uncertainty: crate::NanosecondBound::ZERO,
+        authority,
     })
 }
 
@@ -746,7 +760,7 @@ mod tests {
                 }
                 .build()
                 .unwrap(),
-                additional_uncertainty_nanoseconds: 0,
+                additional_uncertainty: crate::NanosecondBound::ZERO,
             })
             .unwrap();
         let dtg = engine
@@ -756,7 +770,7 @@ mod tests {
                 }
                 .build()
                 .unwrap(),
-                additional_uncertainty_nanoseconds: 0,
+                additional_uncertainty: crate::NanosecondBound::ZERO,
             })
             .unwrap();
         assert_eq!(rfc.instant(), dtg.instant());
@@ -768,7 +782,7 @@ mod tests {
                 }
                 .build()
                 .unwrap(),
-                additional_uncertainty_nanoseconds: 0,
+                additional_uncertainty: crate::NanosecondBound::ZERO,
             })
             .unwrap();
         assert_eq!(rfc.instant(), gps.instant());
@@ -783,7 +797,7 @@ mod tests {
                 }
                 .build()
                 .unwrap(),
-                additional_uncertainty_nanoseconds: 0,
+                additional_uncertainty: crate::NanosecondBound::ZERO,
             })
             .unwrap();
         assert_eq!(
@@ -845,7 +859,7 @@ mod tests {
             }
             .build()
             .unwrap(),
-            additional_uncertainty_nanoseconds: 0,
+            additional_uncertainty: crate::NanosecondBound::ZERO,
         };
         assert!(engine.resolve(&request).is_err());
     }
@@ -857,7 +871,7 @@ mod tests {
         let instant = |seconds| TimeInstant {
             tai_seconds_since_1970: seconds,
             nanosecond: SubsecondNanoseconds::ZERO,
-            uncertainty_nanoseconds: 0,
+            uncertainty: crate::NanosecondBound::ZERO,
             authority: authority.clone(),
         };
         let output = engine
@@ -883,7 +897,7 @@ mod tests {
                     }
                     .build()
                     .unwrap(),
-                    additional_uncertainty_nanoseconds: 0,
+                    additional_uncertainty: crate::NanosecondBound::ZERO,
                 })
                 .unwrap()
                 .into_instant()
@@ -955,7 +969,7 @@ mod tests {
                     }
                     .build()
                     .unwrap(),
-                    additional_uncertainty_nanoseconds: uncertainty,
+                    additional_uncertainty: crate::NanosecondBound::bounded(uncertainty).unwrap(),
                 })
                 .unwrap()
                 .into_instant()
@@ -1141,8 +1155,11 @@ mod tests {
                     constraints: vec![TimelineConstraint {
                         predecessor: "depart".to_owned(),
                         successor: "arrive".to_owned(),
-                        minimum_separation_nanoseconds: 600_000_000_000,
-                        maximum_separation_nanoseconds: Some(900_000_000_000),
+                        minimum_separation: crate::TimeSpan::new(600, SubsecondNanoseconds::ZERO)
+                            .unwrap(),
+                        maximum_separation: Some(
+                            crate::TimeSpan::new(900, SubsecondNanoseconds::ZERO).unwrap(),
+                        ),
                     }],
                 }
                 .build()
@@ -1164,7 +1181,7 @@ mod tests {
             instant: TimeInstant {
                 tai_seconds_since_1970: seconds,
                 nanosecond: SubsecondNanoseconds::ZERO,
-                uncertainty_nanoseconds: 0,
+                uncertainty: crate::NanosecondBound::ZERO,
                 authority: authority.clone(),
             },
             version: crate::TimeVersion::new(version).unwrap(),
@@ -1174,11 +1191,11 @@ mod tests {
             .resolve(&ResolveTimeRequest {
                 expression: crate::TimeExpressionValue::EpochRelative {
                     epoch_id: EpochId::parse("epoch-launch").unwrap(),
-                    offset_nanoseconds: 1_000_000_000,
+                    offset: crate::TimeSpan::from_total_nanoseconds(1_000_000_000).unwrap(),
                 }
                 .build()
                 .unwrap(),
-                additional_uncertainty_nanoseconds: 0,
+                additional_uncertainty: crate::NanosecondBound::ZERO,
             })
             .unwrap();
         assert_eq!(resolved.instant().tai_seconds_since_1970, 4_001);
@@ -1194,13 +1211,13 @@ mod tests {
                 }
                 .build()
                 .unwrap(),
-                additional_uncertainty_nanoseconds: 0,
+                additional_uncertainty: crate::NanosecondBound::ZERO,
             })
             .unwrap();
         let leap = TimeInstant {
             tai_seconds_since_1970: midnight.instant().tai_seconds_since_1970 - 1,
             nanosecond: SubsecondNanoseconds::new(500_000_000).unwrap(),
-            uncertainty_nanoseconds: 0,
+            uncertainty: crate::NanosecondBound::ZERO,
             authority: engine.authority.binding().clone(),
         };
         let projected = engine
@@ -1229,7 +1246,7 @@ mod tests {
                 }
                 .build()
                 .unwrap(),
-                additional_uncertainty_nanoseconds: 7,
+                additional_uncertainty: crate::NanosecondBound::bounded(7).unwrap(),
             })
             .unwrap()
             .into_instant();
@@ -1246,18 +1263,22 @@ mod tests {
                 .resolve(&ResolveTimeRequest {
                     expression: crate::TimeExpressionValue::EpochRelative {
                         epoch_id: id.clone(),
-                        offset_nanoseconds: offset,
+                        offset: crate::TimeSpan::from_total_nanoseconds(i128::from(offset))
+                            .unwrap(),
                     }
                     .build()
                     .unwrap(),
-                    additional_uncertainty_nanoseconds: 11,
+                    additional_uncertainty: crate::NanosecondBound::bounded(11).unwrap(),
                 })
                 .unwrap();
             assert_eq!(
                 output.instant().total_nanoseconds(),
                 base.total_nanoseconds() + i128::from(offset)
             );
-            assert_eq!(output.instant().uncertainty_nanoseconds, 18);
+            assert_eq!(
+                output.instant().uncertainty,
+                crate::NanosecondBound::bounded(18).unwrap()
+            );
             assert_eq!(output.instant().authority, base.authority);
             assert_eq!(
                 output.instant().authority,
@@ -1281,14 +1302,14 @@ mod tests {
         engine.replace_epochs([epoch(foreign)]);
         let expression = crate::TimeExpressionValue::EpochRelative {
             epoch_id: id,
-            offset_nanoseconds: 0,
+            offset: crate::TimeSpan::ZERO,
         }
         .build()
         .unwrap();
         let error = engine
             .resolve(&ResolveTimeRequest {
                 expression: expression.clone(),
-                additional_uncertainty_nanoseconds: 0,
+                additional_uncertainty: crate::NanosecondBound::ZERO,
             })
             .unwrap_err();
         assert_eq!(
@@ -1323,7 +1344,10 @@ mod tests {
                 }
                 .build()
                 .unwrap(),
-                additional_uncertainty_nanoseconds: u64::MAX - 1,
+                additional_uncertainty: crate::NanosecondBound::bounded(
+                    crate::NanosecondBound::MAX_NANOSECONDS - 1,
+                )
+                .unwrap(),
             })
             .unwrap()
             .into_instant();
@@ -1333,24 +1357,21 @@ mod tests {
             instant: base,
             version: crate::TimeVersion::FIRST,
         }]);
+        let bound = |nanoseconds| crate::NanosecondBound::bounded(nanoseconds).unwrap();
         let mut request = ResolveTimeRequest {
             expression: crate::TimeExpressionValue::EpochRelative {
                 epoch_id: id,
-                offset_nanoseconds: 0,
+                offset: crate::TimeSpan::ZERO,
             }
             .build()
             .unwrap(),
-            additional_uncertainty_nanoseconds: 1,
+            additional_uncertainty: bound(1),
         };
         assert_eq!(
-            engine
-                .resolve(&request)
-                .unwrap()
-                .instant()
-                .uncertainty_nanoseconds,
-            u64::MAX
+            engine.resolve(&request).unwrap().instant().uncertainty,
+            bound(crate::NanosecondBound::MAX_NANOSECONDS)
         );
-        request.additional_uncertainty_nanoseconds = 2;
+        request.additional_uncertainty = bound(2);
         assert!(
             engine
                 .resolve(&request)
@@ -1358,14 +1379,20 @@ mod tests {
                 .to_string()
                 .contains("time uncertainty exceeds")
         );
-        request.additional_uncertainty_nanoseconds = 0;
+        request.additional_uncertainty = crate::NanosecondBound::ZERO;
         assert_eq!(
+            engine.resolve(&request).unwrap().instant().uncertainty,
+            bound(crate::NanosecondBound::MAX_NANOSECONDS - 1)
+        );
+        // An unbounded addition leaves the instant unbounded rather than failing.
+        request.additional_uncertainty = crate::NanosecondBound::UNBOUNDED;
+        assert!(
             engine
                 .resolve(&request)
                 .unwrap()
                 .instant()
-                .uncertainty_nanoseconds,
-            u64::MAX - 1
+                .uncertainty
+                .is_unbounded()
         );
     }
 
@@ -1374,13 +1401,13 @@ mod tests {
         let engine = engine();
         let id = crate::EpochId::parse("epoch-coordinate-limit").unwrap();
         for (seconds, nanos, overflow_offset) in [
-            (i64::MAX, SubsecondNanoseconds::MAX, 1),
-            (i64::MIN, SubsecondNanoseconds::ZERO, -1),
+            (crate::JSON_INTEGER_MAX, SubsecondNanoseconds::MAX, 1),
+            (-crate::JSON_INTEGER_MAX, SubsecondNanoseconds::ZERO, -1),
         ] {
             let instant = TimeInstant {
                 tai_seconds_since_1970: seconds,
                 nanosecond: nanos,
-                uncertainty_nanoseconds: 0,
+                uncertainty: crate::NanosecondBound::ZERO,
                 authority: engine.authority.binding().clone(),
             };
             let total = instant.total_nanoseconds();
@@ -1392,7 +1419,7 @@ mod tests {
             }]);
             let overflow = crate::TimeExpressionValue::EpochRelative {
                 epoch_id: id.clone(),
-                offset_nanoseconds: overflow_offset,
+                offset: crate::TimeSpan::from_total_nanoseconds(overflow_offset).unwrap(),
             }
             .build()
             .unwrap();
@@ -1401,22 +1428,19 @@ mod tests {
                     .resolve_expression(&overflow)
                     .unwrap_err()
                     .to_string()
-                    .contains("signed 64-bit seconds range")
+                    .contains("outside -(2^53 - 1)..=2^53 - 1")
             );
             let valid = engine
                 .resolve_expression(
                     &crate::TimeExpressionValue::EpochRelative {
                         epoch_id: id.clone(),
-                        offset_nanoseconds: -overflow_offset,
+                        offset: crate::TimeSpan::from_total_nanoseconds(-overflow_offset).unwrap(),
                     }
                     .build()
                     .unwrap(),
                 )
                 .unwrap();
-            assert_eq!(
-                valid.total_nanoseconds(),
-                total - i128::from(overflow_offset)
-            );
+            assert_eq!(valid.total_nanoseconds(), total - overflow_offset);
         }
     }
 

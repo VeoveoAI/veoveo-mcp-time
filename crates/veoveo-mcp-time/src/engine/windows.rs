@@ -22,7 +22,7 @@ pub(super) fn evaluate(
             endpoints
                 .entry(instant.total_nanoseconds())
                 .and_modify(|existing| {
-                    if instant.uncertainty_nanoseconds > existing.uncertainty_nanoseconds {
+                    if instant.uncertainty > existing.uncertainty {
                         *existing = instant;
                     }
                 })
@@ -83,7 +83,12 @@ mod tests {
 
     fn window(start: i128, end: i128, uncertainty: u64) -> TimeWindow {
         let instant = |coordinate| {
-            TimeInstant::from_total_nanoseconds(coordinate, uncertainty, authority()).unwrap()
+            TimeInstant::from_total_nanoseconds(
+                coordinate,
+                crate::NanosecondBound::bounded(uncertainty).unwrap(),
+                authority(),
+            )
+            .unwrap()
         };
         TimeWindow::new(instant(start), instant(end)).unwrap()
     }
@@ -145,10 +150,10 @@ mod tests {
                             .chain(right)
                             .flat_map(|w| [w.start(), w.end()])
                             .filter(|input| input.total_nanoseconds() == bound.total_nanoseconds())
-                            .map(|input| input.uncertainty_nanoseconds)
+                            .map(|input| input.uncertainty)
                             .max()
                             .unwrap();
-                        assert_eq!(bound.uncertainty_nanoseconds, expected_uncertainty);
+                        assert_eq!(bound.uncertainty, expected_uncertainty);
                         assert_eq!(bound.authority, authority());
                     }
                 }
@@ -158,8 +163,8 @@ mod tests {
 
     #[test]
     fn difference_preserves_cut_bounds_across_the_full_seconds_range() {
-        let minimum = i128::from(i64::MIN) * 1_000_000_000;
-        let maximum = i128::from(i64::MAX) * 1_000_000_000 + 999_999_999;
+        let minimum = -i128::from(crate::JSON_INTEGER_MAX) * 1_000_000_000;
+        let maximum = i128::from(crate::JSON_INTEGER_MAX) * 1_000_000_000 + 999_999_999;
         let whole = window(minimum, maximum, 7);
         let cut = window(-1, 1, 11);
         let output = evaluate(

@@ -50,10 +50,16 @@ fn clock_policy_builder_and_decoder_preserve_valid_wire_fields() {
 fn clock_schema_and_decoder_admit_the_same_numeric_bounds() {
     let schema = serde_json::to_value(schemars::schema_for!(ClockQualityPolicy)).unwrap();
     for (field, max) in [
-        ("maximumErrorNanoseconds", i64::MAX as u64),
+        (
+            "maximumErrorNanoseconds",
+            veoveo_mcp_time::JSON_INTEGER_MAX as u64,
+        ),
         ("maximumStratum", 15),
         ("minimumSourceDiversity", u32::MAX as u64),
-        ("maximumHoldoverSeconds", i64::MAX as u64),
+        (
+            "maximumHoldoverSeconds",
+            veoveo_mcp_time::JSON_INTEGER_MAX as u64,
+        ),
     ] {
         assert_eq!(schema["properties"][field]["minimum"], json!(1), "{field}");
         assert_eq!(
@@ -97,7 +103,7 @@ fn version_guards_keep_zero_for_absence_and_stop_at_the_storage_limit() {
         json!(0)
     );
     assert_eq!(TimeVersion::FIRST.checked_next().unwrap().get(), 2);
-    let max = TimeVersion::new(i64::MAX as u64).unwrap();
+    let max = TimeVersion::new(veoveo_mcp_time::JSON_INTEGER_MAX as u64).unwrap();
     assert_eq!(max.checked_next(), Err(TimeVersionError::Exhausted));
     assert_eq!(
         TimeWriteGuard::Existing(max).next_version(),
@@ -105,7 +111,7 @@ fn version_guards_keep_zero_for_absence_and_stop_at_the_storage_limit() {
     );
     for wire in [
         json!(-1),
-        json!(i64::MAX as u64 + 1),
+        json!(veoveo_mcp_time::JSON_INTEGER_MAX as u64 + 1),
         json!(u64::MAX),
         json!(1.5),
         json!("1"),
@@ -114,7 +120,7 @@ fn version_guards_keep_zero_for_absence_and_stop_at_the_storage_limit() {
         assert!(serde_json::from_value::<TimeWriteGuard>(wire).is_err());
     }
     assert!(serde_json::from_value::<TimeVersion>(json!(0)).is_err());
-    for value in [1, i64::MAX as u64] {
+    for value in [1, veoveo_mcp_time::JSON_INTEGER_MAX as u64] {
         assert_eq!(
             serde_json::to_value(TimeWriteGuard::new(value).unwrap()).unwrap(),
             json!(value)
@@ -137,7 +143,7 @@ fn version_guards_keep_zero_for_absence_and_stop_at_the_storage_limit() {
         ),
     ] {
         assert_eq!(schema["minimum"], json!(min));
-        assert_eq!(schema["maximum"], json!(i64::MAX));
+        assert_eq!(schema["maximum"], json!(veoveo_mcp_time::JSON_INTEGER_MAX));
     }
 }
 
@@ -156,7 +162,7 @@ fn source_creation_keeps_its_zero_sentinel_while_updates_require_a_version() {
     for (value, valid) in [
         (0, false),
         (1, true),
-        (i64::MAX as u64, true),
+        (veoveo_mcp_time::JSON_INTEGER_MAX as u64, true),
         (u64::MAX, false),
     ] {
         let request = serde_json::from_value::<CancelEventRequest>(json!({

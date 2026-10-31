@@ -23,7 +23,7 @@ async fn event_at(
             }
             .build()
             .unwrap(),
-            additional_uncertainty_nanoseconds: 0,
+            additional_uncertainty: crate::NanosecondBound::ZERO,
         })
         .unwrap()
         .into_instant();

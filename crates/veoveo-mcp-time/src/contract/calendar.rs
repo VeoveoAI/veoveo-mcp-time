@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{CalendarId, EpochId, EventId, TimeExpression, TimeInstant, TimeWindow};
+use super::{CalendarId, EpochId, EventId, TimeExpression, TimeInstant, TimeSpan, TimeWindow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -148,9 +148,11 @@ pub struct TimelinePoint {
 pub struct TimelineConstraint {
     pub predecessor: String,
     pub successor: String,
+    /// The least span from predecessor to successor, zero when omitted; not negative.
     #[serde(default)]
-    pub minimum_separation_nanoseconds: u64,
-    pub maximum_separation_nanoseconds: Option<u64>,
+    pub minimum_separation: TimeSpan,
+    /// The greatest span from predecessor to successor, at least the minimum.
+    pub maximum_separation: Option<TimeSpan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -423,9 +425,10 @@ impl veoveo_types::Check for ValidateTimelineRequestValue {
         for constraint in &self.constraints {
             if !names.contains(&constraint.predecessor)
                 || !names.contains(&constraint.successor)
+                || constraint.minimum_separation.is_negative()
                 || constraint
-                    .maximum_separation_nanoseconds
-                    .is_some_and(|max| max < constraint.minimum_separation_nanoseconds)
+                    .maximum_separation
+                    .is_some_and(|max| max < constraint.minimum_separation)
             {
                 return Err(super::admission::TimeValueError(
                     "invalid timeline constraint references or separation",

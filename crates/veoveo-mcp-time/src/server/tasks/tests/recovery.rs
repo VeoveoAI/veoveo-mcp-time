@@ -22,7 +22,7 @@ fn instant(engine: &TemporalEngine, value: &str) -> TimeInstant {
             }
             .build()
             .unwrap(),
-            additional_uncertainty_nanoseconds: 0,
+            additional_uncertainty: crate::NanosecondBound::ZERO,
         })
         .unwrap()
         .into_instant()

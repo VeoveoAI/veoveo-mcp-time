@@ -75,7 +75,7 @@ impl ClockMonitor {
             ClockSource::System => Ok(crate::ClockQualityValue {
                 synchronized: false,
                 estimated_offset_nanoseconds: 0,
-                error_bound_nanoseconds: u64::MAX,
+                error_bound: crate::NanosecondBound::UNBOUNDED,
                 stratum: 16,
                 holdover_age_seconds: None,
                 source_diversity: 0,
@@ -127,7 +127,7 @@ fn project_ntpd(observation: NtpdObservation) -> Result<ClockQuality> {
     });
     let system_bound = observation.system.root_delay.abs() / 2.0
         + observation.system.root_variance_base.max(0.0).sqrt();
-    let error_bound = seconds_to_u64_nanoseconds(source_bound + system_bound);
+    let error_bound = error_bound_from_seconds(source_bound + system_bound);
     let diversity: BTreeSet<_> = usable
         .iter()
         .map(|source| {
@@ -149,8 +149,8 @@ fn project_ntpd(observation: NtpdObservation) -> Result<ClockQuality> {
                 observation.system.leap_indicator,
                 NtpdLeapIndicator::Unknown
             ),
-        estimated_offset_nanoseconds: seconds_to_i64_nanoseconds(offset_seconds),
-        error_bound_nanoseconds: error_bound,
+        estimated_offset_nanoseconds: offset_nanoseconds(offset_seconds)?,
+        error_bound,
         stratum: observation.system.stratum,
         holdover_age_seconds: None,
         source_diversity: diversity.len().try_into().unwrap_or(u32::MAX),
@@ -161,26 +161,28 @@ fn project_ntpd(observation: NtpdObservation) -> Result<ClockQuality> {
     .map_err(Into::into)
 }
 
-fn seconds_to_i64_nanoseconds(seconds: f64) -> i64 {
-    if !seconds.is_finite() {
-        return if seconds.is_sign_negative() {
-            i64::MIN
-        } else {
-            i64::MAX
-        };
+/// The observed offset in nanoseconds. An offset that is not finite or lies outside the
+/// JSON integer range cannot be stated, so the observation is refused.
+fn offset_nanoseconds(seconds: f64) -> Result<i64> {
+    let nanoseconds = (seconds * 1_000_000_000.0).round();
+    let limit = crate::JSON_INTEGER_MAX as f64;
+    if !nanoseconds.is_finite() || nanoseconds.abs() > limit {
+        anyhow::bail!("ntpd-rs reports a clock offset Time cannot state: {seconds} s");
     }
-    (seconds * 1_000_000_000.0)
-        .round()
-        .clamp(i64::MIN as f64, i64::MAX as f64) as i64
+    Ok(nanoseconds as i64)
 }
 
-fn seconds_to_u64_nanoseconds(seconds: f64) -> u64 {
-    if !seconds.is_finite() || seconds < 0.0 {
-        return u64::MAX;
+/// The conservative error bound, rounded up to the nanosecond. A bound that is not finite,
+/// is negative or exceeds `2^53 - 1` nanoseconds states no usable limit, so it is unbounded.
+fn error_bound_from_seconds(seconds: f64) -> crate::NanosecondBound {
+    let nanoseconds = (seconds * 1_000_000_000.0).ceil();
+    if !nanoseconds.is_finite()
+        || nanoseconds < 0.0
+        || nanoseconds > crate::NanosecondBound::MAX_NANOSECONDS as f64
+    {
+        return crate::NanosecondBound::UNBOUNDED;
     }
-    (seconds * 1_000_000_000.0)
-        .ceil()
-        .clamp(0.0, u64::MAX as f64) as u64
+    crate::NanosecondBound::bounded(nanoseconds as u64).unwrap_or(crate::NanosecondBound::UNBOUNDED)
 }
 
 pub fn assess_clock(quality: ClockQuality, policy: ClockQualityPolicy) -> Result<ClockAssessment> {
@@ -188,7 +190,11 @@ pub fn assess_clock(quality: ClockQuality, policy: ClockQualityPolicy) -> Result
     if !quality.synchronized {
         violations.push("clock is not synchronized".to_owned());
     }
-    if quality.error_bound_nanoseconds > policy.maximum_error_nanoseconds() {
+    if quality
+        .error_bound
+        .nanoseconds()
+        .is_none_or(|bound| bound > policy.maximum_error_nanoseconds())
+    {
         violations.push("clock error bound exceeds policy".to_owned());
     }
     if quality.stratum > policy.maximum_stratum() {
@@ -262,5 +268,67 @@ mod tests {
         let mut draft = crate::contract::ClockAssessmentValue::from(assessment);
         draft.acceptable = false;
         assert!(draft.build().is_err());
+    }
+
+    #[tokio::test]
+    async fn an_unmeasured_clock_has_an_unbounded_error_that_no_policy_accepts() {
+        let quality = ClockMonitor::new(ClockSource::System, std::time::Duration::from_secs(1))
+            .quality()
+            .await
+            .unwrap();
+        assert!(quality.error_bound.is_unbounded());
+        assert_eq!(
+            serde_json::to_value(&quality).unwrap()["errorBound"],
+            serde_json::json!({"kind": "unbounded"})
+        );
+        let loosest = ClockQualityPolicy::builder()
+            .maximum_error_nanoseconds(crate::JSON_INTEGER_MAX as u64)
+            .maximum_stratum(15)
+            .minimum_source_diversity(1)
+            .maximum_holdover_seconds(crate::JSON_INTEGER_MAX as u64)
+            .build()
+            .unwrap();
+        let assessment = assess_clock(quality, loosest).unwrap();
+        assert!(
+            assessment
+                .violations
+                .contains(&"clock error bound exceeds policy".to_owned())
+        );
+    }
+
+    #[test]
+    fn observed_values_keep_within_the_json_range() {
+        assert_eq!(
+            error_bound_from_seconds(0.000_000_001_5),
+            crate::NanosecondBound::bounded(2).unwrap()
+        );
+        let largest = crate::NanosecondBound::MAX_NANOSECONDS as f64 / 1e9;
+        assert!(!error_bound_from_seconds(largest).is_unbounded());
+        for unstated in [largest * 2.0, f64::INFINITY, f64::NAN, -1.0] {
+            assert!(
+                error_bound_from_seconds(unstated).is_unbounded(),
+                "{unstated}"
+            );
+        }
+        assert_eq!(offset_nanoseconds(-0.0002).unwrap(), -200_000);
+        for refused in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 1e8, -1e8] {
+            assert!(offset_nanoseconds(refused).is_err(), "{refused}");
+        }
+        let mut quality = crate::ClockQualityValue::from(
+            project_ntpd(
+                serde_json::from_value(serde_json::json!({
+                    "system": {"stratum": 2, "root_delay": 0.0, "root_variance_base": 0.0,
+                        "leap_indicator": "NoWarning"},
+                    "sources": []
+                }))
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+        quality.estimated_offset_nanoseconds = crate::JSON_INTEGER_MAX + 1;
+        assert!(quality.clone().build().is_err());
+        quality.estimated_offset_nanoseconds = 0;
+        quality.holdover_age_seconds = Some(crate::NanosecondBound::MAX_NANOSECONDS + 1);
+        assert!(quality.build().is_err());
     }
 }

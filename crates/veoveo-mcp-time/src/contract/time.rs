@@ -1,4 +1,4 @@
-use super::{ClockQualityPolicy, SubsecondNanoseconds, TimeInstant};
+use super::{ClockQualityPolicy, NanosecondBound, SubsecondNanoseconds, TimeInstant, TimeSpan};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -57,11 +57,21 @@ pub enum TimeExpressionValue {
         value: CivilTime,
     },
     Unix {
+        #[serde(
+            serialize_with = "crate::contract::instant::json_i64::serialize",
+            deserialize_with = "crate::contract::instant::json_i64::deserialize"
+        )]
+        #[schemars(range(min = -9_007_199_254_740_991_i64, max = 9_007_199_254_740_991_i64))]
         seconds: i64,
         #[serde(default)]
         nanosecond: SubsecondNanoseconds,
     },
     Tai {
+        #[serde(
+            serialize_with = "crate::contract::instant::json_i64::serialize",
+            deserialize_with = "crate::contract::instant::json_i64::deserialize"
+        )]
+        #[schemars(range(min = -9_007_199_254_740_991_i64, max = 9_007_199_254_740_991_i64))]
         seconds_since_1970: i64,
         #[serde(default)]
         nanosecond: SubsecondNanoseconds,
@@ -79,7 +89,8 @@ pub enum TimeExpressionValue {
     },
     EpochRelative {
         epoch_id: EpochId,
-        offset_nanoseconds: i64,
+        /// The signed span from the epoch's instant.
+        offset: TimeSpan,
     },
 }
 
@@ -88,8 +99,9 @@ pub enum TimeExpressionValue {
 #[serde(rename_all = "camelCase")]
 pub struct ResolveTimeRequest {
     pub expression: TimeExpression,
+    /// Uncertainty added to the resolved instant's own, bounded zero when omitted.
     #[serde(default)]
-    pub additional_uncertainty_nanoseconds: u64,
+    pub additional_uncertainty: NanosecondBound,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -139,9 +151,12 @@ pub struct ConvertTimeOutput {
 #[serde(deny_unknown_fields)]
 pub struct ClockQualityValue {
     pub synchronized: bool,
+    #[schemars(range(min = -9_007_199_254_740_991_i64, max = 9_007_199_254_740_991_i64))]
     pub estimated_offset_nanoseconds: i64,
-    pub error_bound_nanoseconds: u64,
+    /// The conservative bound on the clock's error; unbounded when unmeasured.
+    pub error_bound: NanosecondBound,
     pub stratum: u8,
+    #[schemars(range(min = 0, max = 9_007_199_254_740_991_u64))]
     pub holdover_age_seconds: Option<u64>,
     pub source_diversity: u32,
     pub traceability: Vec<String>,
@@ -366,6 +381,15 @@ impl veoveo_types::Check for ClockQualityValue {
     fn check(&self) -> Result<(), Self::Error> {
         chrono::DateTime::parse_from_rfc3339(&self.observed_at)
             .map_err(|_| super::admission::TimeValueError("invalid clock observation timestamp"))?;
+        if !super::json_integer(self.estimated_offset_nanoseconds)
+            || self
+                .holdover_age_seconds
+                .is_some_and(|age| age > NanosecondBound::MAX_NANOSECONDS)
+        {
+            return Err(super::admission::TimeValueError(
+                "clock offset and holdover age lie within -(2^53 - 1)..=2^53 - 1",
+            ));
+        }
         Ok(())
     }
 }
