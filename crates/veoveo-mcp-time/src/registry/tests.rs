@@ -1,6 +1,8 @@
 mod activation;
 #[cfg(feature = "mcp")]
 mod active_authorities;
+#[cfg(feature = "mcp")]
+mod app;
 mod digest;
 mod due;
 #[cfg(feature = "mcp")]

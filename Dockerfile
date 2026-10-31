@@ -96,6 +96,8 @@ RUN apt-get update \
     && mkdir -p /var/lib/veoveo/time/acquisitions /var/lib/veoveo/time/releases /var/lib/veoveo/time/keys \
     && chown -R component:component /var/lib/veoveo/time
 COPY --from=build /home/sandbox/component /usr/local/bin/${COMPONENT}
+# The App document Time serves as ui://time/now; --app-html defaults to this path.
+COPY crates/veoveo-mcp-time/assets/now.html /usr/share/veoveo/time/now.html
 USER component
 EXPOSE 8800
 ENTRYPOINT ["/usr/local/bin/veoveo-mcp-time"]

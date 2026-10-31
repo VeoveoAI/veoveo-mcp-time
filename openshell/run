@@ -9,4 +9,6 @@ mkdir -p "$state/keys" "$state/acquisitions" "$state/releases"
 export VEOVEO_KEY_DIRECTORY="$state/keys"
 export VEOVEO_ACQUISITION_SCRATCH_DIRECTORY="$state/acquisitions"
 export VEOVEO_RELEASE_DIRECTORY="$state/releases"
+# The App document of the checkout just built, so a push changes the App with the binary.
+export VEOVEO_APP_HTML="$PWD/crates/veoveo-mcp-time/assets/now.html"
 exec target/release/veoveo-mcp-time

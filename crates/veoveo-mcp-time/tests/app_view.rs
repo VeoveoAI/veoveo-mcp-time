@@ -19,12 +19,8 @@ fn document() -> String {
         .to_owned()
 }
 
-/// The tools linked to `ui://time/now`.
-const LINKED: [&str; 3] = [
-    ResolveTimeRequest::TOOL,
-    ConvertTimeRequest::TOOL,
-    ExpandScheduleRequest::TOOL,
-];
+/// The tools linked to `ui://time/now`, as Time's routes link them.
+const LINKED: [&str; 3] = veoveo_mcp_time::mcp::app::LINKED_TOOLS;
 
 /// Every other Time tool: none carries an App link, so the view names none.
 const UNLINKED: [&str; 18] = [

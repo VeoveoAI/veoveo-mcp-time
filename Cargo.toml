@@ -17,8 +17,8 @@ veoveo-store = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "120306e
 veoveo-task = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "120306eb969c6134dadd422dca701a2ce63e9492" }
 veoveo-types = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "120306eb969c6134dadd422dca701a2ce63e9492" }
 # veoveo-hub-sdk, pinned to one revision for the SDK library and its test fixture.
-veoveo-hub-sdk = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "05273d1f90b9a08e90e377187f4eddd084605fe5", default-features = false }
-veoveo-hub-sdk-fixture = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "05273d1f90b9a08e90e377187f4eddd084605fe5" }
+veoveo-hub-sdk = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "e7d562180f606bb2d118d8d21013258f57471fbc", default-features = false }
+veoveo-hub-sdk-fixture = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "e7d562180f606bb2d118d8d21013258f57471fbc" }
 
 anyhow = "=1.0.104"
 axum = "0.8.9"

@@ -7,6 +7,7 @@ use rmcp::{
 };
 use uuid::Uuid;
 use veoveo_hub_sdk::{
+    apps::AppHtml,
     definition::Product,
     docs::ServerDocs,
     hosting::{DomainServer, RoutePolicy, Routes, completion, rank_completions},
@@ -28,6 +29,7 @@ use crate::{
 };
 
 mod administration;
+pub mod app;
 pub(crate) mod declarations;
 pub(crate) mod requirements;
 mod resources;
@@ -47,11 +49,13 @@ pub(crate) static SERVER_DOCS: LazyLock<ServerDocs> =
 #[derive(Clone)]
 pub struct TimeMcp {
     state: Arc<TimeApplication>,
+    /// The App document, read once at startup.
+    app: AppHtml,
 }
 
 impl TimeMcp {
-    pub fn new(state: Arc<TimeApplication>) -> Self {
-        Self { state }
+    pub fn new(state: Arc<TimeApplication>, app: AppHtml) -> Self {
+        Self { state, app }
     }
 
     /// The capability inventory declared at `time://contract` (contract C19).
@@ -323,7 +327,7 @@ static ROUTES: LazyLock<Routes<TimeMcp>> = LazyLock::new(|| {
         policy(ClockPoliciesWrite),
         |domain, request, context| async move { domain.replace_clock_policy(request, context).await },
     );
-    let mut routes = resources::register(routes);
+    let mut routes = app::register(resources::register(routes));
     for prompt in TimePrompt::ALL {
         routes = routes.prompt(
             prompt.definition(),
@@ -463,6 +467,7 @@ mod tests {
             .resources()
             .iter()
             .map(|resource| resource.descriptor())
+            .filter(|resource| resource.uri != app::APP_URI)
         {
             let address = TimeResource::parse(&resource.uri).unwrap();
             assert_eq!(address.to_uri().unwrap().as_str(), resource.uri);

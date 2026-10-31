@@ -13,6 +13,7 @@ use veoveo_hub_sdk::durable_tasks::DurableTasks;
 use veoveo_hub_sdk::registration::client::Registration;
 use veoveo_hub_sdk::{
     PublicDeployment, TelemetryGuard,
+    apps::AppHtml,
     hosting::{Hosted, HostedServer},
     init_server_telemetry,
 };
@@ -50,6 +51,8 @@ pub async fn run() -> Result<()> {
         println!();
         return Ok(());
     }
+    // A missing or invalid App document stops startup before Time registers.
+    let app = AppHtml::load(&args.app_html)?;
     let _telemetry: TelemetryGuard =
         init_server_telemetry("veoveo-mcp-time", "info,veoveo_mcp_time=debug")?;
     let (registration_client, registration, http) =
@@ -60,7 +63,7 @@ pub async fn run() -> Result<()> {
     let mut served = None;
     let maintained = registration_client
         .maintain(registration, async {
-            served = Some(serve(&args, &public_deployment, &issued, http).await);
+            served = Some(serve(&args, &public_deployment, &issued, http, app).await);
         })
         .await;
     if let Err(error) = maintained {
@@ -77,6 +80,7 @@ async fn serve(
     public_deployment: &PublicDeployment,
     registration: &Registration,
     http: reqwest::Client,
+    app: AppHtml,
 ) -> Result<()> {
     let grant = registration
         .database()
@@ -169,7 +173,7 @@ async fn serve(
         .allowed_hosts(args.allowed_hosts.iter().cloned())
         .internal_trust(registration.access_tokens(), http)?
         .handler(move || {
-            Hosted::new(TimeMcp::new(handler_state.clone())).with_tasks(
+            Hosted::new(TimeMcp::new(handler_state.clone(), app.clone())).with_tasks(
                 DurableTasks::with_listener(
                     TimeTaskExtension::new(handler_state.clone()),
                     TimeSubscriptions::new(handler_state.clone()),

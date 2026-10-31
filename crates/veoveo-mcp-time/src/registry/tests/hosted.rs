@@ -1,9 +1,18 @@
 //! Existing hosted Time authority fixture shared by owner HTTP controls.
 use super::*;
-use veoveo_hub_sdk::hosting::{
-    Hosted,
-    testing::{self, TestHub},
+use veoveo_hub_sdk::{
+    apps::AppHtml,
+    hosting::{
+        Hosted,
+        testing::{self, TestHub},
+    },
 };
+
+/// The packaged App document, read as Time reads it at startup.
+pub(super) fn app_html() -> AppHtml {
+    AppHtml::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/now.html"))
+        .expect("the packaged App document loads")
+}
 pub(super) struct Fixture {
     pub hub: TestHub,
     pub state: Arc<crate::state::TimeApplication>,
@@ -16,10 +25,11 @@ impl Fixture {
         let files = AuthorityFiles::new().await;
         let state = files.replica(&db.a).await;
         let handler = state.clone();
+        let app = app_html();
         let hub = TestHub::new(
             testing::for_domain::<crate::mcp::TimeMcp>()
                 .handler(move || {
-                    Hosted::new(crate::mcp::TimeMcp::new(handler.clone())).with_tasks(
+                    Hosted::new(crate::mcp::TimeMcp::new(handler.clone(), app.clone())).with_tasks(
                         veoveo_hub_sdk::durable_tasks::DurableTasks::with_listener(
                             crate::server::tasks::TimeTaskExtension::new(handler.clone()),
                             crate::mcp::TimeSubscriptions::new(handler.clone()),

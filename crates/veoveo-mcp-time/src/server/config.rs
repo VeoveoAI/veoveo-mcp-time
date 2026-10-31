@@ -77,6 +77,13 @@ pub(super) struct Args {
     pub release_directory: PathBuf,
     #[arg(long, env = "VEOVEO_ZIC_EXECUTABLE", default_value = "/usr/sbin/zic")]
     pub zic_executable: PathBuf,
+    /// The App document Time serves as `ui://time/now`, read once at startup.
+    #[arg(
+        long,
+        env = "VEOVEO_APP_HTML",
+        default_value = "/usr/share/veoveo/time/now.html"
+    )]
+    pub app_html: PathBuf,
     #[arg(
         long,
         env = "VEOVEO_MAXIMUM_SOURCE_BYTES",
@@ -163,6 +170,16 @@ mod tests {
         assert_eq!(
             parsed.key_directory,
             PathBuf::from("/var/lib/veoveo/time/keys")
+        );
+        assert_eq!(
+            parsed.app_html,
+            PathBuf::from("/usr/share/veoveo/time/now.html")
+        );
+        assert_eq!(
+            args(&["--app-html", "/sandbox/src/now.html"])
+                .unwrap()
+                .app_html,
+            PathBuf::from("/sandbox/src/now.html")
         );
         assert!(args(&["--registration-secret", ""]).is_err());
         assert!(
