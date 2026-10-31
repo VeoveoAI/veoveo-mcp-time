@@ -1,7 +1,8 @@
 //! Time's App document, `assets/now.html`: the packaged view loads through the SDK's
 //! `AppHtml` within the host's bound, keeps to its own Content Security Policy, names no
-//! network origin, speaks the bridge methods the Apps contract assigns to a view and names
-//! only the tools linked to it.
+//! network origin, speaks the bridge methods the Apps contract assigns to a view, takes
+//! MCP's own resource notifications as its wakes, ticks from the monotonic clock without a
+//! wall clock or an interval timer, and names only the tools linked to it.
 use std::path::Path;
 
 use veoveo_hub_sdk::{
@@ -116,11 +117,16 @@ fn the_view_speaks_the_bridge_a_view_owes_its_host() {
         "tasks/get",
         "tasks/cancel",
         "subscriptions/listen",
-        "ui/notifications/resource-updated",
+        "notifications/subscriptions/acknowledged",
+        "notifications/resources/updated",
         "notifications/cancelled",
     ] {
         assert!(html.contains(&format!("\"{method}\"")), "{method}");
     }
+    // The host forwards MCP's own notifications; the ui/ namespace carries no wake.
+    assert!(!html.contains("ui/notifications/resource-updated"));
+    // A host that does not forward the listen answers Method not found.
+    assert!(html.contains("const METHOD_NOT_FOUND = -32601;"));
     assert!(html.contains(r#"const APPS_PROTOCOL = "2026-01-26";"#));
     assert!(html.contains(r#"const DISPLAY_MODES = ["inline", "fullscreen"];"#));
     assert!(html.contains("event.source !== window.parent"));
@@ -134,5 +140,39 @@ fn the_view_names_only_its_linked_tools() {
     }
     for tool in UNLINKED {
         assert!(!html.contains(tool), "the view names unlinked {tool}");
+    }
+}
+
+#[test]
+fn the_clock_ticks_from_the_monotonic_clock_and_reads_only_on_wakes_and_refresh() {
+    let html = document();
+    // Elapsed time comes from performance.now(), never from the browser's wall clock.
+    assert!(html.contains("performance.now()"));
+    for wall in ["Date.now(", "new Date()"] {
+        assert!(
+            !html.contains(wall),
+            "the view reads the wall clock with {wall}"
+        );
+    }
+    // Nothing repeats on an interval; the tick is one timeout per displayed second.
+    assert!(!html.contains("setInterval"));
+    assert_eq!(html.matches("tickTimer = setTimeout(renderTick").count(), 1);
+    // The tick bounds advancing UTC and local time by the holds Time states.
+    for hold in ["utcOffsetHoldsUntil", "offsetHoldsUntil"] {
+        assert!(html.contains(&format!(".{hold}")), "{hold}");
+    }
+    // Reads happen in the loaders, which only wakes, Refresh and startup start.
+    assert_eq!(html.matches("request(\"resources/read\"").count(), 1);
+    assert_eq!(html.matches("refreshAll();").count(), 1);
+    assert!(html.contains("$(\"refresh\").addEventListener(\"click\", refreshAll);"));
+}
+
+#[test]
+fn every_control_is_a_button_or_input_with_a_visible_focus_ring() {
+    let html = document();
+    assert!(html.contains(":focus-visible { outline: 2px solid var(--accent);"));
+    assert!(!html.contains("tabindex"));
+    for control in ["<a ", "onclick=", "contenteditable"] {
+        assert!(!html.contains(control), "{control}");
     }
 }

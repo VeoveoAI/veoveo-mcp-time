@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Time</title>
 <style>
 :root {
@@ -15,6 +16,7 @@
   --accent: var(--color-text-info, #2557d6);
   --danger: var(--color-text-danger, #b42318);
   --ok: var(--color-text-success, #1a7f37);
+  --warn: var(--color-text-warning, #9a6700);
   --radius: var(--border-radius-md, 8px);
   --sans: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
   --mono: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
@@ -29,6 +31,7 @@
   --accent: var(--color-text-info, #7aa2ff);
   --danger: var(--color-text-danger, #ff8a80);
   --ok: var(--color-text-success, #5fd38a);
+  --warn: var(--color-text-warning, #e3b341);
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -37,39 +40,48 @@ html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45
 main { padding: 12px; display: grid; gap: 12px; }
 [data-mode="fullscreen"] body { min-height: 100vh; }
 [data-mode="fullscreen"] main { padding: 20px; max-width: 1200px; margin: 0 auto; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); align-items: start; }
-[data-mode="fullscreen"] header, [data-mode="fullscreen"] #view-error { grid-column: 1 / -1; }
+[data-mode="fullscreen"] header, [data-mode="fullscreen"] .notes { grid-column: 1 / -1; }
 [data-mode="inline"] .full-only { display: none !important; }
 [data-mode="fullscreen"] .inline-only { display: none !important; }
 header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 h1 { font-size: 15px; margin: 0; font-weight: 600; }
 h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; color: var(--fg-soft); text-transform: uppercase; letter-spacing: .04em; }
 .spacer { flex: 1; }
-.live { font-size: 12px; color: var(--fg-soft); }
+.notes:empty { display: none; }
+.live { font-size: 12px; color: var(--fg-soft); white-space: nowrap; }
 .live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: var(--fg-soft); vertical-align: 1px; }
-.live[data-live="true"]::before { background: var(--ok); }
+.live[data-live="live"]::before { background: var(--ok); }
+.live[data-live="partial"]::before { background: var(--warn); }
 section { background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; min-width: 0; }
-.big { font: 600 34px/1.1 var(--mono); letter-spacing: -.01em; }
+.big { font: 600 34px/1.1 var(--mono); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 [data-mode="inline"] .big { font-size: 28px; }
 .subtle { color: var(--fg-soft); font-size: 12px; }
-dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 8px 0 0; }
+.note { color: var(--fg-soft); font-size: 12px; margin: 0; }
+dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 8px 0 0; }
 dt { color: var(--fg-soft); }
-dd { margin: 0; font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+dd { margin: 0; font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+dd.stopped, .big.stopped { color: var(--fg-soft); }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--fg-soft); font-weight: 500; }
-td.mono { font-family: var(--mono); overflow-wrap: anywhere; }
+td.mono { font-family: var(--mono); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .row { display: flex; gap: 6px; flex-wrap: wrap; }
 input, select, button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
 input { flex: 1 1 200px; min-width: 0; font-family: var(--mono); }
+input::placeholder { color: var(--fg-soft); }
 button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--fg-soft); }
 button:disabled { cursor: default; opacity: .55; }
 button.link { border: none; background: none; color: var(--accent); padding: 0 2px; }
+button.link:hover:not(:disabled) { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 ol, ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .name { font-weight: 500; }
-.chip { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--fg-soft); }
+.chip { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--fg-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .error { color: var(--danger); margin: 8px 0 0; overflow-wrap: anywhere; }
-.status { margin: 8px 0 0; }
+.status { margin: 8px 0 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 p { margin: 6px 0 0; }
 </style>
 </head>
@@ -77,38 +89,50 @@ p { margin: 6px 0 0; }
 <main>
   <header>
     <h1>Time</h1>
-    <span class="subtle" id="zone-label"></span>
+    <span class="subtle" id="zone-label" title="The zone this view shows and converts into"></span>
     <span class="spacer"></span>
-    <span class="live" id="live" data-live="false">Not live</span>
+    <span class="live" id="live" data-live="connecting" role="status">Connecting</span>
     <button type="button" id="mode" hidden></button>
   </header>
-  <p class="error" id="view-error" hidden></p>
+  <div class="notes" id="notes" aria-live="polite"><p class="note" id="live-note" hidden></p><p class="error" id="view-error" hidden></p></div>
 
   <section id="clock" aria-labelledby="clock-title">
     <h2 id="clock-title">Now</h2>
-    <div class="big" id="local-time">--:--:--</div>
-    <div class="subtle" id="local-date"></div>
-    <dl id="clock-lines"></dl>
-    <dl class="full-only" id="clock-details"></dl>
-    <p class="subtle"><span id="clock-read">Reading the current time</span> <button type="button" class="link" id="refresh">Refresh</button></p>
-    <p class="error" id="zone-error" hidden></p>
-    <p class="error" id="clock-error" hidden></p>
+    <div class="big" id="local-time" aria-live="off">--:--:--</div>
+    <div class="subtle" id="local-date">Reading the current time</div>
+    <dl id="clock-lines">
+      <dt>UTC</dt><dd id="now-utc">…</dd>
+      <dt>Military DTG</dt><dd id="now-dtg">…</dd>
+    </dl>
+    <dl class="full-only" id="clock-details">
+      <dt>TAI seconds</dt><dd id="now-tai">…</dd>
+      <dt>Unix seconds</dt><dd id="now-unix">…</dd>
+      <dt>GPS week, seconds</dt><dd id="now-gps">…</dd>
+      <dt>Julian day (TAI)</dt><dd id="now-julian">…</dd>
+      <dt>Uncertainty at read</dt><dd id="now-uncertainty">…</dd>
+      <dt>TZDB release</dt><dd id="now-tzdb">…</dd>
+      <dt>Leap-second release</dt><dd id="now-leaps">…</dd>
+    </dl>
+    <p class="subtle"><span id="clock-read">Not read yet</span> <button type="button" class="link" id="refresh" title="Read the clock, your zone, events and calendars again">Refresh</button></p>
+    <p class="note" id="clock-stale" hidden aria-live="polite"></p>
+    <p class="error" id="zone-error" hidden aria-live="polite"></p>
+    <p class="error" id="clock-error" hidden aria-live="polite"></p>
   </section>
 
   <section id="quality" class="full-only" aria-labelledby="quality-title">
     <h2 id="quality-title">Clock quality</h2>
     <table>
-      <thead><tr><th></th><th>Measured</th><th>Policy</th></tr></thead>
-      <tbody id="quality-rows"></tbody>
+      <thead><tr><th scope="col"><span class="visually-hidden">Measure</span></th><th scope="col">Measured</th><th scope="col">Policy</th></tr></thead>
+      <tbody id="quality-rows"><tr><td colspan="3" class="subtle">Reading the clock</td></tr></tbody>
     </table>
     <dl id="quality-details"></dl>
   </section>
 
   <section id="resolver" aria-labelledby="resolver-title">
     <h2 id="resolver-title">Resolve a time</h2>
-    <!-- A frame sandboxed with allow-scripts alone submits no form, so the resolver is a row. -->
-    <div class="row" role="search">
-      <input id="expression" autocomplete="off" aria-label="Time expression" placeholder="141530ZJUL26, 2026-11-01T09:00, 1767225600">
+    <!-- A frame sandboxed with allow-scripts alone submits no form, so the resolver is a row of controls. -->
+    <div class="row" role="search" aria-label="Resolve a time">
+      <input id="expression" autocomplete="off" spellcheck="false" autocapitalize="off" enterkeyhint="go" aria-label="Time expression" aria-describedby="expression-hint" placeholder="141530ZJUL26, 2026-11-01T09:00, 1767225600">
       <select id="format" class="full-only" aria-label="Format">
         <option value="auto">Detect format</option>
         <option value="military_dtg">Military DTG</option>
@@ -127,33 +151,34 @@ p { margin: 6px 0 0; }
       </select>
       <button type="button" id="resolve">Resolve</button>
     </div>
+    <p class="subtle full-only" id="expression-hint">A military DTG, RFC 3339 or RFC 9557 text, a local date and time in your zone, or Unix seconds; press Enter to resolve.</p>
     <p class="subtle" id="resolved-source" hidden></p>
-    <dl id="resolved" hidden></dl>
-    <p class="error" id="resolve-error" hidden></p>
+    <dl id="resolved" hidden aria-live="polite"></dl>
+    <p class="error" id="resolve-error" hidden aria-live="polite"></p>
   </section>
 
   <section id="events" aria-labelledby="events-title">
     <h2 id="events-title">Your events</h2>
     <p class="inline-only" id="next-event">Reading your events</p>
     <ol class="full-only" id="event-list"></ol>
-    <p class="subtle full-only" id="event-summary"></p>
-    <p class="error" id="events-error" hidden></p>
+    <p class="subtle full-only" id="event-summary">Reading your events</p>
+    <p class="error" id="events-error" hidden aria-live="polite"></p>
   </section>
 
   <section id="calendars" class="full-only" aria-labelledby="calendars-title">
     <h2 id="calendars-title">Calendars</h2>
     <ul id="calendar-list"></ul>
-    <p class="subtle" id="calendar-summary"></p>
-    <p class="error" id="calendars-error" hidden></p>
+    <p class="subtle" id="calendar-summary">Reading calendars</p>
+    <p class="error" id="calendars-error" hidden aria-live="polite"></p>
     <div id="expansion" hidden>
-      <p class="status"><button type="button" id="cancel-task" hidden>Cancel</button> <span id="expansion-status"></span></p>
+      <p class="status" aria-live="polite"><button type="button" id="cancel-task" hidden>Cancel</button> <span id="expansion-status"></span></p>
       <table id="occurrences" hidden>
-        <thead><tr><th>#</th><th>Starts</th><th>Lasts</th><th>Labels</th></tr></thead>
+        <thead><tr><th scope="col">#</th><th scope="col">Starts</th><th scope="col">Lasts</th><th scope="col">Labels</th></tr></thead>
         <tbody id="occurrence-rows"></tbody>
       </table>
       <p class="subtle" id="expansion-note"></p>
     </div>
-    <p class="error" id="expansion-error" hidden></p>
+    <p class="error" id="expansion-error" hidden aria-live="polite"></p>
   </section>
 </main>
 <script>
@@ -161,7 +186,7 @@ p { margin: 6px 0 0; }
 (() => {
   /* The tools linked to ui://time/now, by the names Time lists them under. */
   const TOOLS = Object.freeze({ resolve: "resolve_time", convert: "convert_time", expand: "expand_schedule" });
-  const APP_INFO = { name: "time-now", version: "1.0.0" };
+  const APP_INFO = { name: "time-now", version: "1.1.0" };
   const APPS_PROTOCOL = "2026-01-26";
   const DISPLAY_MODES = ["inline", "fullscreen"];
   const CLOCK = "time://clock/current";
@@ -174,8 +199,14 @@ p { margin: 6px 0 0; }
   const MAXIMUM_OCCURRENCES = 50;
   const CONVERSIONS_AT_ONCE = 4;
   const REQUEST_TIMEOUT_MS = 30000;
+  const METHOD_NOT_FOUND = -32601;
   const ZONE_NAME = /^[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)*$/;
   const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const GPS_WEEK_SECONDS = 604800;
+  /* How far short of a hold's boundary a stopped field stays, so it shows the last whole
+     second before the boundary rather than a second that may not exist. */
+  const BEFORE_BOUNDARY = 1e-6;
 
   const root = document.documentElement;
   const $ = (id) => document.getElementById(id);
@@ -185,11 +216,13 @@ p { margin: 6px 0 0; }
     zone: "UTC",
     zones: ["UTC"],
     clock: null,
+    clockAnchor: 0,
     zoneView: null,
     events: null,
     calendars: null,
     task: null,
     listenId: null,
+    accepted: new Set(),
     initialized: false,
     tornDown: false,
   };
@@ -260,15 +293,15 @@ p { margin: 6px 0 0; }
     } else if (method === "ping") {
       respond(id, {});
     } else {
-      post({ jsonrpc: "2.0", id, error: { code: -32601, message: `Time's view does not handle ${method}` } });
+      post({ jsonrpc: "2.0", id, error: { code: METHOD_NOT_FOUND, message: `Time's view does not handle ${method}` } });
     }
   }
 
   function onNotification(method, params) {
     if (state.tornDown) return;
     if (method === "ui/notifications/host-context-changed") applyHostContext(params);
-    else if (method === "ui/notifications/resource-updated") wake(params.uri);
-    else if (method === "notifications/subscriptions/acknowledged") setLive(true);
+    else if (method === "notifications/resources/updated") wake(params.uri);
+    else if (method === "notifications/subscriptions/acknowledged") acknowledged(params);
     else if (method === "ui/notifications/tool-result") showPushedResult(params);
   }
 
@@ -380,10 +413,48 @@ p { margin: 6px 0 0; }
     }
   }
 
-  function setLive(live) {
+  /* --------------------------------------------------------------- live -- */
+
+  const LIVE_LABELS = { connecting: "Connecting", live: "Live", partial: "Partly live", off: "Updates off", ended: "Updates ended" };
+
+  function setLive(status, note) {
     const indicator = $("live");
-    indicator.dataset.live = String(live);
-    indicator.textContent = live ? "Live" : "Not live";
+    indicator.dataset.live = status;
+    indicator.textContent = LIVE_LABELS[status];
+    const line = $("live-note");
+    line.textContent = note || "";
+    line.hidden = !note;
+  }
+
+  function listen() {
+    const { id, promise } = send("subscriptions/listen", { notifications: { resourceSubscriptions: SUBSCRIBED } }, 0);
+    state.listenId = id;
+    setLive("connecting");
+    promise.then(
+      () => {
+        if (state.tornDown) return;
+        state.listenId = null;
+        setLive("ended", "Live updates ended. Refresh reads the current state.");
+      },
+      (error) => {
+        if (state.tornDown) return;
+        state.listenId = null;
+        setLive("off", error && error.code === METHOD_NOT_FOUND
+          ? "This host does not deliver live updates. Refresh reads the current state."
+          : `Live updates are off: ${describe(error)}. Refresh reads the current state.`);
+      },
+    );
+  }
+
+  /* Time's acknowledgement names the resources it accepted. */
+  function acknowledged(params) {
+    const notifications = params && params.notifications;
+    const accepted = notifications && Array.isArray(notifications.resourceSubscriptions) ? notifications.resourceSubscriptions : [];
+    state.accepted = new Set(accepted.filter((uri) => SUBSCRIBED.includes(uri)));
+    const missing = SUBSCRIBED.filter((uri) => !state.accepted.has(uri));
+    if (!missing.length) setLive("live");
+    else if (state.accepted.size) setLive("partial", `Time does not send updates for ${missing.join(", ")}. Refresh reads them.`);
+    else setLive("off", "Time accepted no live updates. Refresh reads the current state.");
   }
 
   /* -------------------------------------------------------------- size -- */
@@ -447,6 +518,10 @@ p { margin: 6px 0 0; }
     return value && value.kind === "unbounded" ? "unbounded" : "unknown";
   }
 
+  function two(value) {
+    return String(value).padStart(2, "0");
+  }
+
   function nine(value) {
     return String(value).padStart(9, "0");
   }
@@ -476,17 +551,25 @@ p { margin: 6px 0 0; }
     return seconds > 0 ? `in ${duration(seconds)}` : `${duration(seconds)} ago`;
   }
 
+  /* How long until a scheduled event; one whose time has come reads as due until Time marks it. */
+  function until(seconds) {
+    return seconds >= 1 ? `in ${duration(seconds)}` : "due";
+  }
+
   /* The parts of an RFC 9557 zoned time, as Time wrote them. */
   function zonedParts(text) {
-    const match = /^(-?\d{4,})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2}(?::\d{2})?)(?:\[([^\]]+)\])?$/.exec(text || "");
+    const match = /^(-?\d{4,})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|([+-])(\d{2}):(\d{2})(?::(\d{2}))?)(?:\[([^\]]+)\])?$/.exec(text || "");
     if (!match) return null;
-    const [, year, month, day, time, offset, zone] = match;
+    const [, year, month, day, time, offset, sign, hours, minutes, seconds, zone] = match;
     const weekday = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay();
+    const offsetSeconds = offset === "Z" ? 0
+      : (sign === "-" ? -1 : 1) * (Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds || 0));
     return {
       date: `${year}-${month}-${day}`,
       weekday: Number.isInteger(weekday) ? WEEKDAYS[weekday] : "",
       time,
       offset: offset === "Z" ? "UTC" : `UTC${offset}`,
+      offsetSeconds,
       zone: zone || "",
     };
   }
@@ -494,6 +577,28 @@ p { margin: 6px 0 0; }
   function zonedShort(text) {
     const parts = zonedParts(text);
     return parts ? `${parts.weekday.slice(0, 3)} ${parts.date} ${parts.time} ${parts.offset}` : text;
+  }
+
+  /* Calendar fields of a count of seconds on the UTC calendar; Unix time has no leap seconds. */
+  function calendarAt(seconds) {
+    const date = new Date(seconds * 1000);
+    return {
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth(),
+      day: date.getUTCDate(),
+      weekday: WEEKDAYS[date.getUTCDay()],
+      time: `${two(date.getUTCHours())}:${two(date.getUTCMinutes())}:${two(date.getUTCSeconds())}`,
+      hours: date.getUTCHours(),
+      minutes: date.getUTCMinutes(),
+    };
+  }
+
+  function isoDate(fields) {
+    return `${String(fields.year).padStart(4, "0")}-${two(fields.month + 1)}-${two(fields.day)}`;
+  }
+
+  function ago(seconds) {
+    return seconds < 1 ? "just now" : `${duration(seconds)} ago`;
   }
 
   /* ------------------------------------------------------------ reading -- */
@@ -518,6 +623,11 @@ p { margin: 6px 0 0; }
     });
   }
 
+  function refreshAll() {
+    for (const name of Object.keys(loaders)) refresh(name);
+  }
+
+  /* Time's notifications/resources/updated for a resource the view listens to. */
   function wake(uri) {
     if (typeof uri !== "string") return;
     if (uri === EVENTS || uri.startsWith(`${EVENTS}/`)) {
@@ -531,22 +641,13 @@ p { margin: 6px 0 0; }
     }
   }
 
-  function listen() {
-    const { id, promise } = send("subscriptions/listen", { notifications: { resourceSubscriptions: SUBSCRIBED } }, 0);
-    state.listenId = id;
-    promise.then(
-      () => { if (!state.tornDown) setLive(false); },
-      (error) => {
-        if (state.tornDown) return;
-        setLive(false);
-        showError("view-error", `Live updates are off: ${describe(error)}. Refresh reads the current state.`);
-      },
-    );
-  }
-
+  /* The clock's served instant is anchored at the midpoint of its read on the monotonic clock. */
   async function loadClock() {
     try {
-      state.clock = await readJson(CLOCK);
+      const started = performance.now();
+      const clock = await readJson(CLOCK);
+      state.clockAnchor = (started + performance.now()) / 2;
+      state.clock = clock;
       showError("clock-error", "");
     } catch (error) {
       showError("clock-error", `The current time could not be read: ${describe(error)}`);
@@ -567,7 +668,7 @@ p { margin: 6px 0 0; }
         useZone(zone);
         state.zoneView = view;
         showError("zone-error", failures.length ? `${failures.join(" ")} Showing ${zone}.` : "");
-        renderClock();
+        renderTick();
         if (changed) renderEvents();
         return;
       } catch (error) {
@@ -577,7 +678,7 @@ p { margin: 6px 0 0; }
     }
     state.zoneView = null;
     showError("zone-error", failures.join(" "));
-    renderClock();
+    renderTick();
   }
 
   async function loadEvents() {
@@ -596,6 +697,10 @@ p { margin: 6px 0 0; }
       showError("events-error", "");
     } catch (error) {
       showError("events-error", `Your events could not be read: ${describe(error)}`);
+      if (!state.events) {
+        $("next-event").textContent = "Your events are unavailable.";
+        $("event-summary").textContent = "";
+      }
     }
     renderEvents();
   }
@@ -610,6 +715,7 @@ p { margin: 6px 0 0; }
       showError("calendars-error", "");
     } catch (error) {
       showError("calendars-error", `Calendars could not be read: ${describe(error)}`);
+      if (!state.calendars) $("calendar-summary").textContent = "";
     }
     renderCalendars();
   }
@@ -664,39 +770,135 @@ p { margin: 6px 0 0; }
     );
   }
 
+  /* ------------------------------------------------------------- ticking -- */
+
+  /* Values that advance with the clock between reads: [node, instant, format]. */
+  const ticking = { events: [], resolved: [] };
+  let tickTimer;
+
+  /* Monotonic seconds since the clock's read; never negative. */
+  function sinceRead() {
+    return Math.max(0, (performance.now() - state.clockAnchor) / 1000);
+  }
+
+  /* The served TAI instant advanced by `seconds`, carrying the subsecond into whole seconds. */
+  function advance(instant, seconds) {
+    const whole = Math.floor(seconds);
+    const subsecond = instant.nanosecond + Math.round((seconds - whole) * 1e9);
+    const carry = Math.floor(subsecond / 1e9);
+    return {
+      taiSecondsSince1970: instant.taiSecondsSince1970 + whole + carry,
+      nanosecond: subsecond - carry * 1e9,
+    };
+  }
+
+  /* Seconds from the served instant to a hold's boundary; Infinity when Time states none. */
+  function holdSeconds(served, holdsUntil) {
+    return holdsUntil ? elapsed(served, holdsUntil) : Infinity;
+  }
+
+  /* Whole seconds advanced past the served instant's own second. */
+  function wholeSeconds(served, seconds) {
+    return Math.floor(served.nanosecond / 1e9 + seconds);
+  }
+
+  function markStopped(ids, stopped) {
+    for (const id of ids) $(id).classList.toggle("stopped", stopped);
+  }
+
+  /* Renders every value that advances between reads, then waits for the next displayed second. */
+  function renderTick() {
+    clearTimeout(tickTimer);
+    if (state.tornDown || !state.clock) return;
+    const clock = state.clock;
+    const time = clock.time;
+    const served = time.instant;
+    const seconds = sinceRead();
+    const now = advance(served, seconds);
+
+    /* TAI, GPS and the Julian TAI day have no leap seconds, so they always advance. */
+    const tai = wholeSeconds(served, seconds);
+    $("now-tai").textContent = `${served.taiSecondsSince1970 + tai} s`;
+    if (time.gpsWeek === null || time.gpsWeek === undefined) {
+      $("now-gps").textContent = "before the GPS epoch";
+    } else {
+      /* GPS time is TAI less 19 s, so its whole seconds advance with TAI's. */
+      const ofWeek = Math.floor(time.gpsSecondsOfWeek) + tai;
+      const weeks = Math.floor(ofWeek / GPS_WEEK_SECONDS);
+      $("now-gps").textContent = `week ${time.gpsWeek + weeks}, ${ofWeek - weeks * GPS_WEEK_SECONDS} s`;
+    }
+    $("now-julian").textContent = (Number(time.julianDayTai) + seconds / 86400).toFixed(5);
+
+    /* UTC, Unix and the DTG advance with the served offset until Time's leap-second boundary. */
+    const utcHold = holdSeconds(served, clock.utcOffsetHoldsUntil);
+    const utcStopped = seconds >= utcHold;
+    const utcSeconds = Math.min(seconds, utcHold - BEFORE_BOUNDARY);
+    if (utcHold <= 0) {
+      /* Inside a leap second the served offset holds for no time: show what Time served. */
+      $("now-utc").textContent = `${time.utcRfc3339}${time.utcIsLeapSecond ? " (leap second)" : ""}`;
+      $("now-dtg").textContent = time.militaryDtg;
+      $("now-unix").textContent = String(time.unixSeconds);
+    } else {
+      const unix = time.unixSeconds + wholeSeconds(served, utcSeconds);
+      const utc = calendarAt(unix);
+      $("now-utc").textContent = `${isoDate(utc)}T${utc.time}Z`;
+      $("now-dtg").textContent = `${two(utc.day)}${two(utc.hours)}${two(utc.minutes)}Z${MONTHS[utc.month]}${String(utc.year).slice(-2)}`;
+      $("now-unix").textContent = String(unix);
+    }
+    markStopped(["now-utc", "now-dtg", "now-unix"], utcStopped);
+
+    /* Local time adds the served zone offset until the zone's boundary. */
+    const zoned = state.zoneView && state.zoneView.current ? zonedParts(state.zoneView.current.rfc9557) : null;
+    const zoneHold = state.zoneView ? Math.min(utcHold, holdSeconds(served, state.zoneView.offsetHoldsUntil)) : utcHold;
+    const localStopped = seconds >= zoneHold;
+    if (zoned && zoneHold > 0) {
+      const local = calendarAt(time.unixSeconds + wholeSeconds(served, Math.min(seconds, zoneHold - BEFORE_BOUNDARY)) + zoned.offsetSeconds);
+      $("local-time").textContent = local.time;
+      $("local-date").textContent = `${local.weekday} ${isoDate(local)}, ${zoned.offset}`;
+    } else if (zoned) {
+      $("local-time").textContent = zoned.time;
+      $("local-date").textContent = `${zoned.weekday} ${zoned.date}, ${zoned.offset}`;
+    } else {
+      $("local-time").textContent = $("now-utc").textContent.slice(11, 19);
+      $("local-date").textContent = "UTC";
+    }
+    $("local-time").classList.toggle("stopped", localStopped);
+
+    const stale = [];
+    if (utcStopped) stale.push("UTC, Unix and military time stop at the leap second Time lists");
+    else if (localStopped) stale.push(`The time in ${state.zone} stops where its UTC offset changes`);
+    showStale(stale.length ? `${stale.join("; ")}. Refresh to read past it.` : "");
+
+    const read = /T(\d{2}:\d{2}:\d{2})/.exec(time.utcRfc3339);
+    $("clock-read").textContent = `Read at ${read ? read[1] : time.utcRfc3339} UTC, ${ago(seconds)}`;
+
+    for (const [node, instant, format] of [...ticking.events, ...ticking.resolved]) {
+      if (node.isConnected) node.textContent = format(elapsed(now, instant));
+    }
+
+    /* The next displayed second begins when the advanced subsecond wraps. */
+    const fraction = (served.nanosecond / 1e9 + seconds) % 1;
+    tickTimer = setTimeout(renderTick, Math.max(50, Math.ceil((1 - fraction) * 1000) + 5));
+  }
+
+  function showStale(message) {
+    const line = $("clock-stale");
+    if (line.textContent !== message) line.textContent = message;
+    line.hidden = !message;
+  }
+
   /* ---------------------------------------------------------- rendering -- */
 
   function renderClock() {
     const clock = state.clock;
-    const zoned = state.zoneView && state.zoneView.current ? zonedParts(state.zoneView.current.rfc9557) : null;
-    if (zoned) {
-      $("local-time").textContent = zoned.time;
-      $("local-date").textContent = `${zoned.weekday} ${zoned.date}, ${zoned.offset} (${state.zone})`;
-    } else if (clock) {
-      const utc = /T(\d{2}:\d{2}:\d{2})/.exec(clock.time.utcRfc3339);
-      $("local-time").textContent = utc ? utc[1] : clock.time.utcRfc3339;
-      $("local-date").textContent = "UTC";
-    }
     if (!clock) return;
     const time = clock.time;
-    const instant = time.instant;
-    fillTerms($("clock-lines"), [
-      ["UTC", `${time.utcRfc3339}${time.utcIsLeapSecond ? " (leap second)" : ""}`],
-      ["Military", time.militaryDtg],
-    ]);
     const authority = time.effectiveAuthority || {};
-    fillTerms($("clock-details"), [
-      ["TAI", taiSeconds(instant)],
-      ["Unix", String(time.unixSeconds)],
-      ["GPS", time.gpsWeek === null || time.gpsWeek === undefined ? "before the GPS epoch" : `week ${time.gpsWeek}, ${time.gpsSecondsOfWeek} s`],
-      ["Julian day", `${Number(time.julianDayTai).toFixed(6)} TAI`],
-      ["Uncertainty", bound(instant.uncertainty)],
-      ["Time zones", release(authority.tzdb)],
-      ["Leap seconds", release(authority.leapSeconds)],
-    ]);
-    const utcRead = /T(\d{2}:\d{2}:\d{2})/.exec(time.utcRfc3339);
-    $("clock-read").textContent = `Read at ${utcRead ? utcRead[1] : time.utcRfc3339} UTC`;
+    $("now-uncertainty").textContent = bound(time.instant.uncertainty);
+    $("now-tzdb").textContent = release(authority.tzdb);
+    $("now-leaps").textContent = release(authority.leapSeconds);
     renderQuality(clock.clockQuality, clock.effectivePolicy);
+    renderTick();
   }
 
   function release(reference) {
@@ -715,7 +917,9 @@ p { margin: 6px 0 0; }
     ];
     $("quality-rows").replaceChildren(...rows.map((cells) => {
       const row = element("tr");
-      row.append(element("th", cells[0]), element("td", cells[1], "mono"), element("td", cells[2], "mono"));
+      const label = element("th", cells[0]);
+      label.scope = "row";
+      row.append(label, element("td", cells[1], "mono"), element("td", cells[2], "mono"));
       return row;
     }));
     fillTerms($("quality-details"), [
@@ -732,27 +936,36 @@ p { margin: 6px 0 0; }
     const scheduled = events.items.filter((event) => event.state === "scheduled");
     const due = events.items.filter((event) => event.state === "due").length;
     const cancelled = events.items.filter((event) => event.state === "cancelled").length;
-    const now = state.clock && state.clock.time.instant;
-    const until = (event) => (now ? relative(elapsed(now, event.due)) : "");
+    ticking.events = [];
 
     const next = scheduled[0];
-    $("next-event").textContent = next ? `Next: ${next.name}, ${until(next)}` : "No scheduled events";
+    const nextLine = $("next-event");
+    if (next) {
+      const when = element("span");
+      nextLine.replaceChildren(document.createTextNode(`Next: ${next.name}, `), when);
+      ticking.events.push([when, next.due, until]);
+    } else {
+      nextLine.textContent = "No scheduled events";
+    }
 
-    if (root.dataset.mode !== "fullscreen") return;
-    $("event-list").replaceChildren(...scheduled.slice(0, SHOWN_EVENTS).map((event) => {
-      const item = element("li");
-      const local = element("span", "", "subtle");
-      item.append(element("span", event.name, "name"), element("span", until(event), "chip"), local);
-      fillLocal(local, event.due, state.zone);
-      return item;
-    }));
-    const summary = [];
-    if (!scheduled.length) summary.push("No scheduled events.");
-    else if (scheduled.length > SHOWN_EVENTS) summary.push(`${scheduled.length - SHOWN_EVENTS} more scheduled.`);
-    summary.push(`${due} due, ${cancelled} cancelled.`);
-    if (events.more) summary.push(`Only the first ${events.items.length} events were read.`);
-    if (now) summary.push("Times until are from the clock's last read.");
-    $("event-summary").textContent = summary.join(" ");
+    if (root.dataset.mode === "fullscreen") {
+      $("event-list").replaceChildren(...scheduled.slice(0, SHOWN_EVENTS).map((event) => {
+        const item = element("li");
+        const when = element("span", "", "chip");
+        const local = element("span", "", "subtle");
+        item.append(element("span", event.name, "name"), when, local);
+        ticking.events.push([when, event.due, until]);
+        fillLocal(local, event.due, state.zone);
+        return item;
+      }));
+      const summary = [];
+      if (!scheduled.length) summary.push("No scheduled events.");
+      else if (scheduled.length > SHOWN_EVENTS) summary.push(`${scheduled.length - SHOWN_EVENTS} more scheduled.`);
+      summary.push(`${due} due, ${cancelled} cancelled.`);
+      if (events.more) summary.push(`Only the first ${events.items.length} events were read.`);
+      $("event-summary").textContent = summary.join(" ");
+    }
+    renderTick();
   }
 
   function renderCalendars() {
@@ -764,6 +977,7 @@ p { margin: 6px 0 0; }
       const button = element("button", "Expand the next 7 days");
       button.type = "button";
       button.disabled = running;
+      button.setAttribute("aria-label", `Expand ${calendar.name} over the next 7 days`);
       button.addEventListener("click", () => expand(calendar));
       item.append(
         element("span", calendar.name, "name"),
@@ -773,7 +987,7 @@ p { margin: 6px 0 0; }
       );
       return item;
     }));
-    const summary = calendars.items.length ? [] : ["No calendars yet."];
+    const summary = calendars.items.length ? [] : ["No calendars yet. An administrator publishes them."];
     if (calendars.more) summary.push("More calendars exist than one page shows.");
     $("calendar-summary").textContent = summary.join(" ");
   }
@@ -842,6 +1056,7 @@ p { margin: 6px 0 0; }
     $("resolved-source").hidden = true;
     if (!text) {
       showError("resolve-error", "Type a time to resolve.");
+      $("expression").focus();
       return;
     }
     const fullscreen = root.dataset.mode === "fullscreen";
@@ -853,7 +1068,9 @@ p { margin: 6px 0 0; }
       return;
     }
     $("resolve").disabled = true;
+    $("resolve").textContent = "Resolving";
     $("resolved").hidden = true;
+    ticking.resolved = [];
     try {
       const resolved = await callDirect(TOOLS.resolve, { expression: typed });
       await showResolved(resolved, null);
@@ -861,6 +1078,7 @@ p { margin: 6px 0 0; }
       showError("resolve-error", `That time could not be resolved: ${describe(error)}`);
     } finally {
       $("resolve").disabled = false;
+      $("resolve").textContent = "Resolve";
     }
   }
 
@@ -878,27 +1096,28 @@ p { margin: 6px 0 0; }
   function renderResolved(resolved, converted) {
     const instant = resolved.instant;
     const zoned = converted && Array.isArray(converted.zoned) ? converted.zoned.find((entry) => entry.zoneId === state.zone) : null;
-    const now = state.clock && state.clock.time.instant;
     const rows = [
       [state.zone, zoned ? zonedShort(zoned.rfc9557) : "…"],
       ["UTC", `${resolved.utcRfc3339}${resolved.utcIsLeapSecond ? " (leap second)" : ""}`],
-      ["Military", resolved.militaryDtg],
-    ];
-    if (now) rows.push(["From now", relative(elapsed(now, instant))]);
-    rows.push(
-      ["Unix", String(resolved.unixSeconds), true],
-      ["TAI", taiSeconds(instant), true],
-      ["GPS", resolved.gpsWeek === null || resolved.gpsWeek === undefined ? "before the GPS epoch" : `week ${resolved.gpsWeek}, ${resolved.gpsSecondsOfWeek} s`, true],
-      ["Julian day", `${Number(resolved.julianDayTai).toFixed(6)} TAI`, true],
+      ["Military DTG", resolved.militaryDtg],
+      ["From now", state.clock ? "…" : "after the clock is read"],
+      ["Unix seconds", String(resolved.unixSeconds), true],
+      ["TAI seconds", taiSeconds(instant), true],
+      ["GPS week, seconds", resolved.gpsWeek === null || resolved.gpsWeek === undefined ? "before the GPS epoch" : `week ${resolved.gpsWeek}, ${resolved.gpsSecondsOfWeek} s`, true],
+      ["Julian day (TAI)", Number(resolved.julianDayTai).toFixed(6), true],
       ["Uncertainty", bound(instant.uncertainty), true],
-    );
+    ];
     for (const scale of (converted && converted.scales) || []) {
       rows.push([scale.scale.toUpperCase(), `${scale.seconds} s since ${scale.referenceEpoch}`, true]);
     }
     const authority = resolved.effectiveAuthority || {};
-    rows.push(["Time zones", release(authority.tzdb), true], ["Leap seconds", release(authority.leapSeconds), true]);
-    fillTerms($("resolved"), rows);
-    $("resolved").hidden = false;
+    rows.push(["TZDB release", release(authority.tzdb), true], ["Leap-second release", release(authority.leapSeconds), true]);
+    const list = $("resolved");
+    fillTerms(list, rows);
+    /* The fourth term's value, "From now", advances with the clock. */
+    ticking.resolved = state.clock ? [[list.children[7], instant, relative]] : [];
+    list.hidden = false;
+    renderTick();
   }
 
   /* A resolve_time or convert_time result the host delivers for this view. */
@@ -923,7 +1142,7 @@ p { margin: 6px 0 0; }
   }
 
   function setExpansion(status) {
-    $("expansion").hidden = false;
+    $("expansion").hidden = !status && $("occurrences").hidden;
     $("expansion-status").textContent = status;
   }
 
@@ -932,8 +1151,7 @@ p { margin: 6px 0 0; }
     showError("expansion-error", "");
     $("occurrences").hidden = true;
     $("expansion-note").textContent = "";
-    const now = state.clock && state.clock.time.instant;
-    if (!now) {
+    if (!state.clock) {
       showError("expansion-error", "The current time has not been read yet.");
       return;
     }
@@ -941,12 +1159,13 @@ p { margin: 6px 0 0; }
       showError("expansion-error", "This calendar holds a number the browser cannot send back exactly.");
       return;
     }
+    /* The horizon is a chosen window from the advanced clock: Time resolves its bounds from
+       TAI coordinates, without the clock's measured uncertainty. */
+    const now = advance(state.clock.time.instant, sinceRead());
     state.task = { taskId: null, calendar, timer: undefined, cancelling: false };
     renderCalendars();
     setExpansion(`Expanding ${calendar.name} over the next 7 days`);
     try {
-      /* The horizon is a chosen window: Time resolves its bounds from the clock's TAI
-         coordinates, without the clock's measured uncertainty. */
       const start = await resolveTai(now.taiSecondsSince1970, now.nanosecond);
       const end = await resolveTai(now.taiSecondsSince1970 + HORIZON_SECONDS, now.nanosecond);
       const reply = await request("tools/call", {
@@ -970,13 +1189,15 @@ p { margin: 6px 0 0; }
     renderCalendars();
   }
 
+  const TASK_STATES = { working: "working", input_required: "waiting for input", completed: "completed", failed: "failed", cancelled: "cancelled" };
+
   function showTask(task) {
     const message = task.statusMessage ? `: ${task.statusMessage}` : "";
-    setExpansion(`Task ${task.taskId} is ${String(task.status).replace("_", " ")}${message}`);
+    setExpansion(`Task ${task.taskId} is ${TASK_STATES[task.status] || String(task.status)}${message}`);
     const cancel = $("cancel-task");
-    const live = state.task && state.task.taskId === task.taskId;
-    cancel.hidden = !live || !(task.status === "working" || task.status === "input_required");
-    cancel.disabled = Boolean(live && state.task.cancelling);
+    const current = state.task && state.task.taskId === task.taskId;
+    cancel.hidden = !current || !(task.status === "working" || task.status === "input_required");
+    cancel.disabled = Boolean(current && state.task.cancelling);
   }
 
   function schedulePoll(interval) {
@@ -1037,7 +1258,6 @@ p { margin: 6px 0 0; }
 
   function showOccurrences(calendar, output) {
     const occurrences = Array.isArray(output.occurrences) ? output.occurrences : [];
-    setExpansion(`${calendar.name}: ${occurrences.length} occurrence${occurrences.length === 1 ? "" : "s"} in the next 7 days`);
     $("occurrence-rows").replaceChildren(...occurrences.map((occurrence) => {
       const row = element("tr");
       const starts = element("td", "", "mono");
@@ -1051,9 +1271,13 @@ p { margin: 6px 0 0; }
       return row;
     }));
     $("occurrences").hidden = !occurrences.length;
-    $("expansion-note").textContent = output.truncated
-      ? `Only the first ${MAXIMUM_OCCURRENCES} occurrences are shown. Starts are in ${calendar.zoneId}.`
-      : `Starts are in ${calendar.zoneId}.`;
+    setExpansion(occurrences.length
+      ? `${calendar.name}: ${occurrences.length} occurrence${occurrences.length === 1 ? "" : "s"} in the next 7 days`
+      : `${calendar.name} has no occurrences in the next 7 days.`);
+    $("expansion-note").textContent = !occurrences.length ? ""
+      : output.truncated
+        ? `Only the first ${MAXIMUM_OCCURRENCES} occurrences are shown. Starts are in ${calendar.zoneId}.`
+        : `Starts are in ${calendar.zoneId}.`;
   }
 
   /* ---------------------------------------------------------- lifecycle -- */
@@ -1064,6 +1288,7 @@ p { margin: 6px 0 0; }
     if (state.task) clearTimeout(state.task.timer);
     state.task = null;
     state.tornDown = true;
+    clearTimeout(tickTimer);
     sizes.disconnect();
     for (const call of pending.values()) clearTimeout(call.timer);
     pending.clear();
@@ -1071,13 +1296,18 @@ p { margin: 6px 0 0; }
   }
 
   async function start() {
+    /* Until the host says otherwise, follow the browser's light or dark preference. */
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) root.dataset.theme = "dark";
     state.zones = callerZones();
     useZone(state.zones[0]);
     $("mode").addEventListener("click", switchMode);
-    $("refresh").addEventListener("click", () => { refresh("clock"); refresh("zone"); });
+    $("refresh").addEventListener("click", refreshAll);
     $("resolve").addEventListener("click", resolveTyped);
     $("expression").addEventListener("keydown", (event) => {
-      if (event.key === "Enter") resolveTyped();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        resolveTyped();
+      }
     });
     $("cancel-task").addEventListener("click", cancelTask);
     let initialized;
@@ -1088,6 +1318,7 @@ p { margin: 6px 0 0; }
         appCapabilities: { availableDisplayModes: DISPLAY_MODES },
       });
     } catch (error) {
+      setLive("off");
       showError("view-error", `Time's view could not connect to its host: ${describe(error)}`);
       return;
     }
@@ -1096,10 +1327,7 @@ p { margin: 6px 0 0; }
     notify("ui/notifications/initialized", {});
     sizes.observe(document.body);
     listen();
-    refresh("clock");
-    refresh("zone");
-    refresh("events");
-    refresh("calendars");
+    refreshAll();
   }
 
   start();
