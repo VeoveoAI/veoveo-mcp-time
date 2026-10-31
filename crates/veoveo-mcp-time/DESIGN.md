@@ -29,6 +29,7 @@ port         8800
 |---|---|
 | [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
 | [JSON Schema Draft 2020-12](https://json-schema.org/draft/2020-12/) | Temporal expressions, authority bindings, calendars, epochs, windows, clock evidence, tasks, and results. |
+| [I-JSON RFC 7493](https://www.rfc-editor.org/rfc/rfc7493.html) | Every JSON integer Time admits or emits lies within -(2^53 - 1) through 2^53 - 1, which a JavaScript number holds exactly; wider quantities are a `NanosecondBound` or a `TimeSpan` (see [JSON Numbers](#json-numbers)). |
 | [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
@@ -68,15 +69,16 @@ The canonical instant is `TimeInstant`:
 ```text
 tai_seconds_since_1970
 nanosecond
-uncertainty_nanoseconds
+uncertainty               bounded nanoseconds, or unbounded
 authority.tzdb_release_id
 authority.leap_seconds_release_id
 ```
 
 Integral TAI seconds make ordering and interval arithmetic independent of civil
-clock changes. Nanoseconds retain subsecond coordinates. The uncertainty field is
-carried forward as evidence rather than folded into the timestamp. Authority ids
-bind every instant to one TZDB release and one leap-second release.
+clock changes. Nanoseconds retain subsecond coordinates. The uncertainty is carried
+forward as evidence rather than folded into the timestamp; it is unbounded when its
+source states no finite bound, as an unmeasured clock does. Authority ids bind every
+instant to one TZDB release and one leap-second release.
 
 `TimeWindow` is a nonempty half-open interval `[start, end)`. Its constructor and
 JSON decoder require increasing nominal coordinates and one authority pair for both
@@ -84,6 +86,30 @@ bounds. Read-only accessors preserve those relationships after construction. Thi
 convention makes adjacent shifts,
 reservations, and routing windows compose without double-counting their shared
 boundary.
+
+## JSON Numbers
+
+Every integer Time admits or emits in JSON lies in the I-JSON (RFC 7493) exact range,
+-(2^53 - 1) through 2^53 - 1, which a JavaScript number holds exactly, so an App or any
+other JSON client reads Time's values and sends them back unchanged. Quantities that
+need more range are split or carry an explicit state:
+
+| Value | Representation |
+|---|---|
+| an instant's uncertainty, a resolution's additional uncertainty, a clock's error bound | `NanosecondBound`: `{"kind":"bounded","nanoseconds":n}` with `n` in `0..=2^53 - 1`, or `{"kind":"unbounded"}` when no finite bound is stated |
+| an epoch-relative offset, a timeline's minimum and maximum separation | `TimeSpan`: `{"seconds":s,"nanosecond":n}` with `s` in the range and `n` in `0..=999999999`, split by Euclidean division as instants are; a separation is not negative |
+| an instant's TAI seconds, Unix and TAI expression seconds, a projection's Unix seconds | an integer in the range, about 285 million years either side of 1970 |
+| `TimeVersion`, `TimeWriteGuard` | `1..=2^53 - 1` and `0..=2^53 - 1` |
+| a clock policy's maximum error in nanoseconds and maximum holdover in seconds | `1..=2^53 - 1` |
+| a clock's estimated offset in nanoseconds and holdover age in seconds | an integer in the range |
+
+Every other integer is 32 bits or narrower. GPS seconds of week, Julian days and scale
+seconds are IEEE doubles, which JSON parsers already read as such. Decoding refuses an
+integer outside its range, the schemas declare each range, and the engine refuses to
+produce an instant, projection or span outside it. Adding bounded uncertainties beyond
+`2^53 - 1` nanoseconds, about 104 days, fails; adding an unbounded one gives an
+unbounded uncertainty. `NanosecondBound` orders every bounded value below unbounded, so
+window algebra keeps the larger of two uncertainties as before.
 
 ## Portable Value Admission
 
@@ -132,7 +158,7 @@ shared task and identity contracts; only the contract feature promises dependenc
 isolation from those components.
 
 All source, release, acquisition and event metadata carry `TimeVersion`, as do
-immutable calendar and epoch versions. The type admits `1..=i64::MAX`, preserves the
+immutable calendar and epoch versions. The type admits `1..=2^53 - 1`, preserves the
 numeric JSON representation and checks advancement for exhaustion. Source creation
 uses `NewTimeSource` with the zero-only `SourceCreationVersion`; it cannot substitute
 for persisted `TimeSource` metadata. `CreateSourceRequest` keeps its existing nested
@@ -141,10 +167,12 @@ guards and metadata keep their types through catalog calls and event settlement.
 
 `SubsecondNanoseconds` admits `0..=999999999` in instants, Unix/TAI expressions,
 event cursors and persistence drafts. It serializes as the existing numeric field;
-omitted expression fractions default to zero. Uncertainty and offsets describe
-durations and keep their separate integer ranges. `TimeInstant::from_total_nanoseconds`
-splits negative coordinates with Euclidean division and rejects a seconds value outside
-`i64`. Epoch-relative resolution uses that constructor. Fractional numeric conversion
+omitted expression fractions default to zero. Uncertainty is a `NanosecondBound`, and
+offsets and separations are `TimeSpan`s, each with its own range (see
+[JSON Numbers](#json-numbers)). `TimeInstant::from_total_nanoseconds` and
+`TimeSpan::from_total_nanoseconds` split negative coordinates with Euclidean division
+and reject a seconds value outside the JSON range. Epoch-relative resolution uses those
+constructors. Fractional numeric conversion
 checks the floating-point upper endpoint and rounding carry before adding its epoch.
 Protocol-library calls and database driver records receive raw integers at their adapters.
 Leap-table NTP conversion checks epoch subtraction. TAI-to-UTC conversion selects the
@@ -202,7 +230,7 @@ parameters, fragments, encoded ID aliases, relative paths and incorrect ID famil
 are refused before dispatch. `TimeAuthorityReleaseUri` restricts provenance fields
 to acquired or packaged authority references, and its builder checks source agreement.
 
-`TimeVersion` validates the positive signed database range. `TimeZoneId` validates a
+`TimeVersion` validates the positive JSON integer range. `TimeZoneId` validates a
 relative TZDB key with nonempty ASCII name components and a maximum of 1024 bytes;
 the active authority determines whether that zone exists. It preserves slash-separated
 names and literal plus signs in the public resource path.
@@ -386,7 +414,7 @@ can support diagnosis when the current engine cannot load.
 | `gps` | GPS week and seconds of week |
 | `julian_tai` | Julian day in the TAI scale |
 | `militaryDtg` | `DDHHMMZMONYY` or `DDHHMMSSZMONYY` with a NATO zone letter |
-| `epoch_relative` | epoch id and signed nanosecond offset |
+| `epoch_relative` | epoch id and signed `TimeSpan` offset |
 
 Civil folds and gaps default to `reject`. Callers select `earlier` or `later` when
 the operation has an explicit policy. Military zone `J` requires an IANA zone and
@@ -435,7 +463,8 @@ epoch set belongs to that calculation, so concurrent requests cannot replace it.
 Engine maps keep `EpochId` keys. Relative resolution requires the epoch's
 authority pair to match the active engine and preserves its uncertainty while adding
 the requested offset. Additional resolution uncertainty uses checked addition; a sum
-outside the unsigned 64-bit nanosecond range fails. Activation may therefore require
+of bounded uncertainties beyond `2^53 - 1` nanoseconds fails, and an unbounded one
+keeps the result unbounded. Activation may therefore require
 publishing a new epoch version under the selected authority before relative calculations
 can resume. Exact reads keep the stored epoch's original binding.
 An exact epoch resource read selects the latest version of its tenant and epoch key
@@ -444,7 +473,8 @@ and zone completions use the authority cache without loading the epoch catalog.
 
 `validate_timeline` resolves named points and evaluates directed constraints. Each
 constraint identifies a predecessor, successor, minimum separation, and optional
-maximum separation. The result reports every violated constraint by input index.
+maximum separation, each a non-negative `TimeSpan`; the minimum defaults to zero. The
+result reports every violated constraint by input index.
 
 Timeline evaluation accepts up to 100,000 points and 1,000,000 constraints in one
 task. Point names must be unique, referenced points must exist, and a maximum cannot
@@ -472,7 +502,7 @@ The implemented adapter reads one bounded JSON observation from an ntpd-rs Unix
 socket. It projects:
 
 - synchronized state and stratum;
-- estimated offset and conservative error bound in nanoseconds;
+- estimated offset in nanoseconds and conservative error bound, a `NanosecondBound`;
 - independent source count;
 - holdover age when the adapter supplies it;
 - NTP/NTS traceability labels and observation time.
@@ -480,11 +510,15 @@ socket. It projects:
 `assess_clock` compares the observation with an explicit request policy or the
 tenant's stored default. Policy controls maximum error, maximum stratum, minimum
 source diversity, and maximum holdover age. An installation without an observation
-socket reports an unmeasured system clock with an unbounded error estimate.
+socket reports an unmeasured system clock: not synchronized, stratum 16, estimated
+offset zero and an unbounded error bound, which exceeds every policy. The adapter
+reports a computed error bound beyond `2^53 - 1` nanoseconds, or one that is not
+finite, as unbounded, and refuses an observation whose offset is not finite or lies
+outside the JSON range, so the clock reads as unavailable rather than misstated.
 
 `ClockQualityPolicy` exposes a named builder and read-only accessors. JSON decoding
 uses the same validation. Maximum error in nanoseconds and maximum holdover in
-seconds must lie in `1..=i64::MAX`; maximum stratum is `1..=15`, and minimum source
+seconds must lie in `1..=2^53 - 1`; maximum stratum is `1..=15`, and minimum source
 diversity is `1..=u32::MAX`. The published schema declares those bounds. Assessment
 requests and persisted policies share this contract.
 
@@ -722,9 +756,12 @@ display modes  inline, fullscreen
 document       assets/now.html
 ```
 
-`resources/list` advertises `ui://time/now` beside Time's other resources, with its
-title, a description and a clock icon as a `data:` URI. `time.authorities.read` admits
-its listing and its read, as it admits every Time resource, and the read returns the
+Time declares the App in its typed `Routes` with the SDK's `RoutesBuilder::app` and its
+links with `RoutesBuilder::app_tools`, so discovery, reads, registration requirements and
+the capability derive from the same table as every other route. `resources/list`
+advertises `ui://time/now` beside Time's other resources, with its title, a description
+and a clock icon as a `data:` URI of an SVG image. `time.authorities.read` admits its
+listing and its read, as it admits every Time resource, and the read returns the
 document as text under the App MIME type. `initialize` declares the
 `io.modelcontextprotocol/ui` extension with that MIME type.
 
@@ -769,15 +806,16 @@ can call it. The view calls them by these names:
 Wall-clock times come from `convert_time` and resource reads, and durations, such as how
 long until an event or how long an occurrence lasts, are differences of TAI
 coordinates, which are elapsed time. The view therefore interprets no zone rule or leap
-second itself. It sends back only instants whose numbers JSON parsing kept exact. An
-unmeasured clock's `uncertaintyNanoseconds` is 2^64 - 1, which a JavaScript number cannot
-carry, so the expansion horizon's bounds are `resolve_time` results for the TAI
-coordinates of the clock's last read and seven days later, never the clock's instant.
+second itself. Time's numbers stay within the JSON range, so the view sends instants
+back as it read them. The expansion horizon is a window the person chooses rather than a
+measurement, so its bounds are `resolve_time` results for the TAI coordinates of the
+clock's last read and seven days later, which carry no uncertainty, rather than the
+clock's instant with its measured uncertainty.
 
 The view opens one `subscriptions/listen` for `time://events`, `time://clock/current`
 and `time://calendars` and treats each `ui/notifications/resource-updated` as a wake to
-read that resource again. It uses no timer in place of an update; the clock panel shows the instant of its
-last read and rereads it when the person asks. It reports its size with
+read that resource again. It uses no timer in place of an update; the clock panel shows
+the instant of its last read and rereads it when the person asks. It reports its size with
 `ui/notifications/size-changed` whenever its layout changes. It answers
 `ui/resource-teardown` after ending its subscription and its Task polling; a Task it
 started keeps running and stays the person's. A failed read or call, including an
@@ -945,7 +983,7 @@ clock sets `created_at`, `updated_at` and `activated_at`.
 
 ### Version Guards
 
-`TimeVersion` admits positive integers through `i64::MAX`. Source replacement,
+`TimeVersion` admits positive integers through `2^53 - 1`. Source replacement,
 event transitions and release activation require it. Clock-policy replacement and
 active-pointer admission use `TimeWriteGuard::Absent` or `Existing(TimeVersion)`;
 serialization keeps the established numeric zero/positive representation. Source
@@ -1272,8 +1310,9 @@ Retained-metadata cases corrupt bodies through fixture statements, verify
 read/collection rejection, check that the schema refuses corrupt columns, preserve
 lifecycle columns, and reject acquisition identity changes before writing. Isolated authority tests use separate connections to
 qualify retirement, competing pointer updates and exhaustion rollback followed by retry.
-Numeric contract cases compare schema bounds with JSON admission, and compile-fail
-examples reject unchecked construction. Native scalar cases reject negative, zero,
+Numeric contract cases compare schema bounds with JSON admission at the JSON range's
+endpoints, `NanosecondBound` and `TimeSpan` decode their states and refuse values
+outside their ranges, and compile-fail examples reject unchecked construction. Native scalar cases reject negative, zero,
 truncated and exhausted values without changing rows; competing clock replacements
 admit one writer. Window contract cases check JSON admission, read-only bounds and
 signed-coordinate extremes. Native interval cases compare all three operations with
