@@ -825,10 +825,23 @@ The view sends MCP's `subscriptions/listen` with
 which the host forwards to Time. Time's `notifications/subscriptions/acknowledged` marks
 the resources it accepted as live, and each `notifications/resources/updated` `{uri}` is a
 wake to read that resource again; the events wake also rereads the clock, so times until
-events start from a fresh instant. A host that refuses the listen, such as with -32601,
-leaves the view working without wakes: the header says updates are off and Refresh reads
-current state. The view reads again only on a wake and when the person presses Refresh,
-never on a timer, and ends the listen with `notifications/cancelled` naming its request.
+events start from a fresh instant. The host relays these messages unchanged under the
+view's own request id.
+
+A listen can end: the host ends it when its bearer expires, when the session ends, when
+the catalog or the person's selection changes, or when its stream breaks, and then answers
+the listen's request id with a final response or error. Unless the view ended the listen
+itself, by cancelling it or at teardown, the view listens again with a fresh request id
+after a backoff that starts at one second, doubles up to thirty seconds and returns to one
+second after each acknowledgement. Updates during the gap are not replayed, so after every
+acknowledgement the view reads each resource it listens to again. The header says Live
+only while a listen is acknowledged (Partly live when Time accepted some of the
+resources), Connecting before the first acknowledgement and Reconnecting… between a
+listen's end and the next acknowledgement. A host that answers -32601 does not forward
+listens: the view says live updates are off, does not retry, and Refresh reads current
+state. The view reads again only on a wake, after an acknowledgement and when the person
+presses Refresh, never on a timer of its own; the backoff schedules a listen, not a read.
+It ends its listen with `notifications/cancelled` naming its request.
 
 The clock ticks between reads. Each read of `time://clock/current` anchors its served
 instant at the midpoint of the read's request and response on the browser's monotonic
@@ -1318,7 +1331,8 @@ type, find the App link to that exact URI with `app` visibility on `resolve_time
 for its three resources. Engine cases place `utcOffsetHoldsUntil` at the start of a listed
 leap second, at the served instant inside one and nowhere when none is listed, and a
 zone's `offsetHoldsUntil` at its next offset change. The document's own cases find the
-MCP wake and acknowledgement, the monotonic clock and no wall clock or interval timer.
+MCP wake and acknowledgement, the bounded relisten that stops on -32601 and rereads after
+each acknowledgement, the monotonic clock and no wall clock or interval timer.
 The view's behavior inside a host, its bridge traffic, Tasks and wakes, is qualified
 through the Hub's App host.
 
