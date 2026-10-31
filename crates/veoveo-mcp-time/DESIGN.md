@@ -32,6 +32,7 @@ port         8800
 | [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
 | [URI Template RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) | Discovery declares simple ID variables and reserved expansion for slash-separated zone keys. Collection pages continue through a `cursor` query parameter on the collection root. The server parses concrete addresses through its typed resource contract. |
 | MCP Tasks extension `io.modelcontextprotocol/tasks` | Version `2026-07-28`; schedule expansion and timeline validation use durable, resumable task operations. |
+| MCP Apps SEP-1865 `ext-apps` | Version `2026-01-26` under the SDK's [MCP Apps contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/17cb319bad2ae5e919d25384360303fdcb9a9957/crates/veoveo-hub-sdk/src/apps/DESIGN.md): one self-contained view, `ui://time/now`, with its linked tools, host context, `inline` and `fullscreen` display modes, and the Veoveo reactive resource adapter for its wakes. |
 | [Veoveo server registration](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/src/registration/DESIGN.md) | Time initially registers through RFC 7591 and resumes native saved RFC 7592 credentials across process restarts; explicit retirement deletes registration. It discovers the registration endpoint from RFC 8414 metadata and advertises `ai.veoveo/registration` and `ai.veoveo/authorization` in MCP Discover. |
 | [JWT access tokens RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | The Hub forwards each admitted request with an EdDSA-signed access token whose RFC 9396 `authorization_details` carry the caller's granted Time permissions. Time verifies the token against the issuer and keys its registration returned. When a token names a key Time does not hold, Time reads the issuer's RFC 8414 metadata and fetches its `jwks_uri` with the registration's HTTP client, at most once per refresh interval. |
 | [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339.html) | UTC and numeric-offset timestamp input and canonical UTC output, including explicit leap-second handling. |
@@ -630,8 +631,9 @@ creation rejects a document larger than 64 KiB before writing it.
 | `time://events` | a page of owner-scoped events |
 | `time://authorities/releases` | a page of tenant-acquired authority releases |
 | `time://authorities/bootstrap` | a page of packaged authority releases |
+| `ui://time/now` | Time's App, a self-contained HTML view (see [Apps](#apps)) |
 
-`resources/list` advertises the stable roots, collection roots and documents. Domain
+`resources/list` advertises the stable roots, collection roots, documents and the App. Domain
 records are reached through the collection pages and exact URI templates. Changes to
 domain records invalidate resource contents; the discovery inventory is static and does
 not advertise resource-list change notifications.
@@ -707,6 +709,80 @@ disconnected.
 | `resolve_operational_time` | guide authority-aware normalization |
 | `expand_operational_calendar` | prepare a bounded Task API expansion |
 | `validate_mission_timeline` | prepare named points and separation constraints |
+
+### Apps
+
+Time ships one App under the SDK's MCP Apps contract:
+
+```text
+URI            ui://time/now
+MIME           text/html;profile=mcp-app
+title          Time
+display modes  inline, fullscreen
+document       assets/now.html
+```
+
+`resources/list` advertises `ui://time/now` beside Time's other resources, with its
+title, a description and a clock icon as a `data:` URI. `time.authorities.read` admits
+its listing and its read, as it admits every Time resource, and the read returns the
+document as text under the App MIME type. `initialize` declares the
+`io.modelcontextprotocol/ui` extension with that MIME type.
+
+The document is one HTML file with inline style and script: no external network, no
+framework and no build step. Its own Content Security Policy is `default-src 'none'`
+with only inline script and style. A frame sandboxed with `allow-scripts` alone submits
+no form, so the view acts on buttons and the Enter key. The runtime image carries it at
+`/usr/share/veoveo/time/now.html`, the default of `--app-html` (`VEOVEO_APP_HTML`), and
+`openshell/run` names the checkout's copy. Time reads the file once at startup through
+the SDK's `AppHtml`, which refuses a missing, empty, non-UTF-8 or larger than 2 MiB
+file, so a bad asset stops startup rather than serving a broken App.
+
+The view performs `ui/initialize` declaring `availableDisplayModes` `inline` and
+`fullscreen`, applies the host context's theme, style variables and display mode, and
+then sends `ui/notifications/initialized`. Inline it is a compact card: the current
+time in the caller's zone, its UTC and military DTG forms, the next scheduled event and
+the resolver. Fullscreen it is a page that adds every projection of the current
+instant, the clock quality against the effective policy, the caller's events and the
+tenant's calendars. The card asks for `fullscreen` with `ui/request-display-mode` when
+the host offers that mode, and the page asks for `inline` when the host offers it.
+
+After initialize the view reads Time's own resources and renders from them, without
+waiting for a tool result:
+
+| Resource | Use in the view |
+|---|---|
+| `time://clock/current` | the current instant with its projections, clock quality and effective policy, and the TZDB release a civil expression names |
+| `time://zones/{+zone_id}` | the current time in the caller's zone: the first of the host context's `timeZone`, the browser's zone and `UTC` that the active TZDB knows; conversions and civil expressions use that zone |
+| `time://events` | the caller's events: the scheduled ones in due order, and how many are due or cancelled |
+| `time://calendars` | the tenant's calendars, each one the view can expand |
+
+Three tools carry `_meta.ui` `{resourceUri: "ui://time/now", visibility: ["model", "app"]}`;
+every other tool, including the administration tools, carries no App link, so no App
+can call it. The view calls them by these names:
+
+| Tool | Use in the view |
+|---|---|
+| `resolve_time` | resolves the expression the person types, read as a military DTG, RFC 9557, RFC 3339, Unix seconds or a civil time in the caller's zone, or in the format the person chooses |
+| `convert_time` | projects a resolved instant into the caller's zone and into TAI, TT and GPS time, and an event's due instant or an occurrence's start into the caller's or the calendar's zone |
+| `expand_schedule` | expands a calendar over the seven days after the clock's last read as an MCP Task, which the view polls with `tasks/get` at the Task's poll interval and can cancel with `tasks/cancel` |
+
+Wall-clock times come from `convert_time` and resource reads, and durations, such as how
+long until an event or how long an occurrence lasts, are differences of TAI
+coordinates, which are elapsed time. The view therefore interprets no zone rule or leap
+second itself. It sends back only instants whose numbers JSON parsing kept exact. An
+unmeasured clock's `uncertaintyNanoseconds` is 2^64 - 1, which a JavaScript number cannot
+carry, so the expansion horizon's bounds are `resolve_time` results for the TAI
+coordinates of the clock's last read and seven days later, never the clock's instant.
+
+The view opens one `subscriptions/listen` for `time://events`, `time://clock/current`
+and `time://calendars` and treats each `ui/notifications/resource-updated` as a wake to
+read that resource again. It uses no timer in place of an update; the clock panel shows the instant of its
+last read and rereads it when the person asks. It reports its size with
+`ui/notifications/size-changed` whenever its layout changes. It answers
+`ui/resource-teardown` after ending its subscription and its Task polling; a Task it
+started keeps running and stays the person's. A failed read or call, including an
+authorization refusal, appears in the panel that made it, and the rest of the view keeps
+working.
 
 ## Events
 
@@ -1058,9 +1134,11 @@ installations use the bootstrap TZif and leap-second files of the environment's
 `tzdata` and can stage content through an approved internal HTTPS endpoint.
 
 The root `Dockerfile` builds the release image: a `runtime` stage with CA roots,
-`tzdata` with `zic` and the binary, running as UID 10001 with a read-only root
+`tzdata` with `zic`, the binary and the App document at
+`/usr/share/veoveo/time/now.html`, running as UID 10001 with a read-only root
 filesystem and state under `/var/lib/veoveo/time`, the paths Time uses when
-`openshell/run` does not set them.
+`openshell/run` does not set them. `openshell/run` passes the App document of the
+checkout it builds, so a push changes the App with the binary.
 
 The optional ntpd-rs observation socket is supplied with
 `--ntpd-observation-socket` or `VEOVEO_NTPD_OBSERVATION_SOCKET`. A node deployment mounts that Unix socket and grants the
@@ -1115,6 +1193,8 @@ Examples of agent requests include:
 | `src/mcp/requirements.rs` | route-derived authorization and operational admission |
 | `src/mcp/declarations.rs` | registration identity |
 | `src/prompts.rs` | reusable temporal interaction prompts |
+| `src/mcp/app.rs` | the App resource, its packaged document and the tools linked to it |
+| `assets/now.html` | the App's self-contained view and its bridge client |
 | `src/server/tasks.rs` | final Task API adapter, the claim-stream consumer and settlement |
 | `src/server/` | configuration, HTTP assembly and startup |
 | `src/server/registration.rs` | key loading, Hub discovery and registration |
@@ -1156,6 +1236,15 @@ completes it with the output the engine expands directly from the same request, 
 its consumer keeps running. A second recovery control stops the first replica's process
 and lets another replica complete the Task after recovery. These controls do not
 qualify installed cancellation or the restart of an installed process.
+
+App cases read the packaged document through `AppHtml` within the 2 MiB bound and
+check its own Content Security Policy and that it names no network origin. Through
+the hosted router they find `ui://time/now` in `resources/list` under the App MIME
+type with its title, description and icon, read the same document back under that MIME
+type, find the App link to that exact URI with `app` visibility on `resolve_time`,
+`convert_time` and `expand_schedule` and on no other tool, and find the
+`io.modelcontextprotocol/ui` extension in `initialize`. The view's behavior inside a host,
+its bridge traffic, Tasks and wakes, is qualified through the Hub's App host.
 
 Local controls qualify fixture and receipt handling, clock classification, touching
 and one-nanosecond interval assertions, and incomplete HTTP response tracing. Installed execution,
