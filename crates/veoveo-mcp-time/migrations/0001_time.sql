@@ -52,7 +52,6 @@ CREATE TABLE time.authority_release (
     updated_at timestamptz NOT NULL,
     tenant_key text NOT NULL,
     owner_key text NOT NULL,
-    work_context text NOT NULL,
     PRIMARY KEY (tenant, release_key),
     UNIQUE (tenant, dataset_kind, release_key),
     UNIQUE (tenant, source_key, source_digest),
@@ -137,7 +136,6 @@ CREATE TABLE time.calendar_version (
     updated_at timestamptz NOT NULL,
     tenant_key text NOT NULL,
     owner_key text NOT NULL,
-    work_context text NOT NULL,
     PRIMARY KEY (tenant, calendar_key, calendar_version)
 );
 
@@ -161,7 +159,6 @@ CREATE TABLE time.epoch (
     updated_at timestamptz NOT NULL,
     tenant_key text NOT NULL,
     owner_key text NOT NULL,
-    work_context text NOT NULL,
     PRIMARY KEY (tenant, epoch_key, epoch_version)
 );
 
@@ -189,7 +186,6 @@ CREATE TABLE time.event (
     updated_at timestamptz NOT NULL,
     tenant_key text NOT NULL,
     owner_key text NOT NULL,
-    work_context text NOT NULL,
     PRIMARY KEY (tenant, event_key),
     UNIQUE (tenant, owner, idempotency_key)
 );

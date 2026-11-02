@@ -74,20 +74,20 @@ impl TimePrompt {
                 .map_err(|error| McpError::invalid_params(error.to_string(), None))?;
         let text = match self {
             Self::ResolveOperationalTime => format!(
-                "Read time://authorities/current and time://clock/quality. Resolve `{}` with resolve_time{}. Preserve the authority binding and uncertainty in downstream calls.",
+                "Resolve the time `{}`{} as the skill skill://time/resolve-a-time/SKILL.md says.",
                 required_value(arguments.expression, "expression")?,
                 arguments
                     .zone_id
                     .map_or_else(String::new, |zone| format!(" in IANA zone `{zone}`"))
             ),
             Self::ExpandOperationalCalendar => format!(
-                "Read time://calendars/{}/versions/{}. Call expand_schedule as an MCP Task for horizon {}. Treat every interval as half-open [start,end).",
+                "Expand version {1} of the calendar `{0}` over the horizon {2} as the skill skill://time/expand-a-calendar/SKILL.md says.",
                 required_value(arguments.calendar_id, "calendar_id")?,
                 required_value(arguments.version, "version")?,
                 required_value(arguments.horizon, "horizon")?
             ),
             Self::ValidateMissionTimeline => format!(
-                "Resolve each point in `{}` to a TimeInstant, then call validate_timeline as an MCP Task. Report every violated constraint.",
+                "Validate the timeline `{}` as the skill skill://time/validate-a-timeline/SKILL.md says.",
                 required_value(arguments.timeline, "timeline")?
             ),
         };

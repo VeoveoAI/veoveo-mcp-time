@@ -16,7 +16,6 @@ SELECT
     created_at,
     updated_at,
     tenant_key,
-    owner_key,
-    work_context
+    owner_key
 FROM time.authority_release
 WHERE tenant = $1 AND release_key = $2

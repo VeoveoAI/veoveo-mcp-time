@@ -19,8 +19,7 @@ SELECT
     r.created_at,
     r.updated_at,
     r.tenant_key,
-    r.owner_key,
-    r.work_context
+    r.owner_key
 FROM time.active_authority AS p
 JOIN time.authority_release AS r
     ON r.tenant = p.tenant

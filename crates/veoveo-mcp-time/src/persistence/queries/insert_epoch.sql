@@ -1,8 +1,8 @@
 INSERT INTO time.epoch (
     tenant, epoch_key, epoch_version, owner, name, tai_seconds_since_1970, nanosecond, body,
-    created_at, updated_at, tenant_key, owner_key, work_context
+    created_at, updated_at, tenant_key, owner_key
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now(), $9, $10, $11)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now(), $9, $10)
 ON CONFLICT (tenant, epoch_key, epoch_version) DO NOTHING
 RETURNING
     tenant AS "tenant: TenantId",
@@ -16,5 +16,4 @@ RETURNING
     created_at,
     updated_at,
     tenant_key,
-    owner_key,
-    work_context
+    owner_key

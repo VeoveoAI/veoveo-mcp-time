@@ -37,7 +37,6 @@ fn event_selection(
 
 async fn scope(store: &PlatformStore, tenant: &str, owner: &str) -> TimeAccessContext {
     TimeAccessContext {
-        work_context: "fixture-context".parse().unwrap(),
         identity: store
             .ensure_identity(
                 tenant,
@@ -614,7 +613,6 @@ async fn sql_filters_owner_tenant_latest_version_and_completion_before_limit() {
         // An unrelated malformed payload must never reach a request's epoch decoder.
         TimePersistence::new(db.a.pool().clone())
             .create_time_epoch(TimeEpochDraft {
-                work_context: owner.work_context.clone(),
                 identity: owner.identity.clone(),
                 epoch_key: EpochId::parse("epoch-00000000-0000-7000-8000-000000000010").unwrap(),
                 name: "unrelated".into(),

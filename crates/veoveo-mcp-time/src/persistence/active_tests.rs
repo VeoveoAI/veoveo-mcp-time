@@ -13,7 +13,6 @@ type Corruption<'a, Record> = (&'a str, Box<dyn Fn(&mut Record) + 'a>);
 
 async fn scope(store: &PlatformStore, tenant: &str) -> TimeAccessContext {
     TimeAccessContext {
-        work_context: "fixture-context".parse().unwrap(),
         identity: store
             .ensure_identity(
                 tenant,

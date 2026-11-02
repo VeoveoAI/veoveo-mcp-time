@@ -14,7 +14,6 @@ pub(crate) struct TimeSourceDraft {
 
 #[derive(Clone, Debug)]
 pub(crate) struct TimeAuthorityReleaseDraft {
-    pub(crate) work_context: veoveo_types::WorkContextId,
     pub(crate) identity: PlatformIdentity,
     pub(crate) release_key: AuthorityReleaseId,
     pub(crate) source_key: TimeSourceId,
@@ -55,7 +54,6 @@ pub(crate) struct TimeAcquisitionUpdate {
 
 #[derive(Clone, Debug)]
 pub(crate) struct TimeCalendarVersionDraft {
-    pub(crate) work_context: veoveo_types::WorkContextId,
     pub(crate) identity: PlatformIdentity,
     pub(crate) calendar_key: CalendarId,
     pub(crate) calendar_version: TimeVersion,
@@ -67,7 +65,6 @@ pub(crate) struct TimeCalendarVersionDraft {
 
 #[derive(Clone, Debug)]
 pub(crate) struct TimeEpochDraft {
-    pub(crate) work_context: veoveo_types::WorkContextId,
     pub(crate) identity: PlatformIdentity,
     pub(crate) epoch_key: EpochId,
     pub(crate) name: String,
@@ -79,7 +76,6 @@ pub(crate) struct TimeEpochDraft {
 
 #[derive(Clone, Debug)]
 pub(crate) struct TimeEventDraft {
-    pub(crate) work_context: veoveo_types::WorkContextId,
     pub(crate) identity: PlatformIdentity,
     pub(crate) event_key: EventId,
     pub(crate) name: String,

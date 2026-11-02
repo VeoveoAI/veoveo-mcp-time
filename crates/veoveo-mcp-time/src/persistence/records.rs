@@ -100,7 +100,6 @@ pub(crate) struct TimeAuthorityReleaseRecord {
     pub(crate) updated_at: DateTime<Utc>,
     pub(crate) tenant_key: String,
     pub(crate) owner_key: String,
-    pub(crate) work_context: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -145,7 +144,6 @@ pub(crate) struct TimeCalendarVersionRecord {
     pub(crate) updated_at: DateTime<Utc>,
     pub(crate) tenant_key: String,
     pub(crate) owner_key: String,
-    pub(crate) work_context: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -162,7 +160,6 @@ pub(crate) struct TimeEpochRecord {
     pub(crate) updated_at: DateTime<Utc>,
     pub(crate) tenant_key: String,
     pub(crate) owner_key: String,
-    pub(crate) work_context: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -182,7 +179,6 @@ pub(crate) struct TimeEventRecord {
     pub(crate) updated_at: DateTime<Utc>,
     pub(crate) tenant_key: String,
     pub(crate) owner_key: String,
-    pub(crate) work_context: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -13,7 +13,6 @@ SELECT
     created_at,
     updated_at,
     tenant_key,
-    owner_key,
-    work_context
+    owner_key
 FROM time.event
 WHERE tenant = $1 AND event_key = $2 AND owner = $3

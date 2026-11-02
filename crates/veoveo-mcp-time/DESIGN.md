@@ -27,7 +27,8 @@ port         8800
 
 | Standard or protocol | Implemented profile |
 |---|---|
-| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, and typed structured content. |
+| [Model Context Protocol](https://modelcontextprotocol.io/specification/) | Version `2026-07-28`, JSON-RPC 2.0 over Streamable HTTP, under the [hosted MCP contract](https://github.com/VeoveoAI/veoveo-hub-sdk/blob/a1d9d653ae3d723821cdeeab92f4a67acdca39ce/crates/veoveo-hub-sdk/DESIGN.md) `https://veoveo.ai/contracts/hosted-mcp`. The server exposes tools, resources and templates, prompts, completions, subscriptions, notifications, typed structured content and skills. |
+| [MCP Skills extension](https://github.com/modelcontextprotocol/ext-skills) `io.modelcontextprotocol/skills`, SEP-2640, and the [Agent Skills](https://agentskills.io/specification) format | The skills under `skills/`, embedded at build time and served at `skill://time/{name}/{path}` through the SDK; see [Skills](#skills) |
 | [JSON Schema Draft 2020-12](https://json-schema.org/draft/2020-12/) | Temporal expressions, authority bindings, calendars, epochs, windows, clock evidence, tasks, and results. |
 | [I-JSON RFC 7493](https://www.rfc-editor.org/rfc/rfc7493.html) | Every JSON integer Time admits or emits lies within -(2^53 - 1) through 2^53 - 1, which a JavaScript number holds exactly; wider quantities are a `NanosecondBound` or a `TimeSpan` (see [JSON Numbers](#json-numbers)). |
 | [Veoveo concrete resource components](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/platform/types/DESIGN.md#concrete-resource-components) | All resource addresses use the shared URL 2.5.8 and percent-encoding 2.3.2 profile with Time's route, ID, and cursor validation. |
@@ -747,13 +748,31 @@ returns after a loss, the watcher asks every listener to reread each resource it
 watches, because PostgreSQL does not replay notifications sent while it was
 disconnected.
 
+### Skills
+
+How an agent uses Time is in its skills, which a host loads when a task needs one. The
+server's `instructions` say what it is and name each skill's address, and the skill text
+names the tools as callers see them through the Hub, `time__{tool}`:
+
+| Skill | Guidance |
+|---|---|
+| `resolve-a-time` | read the active releases, resolve each accepted expression, a civil time's gaps and overlaps, convert, pass the `TimeInstant` on unchanged, windows, clock checks and events |
+| `expand-a-calendar` | read a calendar version, resolve the horizon, `expand_schedule` as a Task, half-open windows, and publishing a version |
+| `validate-a-timeline` | points and constraints for `validate_timeline` as a Task, and reporting violations |
+| `update-time-authorities` | sources, acquisitions, activating a staged release with its versions, and the clock policy |
+
+Each skill file is a resource of the server under its document policy,
+`time.authorities.read`.
+
 ### Prompts
 
-| Prompt | Purpose |
-|---|---|
-| `resolve_operational_time` | guide authority-aware normalization |
-| `expand_operational_calendar` | prepare a bounded Task API expansion |
-| `validate_mission_timeline` | prepare named points and separation constraints |
+Each prompt states its task and names the skill that says how:
+
+| Prompt | Task | Skill |
+|---|---|---|
+| `resolve_operational_time` | resolve one expression, in a zone when given | `resolve-a-time` |
+| `expand_operational_calendar` | expand a calendar version over a horizon | `expand-a-calendar` |
+| `validate_mission_timeline` | validate a timeline's points and constraints | `validate-a-timeline` |
 
 ### Apps
 
@@ -1015,9 +1034,9 @@ Vocabularies are `text` with a `CHECK` listing their spellings, and counters are
 `bigint` with a `CHECK` for their range. Each row's `body` is a `jsonb` object holding
 the public document. Unique constraints admit one acquisition and one event per tenant,
 owner and idempotency key, and one release per source and digest. Records that keep
-their creator's provenance store the tenant key, owner key and Work Context beside
-their owner. Every table carries the `kernel.notify_change` row trigger and a comment
-stating its retention: every row stays for the life of its tenant, and Time deletes none.
+their creator's provenance store the tenant key and owner key beside their owner.
+Every table carries the `kernel.notify_change` row trigger and a comment stating its
+retention: every row stays for the life of its tenant, and Time deletes none.
 
 Time records every timestamp at microsecond precision, the precision of `timestamptz`,
 so a JSON body and its columns name the same instant on every platform clock.
@@ -1278,7 +1297,8 @@ Examples of agent requests include:
 | `src/mcp/administration.rs` | tenant administration tools |
 | `src/mcp/requirements.rs` | route-derived authorization and operational admission |
 | `src/mcp/declarations.rs` | registration identity |
-| `src/prompts.rs` | reusable temporal interaction prompts |
+| `src/prompts.rs` | reusable temporal interaction prompts, each naming its skill |
+| `skills/` | the skills, embedded by `build.rs` and served at `skill://time/` |
 | `src/mcp/app.rs` | the App resource, its packaged document and the tools linked to it |
 | `assets/now.html` | the App's self-contained view and its bridge client |
 | `src/server/tasks.rs` | final Task API adapter, the claim-stream consumer and settlement |
@@ -1290,7 +1310,8 @@ Examples of agent requests include:
 ## Verification
 
 A unit test walks every tool's input and output schema and fails on a description
-that holds a code block. Schemars copies a type's doc comment into its description, so
+that holds a code block. Another checks that the embedded skills load and that the
+instructions name each skill's address. Schemars copies a type's doc comment into its description, so
 compile-fail examples live in module documentation.
 
 `tests/acceptance.rs` qualifies Time through a live local installation and the Hub:

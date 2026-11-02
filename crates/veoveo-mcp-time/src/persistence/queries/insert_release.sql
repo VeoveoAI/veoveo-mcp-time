@@ -1,9 +1,9 @@
 INSERT INTO time.authority_release (
     tenant, release_key, owner, source_key, dataset_kind, state, version_label, source_url,
     source_digest, artifact_path, retrieved_at, validated_at, body, record_version,
-    created_at, updated_at, tenant_key, owner_key, work_context
+    created_at, updated_at, tenant_key, owner_key
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 1, now(), now(), $14, $15, $16)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 1, now(), now(), $14, $15)
 ON CONFLICT (tenant, release_key) DO NOTHING
 RETURNING
     tenant AS "tenant: TenantId",
@@ -23,5 +23,4 @@ RETURNING
     created_at,
     updated_at,
     tenant_key,
-    owner_key,
-    work_context
+    owner_key

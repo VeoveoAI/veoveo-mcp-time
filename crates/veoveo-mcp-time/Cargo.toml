@@ -98,6 +98,7 @@ runtime = [
 ]
 mcp = [
     "runtime",
+    "dep:veoveo-skills",
     "dep:axum",
     "dep:clap",
     "dep:dotenvy",
@@ -105,8 +106,13 @@ mcp = [
     "dep:secrecy",
 ]
 
+[build-dependencies]
+# Embeds the skills under skills/ at build time.
+veoveo-skills = { workspace = true, features = ["build"] }
+
 [dependencies]
 veoveo-hub-sdk = { workspace = true, features = ["contract"], optional = true }
+veoveo-skills = { workspace = true, optional = true }
 veoveo-types = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }

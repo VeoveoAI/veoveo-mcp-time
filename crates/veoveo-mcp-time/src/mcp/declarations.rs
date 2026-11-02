@@ -25,6 +25,7 @@ pub(crate) fn registration(
         uri_scheme: TimeContract::scheme(),
         version: ServerVersion::new(env!("CARGO_PKG_VERSION"))?,
         endpoint: ServerEndpoint::new(url)?,
+        surfaces: <super::TimeMcp as veoveo_hub_sdk::hosting::DomainServer>::routes().surfaces(),
     })
 }
 

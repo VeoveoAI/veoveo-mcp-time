@@ -150,7 +150,6 @@ fn bootstrap_reference(id: &str, kind: AuthorityDatasetKind) -> TimeAuthorityRef
 
 async fn scope(store: &PlatformStore, tenant: &str) -> TimeAccessContext {
     TimeAccessContext {
-        work_context: "fixture-context".parse().unwrap(),
         identity: store
             .ensure_identity(
                 tenant,

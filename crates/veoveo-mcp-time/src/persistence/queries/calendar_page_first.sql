@@ -11,8 +11,7 @@ SELECT
     created_at,
     updated_at,
     tenant_key,
-    owner_key,
-    work_context
+    owner_key
 FROM time.calendar_version
 WHERE tenant = $1
 ORDER BY calendar_key, calendar_version DESC

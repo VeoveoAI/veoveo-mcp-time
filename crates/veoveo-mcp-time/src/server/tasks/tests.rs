@@ -6,8 +6,7 @@ use std::time::Duration;
 use veoveo_store::{Instance, PlatformStore};
 use veoveo_task::TaskStatus;
 use veoveo_types::{
-    AccessSubject, InvocationAuthority, InvocationProvenance, PolicyVersion, PrincipalId, TenantId,
-    WorkContextId, WorkContextMembershipLevel, WorkContextOutputPolicy,
+    InvocationAuthority, InvocationProvenance, PolicyVersion, PrincipalId, TenantId,
 };
 
 use crate::test_database::{TimeDb, slug};
@@ -15,16 +14,8 @@ use crate::test_database::{TimeDb, slug};
 fn authority() -> InvocationAuthority {
     let principal = PrincipalId::parse("integration-principal").unwrap();
     InvocationAuthority {
-        work_context: WorkContextId::parse("integration-mission").unwrap(),
         tenant: TenantId::parse("integration-tenant").unwrap(),
-        membership: WorkContextMembershipLevel::Owner,
         policy_revision: PolicyVersion::parse("r1").unwrap(),
-        output_policy: WorkContextOutputPolicy {
-            owner: AccessSubject::Principal(principal.clone()),
-            initial_grants: Vec::new(),
-            classification: None,
-            data_labels: BTreeSet::new(),
-        },
         provenance: InvocationProvenance::Direct {
             initiator: principal,
         },

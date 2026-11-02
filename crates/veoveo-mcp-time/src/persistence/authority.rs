@@ -89,7 +89,6 @@ impl TimePersistence {
             draft.body,
             draft.identity.tenant_key,
             draft.identity.principal_key,
-            draft.work_context.as_str(),
         )
         .fetch_optional(&self.pool)
         .await

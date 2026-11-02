@@ -11,8 +11,7 @@ SELECT DISTINCT ON (epoch_key)
     created_at,
     updated_at,
     tenant_key,
-    owner_key,
-    work_context
+    owner_key
 FROM time.epoch
 WHERE tenant = $1 AND epoch_key = ANY($2)
 ORDER BY epoch_key, epoch_version DESC

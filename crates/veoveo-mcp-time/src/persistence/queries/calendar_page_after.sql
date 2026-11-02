@@ -15,8 +15,7 @@
         created_at AS "created_at!",
         updated_at AS "updated_at!",
         tenant_key AS "tenant_key!",
-        owner_key AS "owner_key!",
-        work_context AS "work_context!"
+        owner_key AS "owner_key!"
     FROM time.calendar_version
     WHERE tenant = $1 AND calendar_key = $2 AND calendar_version < $3
     ORDER BY calendar_version DESC
@@ -36,8 +35,7 @@ UNION ALL
         created_at,
         updated_at,
         tenant_key,
-        owner_key,
-        work_context
+        owner_key
     FROM time.calendar_version
     WHERE tenant = $1 AND calendar_key > $2
     ORDER BY calendar_key, calendar_version DESC

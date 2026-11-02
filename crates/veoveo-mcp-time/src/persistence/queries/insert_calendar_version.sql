@@ -1,8 +1,8 @@
 INSERT INTO time.calendar_version (
     tenant, calendar_key, calendar_version, owner, name, zone_id, state, body, created_at,
-    updated_at, tenant_key, owner_key, work_context
+    updated_at, tenant_key, owner_key
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now(), $9, $10, $11)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now(), $9, $10)
 ON CONFLICT (tenant, calendar_key, calendar_version) DO NOTHING
 RETURNING
     tenant AS "tenant: TenantId",
@@ -16,5 +16,4 @@ RETURNING
     created_at,
     updated_at,
     tenant_key,
-    owner_key,
-    work_context
+    owner_key

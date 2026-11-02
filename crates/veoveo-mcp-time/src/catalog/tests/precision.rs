@@ -180,7 +180,6 @@ async fn nanosecond_timestamps_round_trip_through_the_database_at_microsecond_pr
         // A writer that bypasses the catalog cannot bind a sub-microsecond timestamp.
         let rejected = persistence
             .create_time_authority_release(TimeAuthorityReleaseDraft {
-                work_context: owner.work_context.clone(),
                 identity: owner.identity.clone(),
                 release_key: AuthorityReleaseId::parse(format!("time-release-{}", Uuid::now_v7()))
                     .unwrap(),
@@ -206,7 +205,6 @@ async fn nanosecond_timestamps_round_trip_through_the_database_at_microsecond_pr
         ));
         let rejected = persistence
             .create_time_event(TimeEventDraft {
-                work_context: owner.work_context.clone(),
                 identity: owner.identity.clone(),
                 event_key: EventId::parse(format!("event-{}", Uuid::now_v7())).unwrap(),
                 name: "precision".into(),
