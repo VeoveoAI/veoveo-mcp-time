@@ -480,6 +480,11 @@ impl TimeCatalog {
             .transpose()
     }
 
+    /// The name of the event `id` of any tenant, which its knowledge index embeds.
+    pub async fn event_name(&self, id: &EventId) -> Result<Option<String>> {
+        Ok(self.persistence.time_event_name(id).await?)
+    }
+
     pub async fn cancel_event(
         &self,
         scope: &TimeAccessContext,

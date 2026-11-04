@@ -206,20 +206,47 @@ fn time_task(
 /// The claim stream fails when the instance loses its lock, and so does this consumer.
 /// Once stopped, the worker waits for its running Tasks: a calculation interrupted by
 /// the stop publishes nothing and stays with its instance, whose recovery queues it.
-pub(super) async fn work(
+pub(crate) async fn work(
     state: Arc<TimeApplication>,
+    indexing: Option<Indexing>,
     stop: CancellationToken,
 ) -> anyhow::Result<()> {
-    TaskWorker::new(state.tasks.clone())
+    let mut worker = TaskWorker::new(state.tasks.clone());
+    let domain = match indexing {
+        Some(Indexing { domain, calls }) => {
+            worker = worker.calls(calls);
+            Some(domain)
+        }
+        None => None,
+    };
+    worker
         .run(
             move |ctx| {
                 let state = state.clone();
-                async move { run_time_task(state, ctx).await }
+                let domain = domain.clone();
+                async move {
+                    // An index Task embeds the events of its owner's call.
+                    let index = &crate::mcp::knowledge::KNOWLEDGE;
+                    if index.runs(ctx.task()) {
+                        return Ok(match &domain {
+                            Some(domain) => index.run_index(domain, &ctx).await,
+                            None => failed("knowledge_index", "this worker indexes no events"),
+                        });
+                    }
+                    run_time_task(state, ctx).await
+                }
             },
             stop,
         )
         .await?;
     Ok(())
+}
+
+/// What the worker needs to run index Tasks: Time's domain and its calls to Embedding
+/// for each Task's owner.
+pub(crate) struct Indexing {
+    pub domain: crate::mcp::TimeMcp,
+    pub calls: veoveo_hub_sdk::hosting::ServerCalls,
 }
 
 /// One claimed Time Task. A request this version cannot read fails the Task.

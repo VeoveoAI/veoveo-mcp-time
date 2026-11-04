@@ -10,6 +10,8 @@ use veoveo_fixtures::database::Conformance;
 #[tokio::test]
 async fn queries_and_schema_follow_the_database_rules() {
     Conformance::new()
+        // pgvector in `_extensions`, which the knowledge migration uses.
+        .extensions(&["vector"])
         .server(&crate::changes::server(), super::migrator())
         .queries_from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.sqlx"))
         .sources(concat!(env!("CARGO_MANIFEST_DIR"), "/src/persistence"))

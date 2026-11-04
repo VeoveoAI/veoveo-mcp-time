@@ -14,7 +14,7 @@ use veoveo_hub_sdk::registration::client::Registration;
 use veoveo_hub_sdk::{
     PublicDeployment, TelemetryGuard,
     apps::AppHtml,
-    hosting::{Hosted, HostedServer},
+    hosting::{Hosted, HostedServer, ServerCalls},
     init_server_telemetry,
 };
 use veoveo_task::{TaskRuntime, TaskRuntimeConfig};
@@ -55,15 +55,33 @@ pub async fn run() -> Result<()> {
     let app = AppHtml::load(&args.app_html)?;
     let _telemetry: TelemetryGuard =
         init_server_telemetry("veoveo-mcp-time", "info,veoveo_mcp_time=debug")?;
-    let (registration_client, registration, http) =
-        registration::register(&args, declaration).await?;
+    let registration::Registered {
+        client: registration_client,
+        registration,
+        metadata,
+        key,
+        http,
+    } = registration::register(&args, declaration).await?;
     // Process shutdown preserves native registration credentials for resume. Explicit
     // retirement is a separate delete; the Hub retains its existing orphan grace.
     let issued = registration.clone();
     let mut served = None;
     let maintained = registration_client
         .maintain(registration, async {
-            served = Some(serve(&args, &public_deployment, &issued, http, app).await);
+            served = Some(
+                serve(
+                    &args,
+                    &public_deployment,
+                    &issued,
+                    Hub {
+                        metadata: &metadata,
+                        key: &key,
+                        http,
+                    },
+                    app,
+                )
+                .await,
+            );
         })
         .await;
     if let Err(error) = maintained {
@@ -72,14 +90,21 @@ pub async fn run() -> Result<()> {
     served.context("Time's registration ended before serving finished")?
 }
 
+/// What calls through the Hub need from the registration.
+struct Hub<'a> {
+    metadata: &'a veoveo_hub_sdk::registration::ClientMetadata,
+    key: &'a veoveo_hub_sdk::registration::statement::ServerKeyPair,
+    /// Refreshes the Hub's token keys from its issuer metadata.
+    http: reqwest::Client,
+}
+
 /// Connect with the registration's database login, migrate Time's schema and serve until
-/// SIGTERM or Ctrl-C, or until the process instance loses its lock. `http` refreshes the
-/// Hub's token keys from its issuer metadata.
+/// SIGTERM or Ctrl-C, or until the process instance loses its lock.
 async fn serve(
     args: &Args,
     public_deployment: &PublicDeployment,
     registration: &Registration,
-    http: reqwest::Client,
+    hub: Hub<'_>,
     app: AppHtml,
 ) -> Result<()> {
     let grant = registration
@@ -103,6 +128,10 @@ async fn serve(
         .migrate_server(&changes::server(), crate::persistence::migrator())
         .await
         .context("applying Time's migrations")?;
+    crate::mcp::knowledge::KNOWLEDGE
+        .check(store.pool())
+        .await
+        .context("checking Time's knowledge table")?;
     let instance = tasks.instance().clone();
     let catalog = TimeCatalog::new(store.pool().clone());
     let leap_seconds = LeapSecondTable::from_path(&args.bootstrap_leap_seconds_file).await?;
@@ -164,14 +193,27 @@ async fn serve(
         .run(store.listen(vec![changes::channel()])),
     );
     let due = tokio::spawn(run_due_events(catalog, wake_due, stop.clone()));
-    let mut working = tokio::spawn(tasks::work(state.clone(), stop.clone()));
+    // Calls to Embedding for an event's owner: from a call, or from the index Task the
+    // call started.
+    let calls = ServerCalls::discover(registration, hub.metadata, hub.key, hub.http.clone())
+        .await
+        .context("discovering the Hub's token endpoint")?;
+    let mut working = tokio::spawn(tasks::work(
+        state.clone(),
+        Some(tasks::Indexing {
+            domain: TimeMcp::new(state.clone(), app.clone()),
+            calls: calls.clone(),
+        }),
+        stop.clone(),
+    ));
 
     let clock_state = state.clone();
     let handler_state = state.clone();
     let hosted = HostedServer::for_domain::<TimeMcp>()
         .deployment(public_deployment, args.allow_loopback_hosts)?
         .allowed_hosts(args.allowed_hosts.iter().cloned())
-        .internal_trust(registration.access_tokens(), http)?
+        .internal_trust(registration.access_tokens(), hub.http)?
+        .calls(calls)
         .handler(move || {
             Hosted::new(TimeMcp::new(handler_state.clone(), app.clone())).with_tasks(
                 DurableTasks::with_listener(

@@ -31,6 +31,7 @@ use crate::{
 mod administration;
 pub mod app;
 pub(crate) mod declarations;
+pub(crate) mod knowledge;
 pub(crate) mod requirements;
 mod resources;
 mod setup;
@@ -192,7 +193,36 @@ impl TimeMcp {
             .create_event(&scope, event, due, request.idempotency_key)
             .await
             .map_err(internal)?;
+        self.index(&context, &event.event_id).await;
         Product::new(&crate::TimeResource::Event(event.event_id.clone()), event).map_err(internal)
+    }
+
+    /// Index an event its call created, as the call's last step: in a Task named in the
+    /// result for a person's own call, or before returning for another server's call. A
+    /// failure leaves the event found by its words, and is logged.
+    async fn index(&self, context: &RequestContext<RoleServer>, event_id: &EventId) {
+        let indexing = knowledge::KNOWLEDGE
+            .index_written(
+                &self.state.tasks,
+                context,
+                self,
+                &knowledge::Events,
+                &[event_id.to_string()],
+            )
+            .await;
+        match indexing {
+            Ok(veoveo_hub_sdk::knowledge::WriteIndexing::Task(_)) => {}
+            Ok(veoveo_hub_sdk::knowledge::WriteIndexing::Indexed(outcomes)) => {
+                for (_, outcome) in outcomes {
+                    if let veoveo_hub_sdk::knowledge::Indexed::NotEmbedded(reason) = outcome {
+                        tracing::warn!(%event_id, %reason, "an event was not embedded");
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%event_id, error = %error.message, "an event could not be indexed");
+            }
+        }
     }
 
     async fn cancel_event(
@@ -327,6 +357,17 @@ static ROUTES: LazyLock<Routes<TimeMcp>> = LazyLock::new(|| {
         policy(ClockPoliciesWrite),
         |domain, request, context| async move { domain.replace_clock_policy(request, context).await },
     );
+    // Search: the caller's own events by name, embedded through Embedding for their
+    // owners, in Tasks a person's calls start.
+    let routes = routes
+        .knowledge(policy(AuthoritiesRead), knowledge::KNOWLEDGE.clone())
+        .uses(
+            veoveo_types::PermissionName::parse(
+                veoveo_mcp_embedding::contract::EmbeddingPermission::EmbeddingsCreate.as_str(),
+            )
+            .expect("Embedding's permission"),
+        )
+        .starts_tasks();
     let mut routes = app::register(resources::register(routes));
     for prompt in TimePrompt::ALL {
         routes = routes.prompt(

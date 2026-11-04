@@ -12,14 +12,17 @@ publish = false
 
 [workspace.dependencies]
 # veoveo-core, pinned to one revision for every core crate.
-veoveo-fixtures = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "05b6c47540680e085cc5356ed4ba8742ecc78bff" }
-veoveo-skills = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "05b6c47540680e085cc5356ed4ba8742ecc78bff" }
-veoveo-store = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "05b6c47540680e085cc5356ed4ba8742ecc78bff" }
-veoveo-task = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "05b6c47540680e085cc5356ed4ba8742ecc78bff" }
-veoveo-types = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "05b6c47540680e085cc5356ed4ba8742ecc78bff" }
+veoveo-fixtures = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "a8dafe90206d1cadbb1d2de26304fe061a542ffd" }
+veoveo-skills = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "a8dafe90206d1cadbb1d2de26304fe061a542ffd" }
+veoveo-store = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "a8dafe90206d1cadbb1d2de26304fe061a542ffd" }
+veoveo-task = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "a8dafe90206d1cadbb1d2de26304fe061a542ffd" }
+veoveo-types = { git = "https://github.com/VeoveoAI/veoveo-core", rev = "a8dafe90206d1cadbb1d2de26304fe061a542ffd" }
 # veoveo-hub-sdk, pinned to one revision for the SDK library and its test fixture.
-veoveo-hub-sdk = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "aff002265f681aa03ac8747ed5008f5c4eddf979", default-features = false }
-veoveo-hub-sdk-fixture = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "aff002265f681aa03ac8747ed5008f5c4eddf979" }
+veoveo-hub-sdk = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "b820f05258bd6d12dc7c02f9fb0955f7ccb0b17a", default-features = false }
+veoveo-hub-sdk-fixture = { git = "https://github.com/VeoveoAI/veoveo-hub-sdk", rev = "b820f05258bd6d12dc7c02f9fb0955f7ccb0b17a" }
+# Embedding's client: the SDK's knowledge Embedder over its typed `embed` tool, which
+# indexes Time's events for their owners.
+veoveo-mcp-embedding = { git = "https://github.com/VeoveoAI/veoveo-mcp-embedding", rev = "e2d2b077df16e506992fa000ab4506ef51b03e8b", default-features = false, features = ["client"] }
 
 anyhow = "=1.0.104"
 axum = "0.8.9"

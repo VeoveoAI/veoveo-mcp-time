@@ -45,7 +45,8 @@ port         8800
 | TAI, UTC, TT, TDB, GPS, and Galileo system time | Typed projections from one integral TAI instant. The server records authority and uncertainty rather than treating scales as interchangeable strings. |
 | [NTPv4 RFC 5905](https://www.rfc-editor.org/rfc/rfc5905.html) and [Network Time Security RFC 8915](https://www.rfc-editor.org/rfc/rfc8915.html) | Approved node clocks may use NTP/NTS. Time MCP consumes a bounded `ntpd-rs` observation; it does not act as an NTP network endpoint. |
 | HTTPS | Registered IANA authority sources are acquired under fixed host, media, digest, size, and elapsed-time policy. |
-| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Its statements and schema follow that design's server schema rules, which a native conformance test checks. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. |
+| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Its statements and schema follow that design's server schema rules, which a native conformance test checks. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. pgvector 0.8.7 in the installation's `_extensions` schema holds the knowledge vectors. |
+| [Veoveo knowledge contract](https://github.com/VeoveoAI/veoveo-hub-sdk) `ai.veoveo/knowledge` | `search_knowledge` over `time.events` through the SDK's ready-made PostgreSQL search, embedded through Embedding's `embed` tool with the client of `veoveo-mcp-embedding`; see [Knowledge](#knowledge) |
 
 Time JSON uses camelCase members and snake_case vocabulary; decoding rejects
 retired and mixed keys. Authority source is a closed tagged object: bootstrap
@@ -268,7 +269,8 @@ veoveo-mcp-time
 ```
 
 The Rust process owns the HTTP server, acquisition jobs, active authority cache, the
-change listener, the event due loop and Task API workers. The same image contains
+change listener, the event due loop and Task API workers, which also run the index Tasks
+of the knowledge search. The same image contains
 `zic`, the bootstrap TZif database, and the bootstrap IANA leap-second file supplied by
 Debian `tzdata`.
 
@@ -550,8 +552,9 @@ interprets a leap second or zone rule itself.
 | `evaluate_windows` | `time.schedules.expand` | direct | normalized interval set |
 | `expand_schedule` | `time.schedules.expand` | Task API required | bounded calendar occurrences |
 | `validate_timeline` | `time.timelines.validate` | Task API required | constraint verdict and violations |
-| `create_event` | `time.events.write` | direct | owner-scoped event, with its address as `resultUri` |
+| `create_event` | `time.events.write` | direct | owner-scoped event, with its address as `resultUri`, and the index Task a person's own call starts as its related task |
 | `cancel_event` | `time.events.write` | direct | cancelled event version |
+| `search_knowledge` | `time.authorities.read` | direct | the caller's own events by name; see [Knowledge](#knowledge) |
 
 Every successful tool result contains typed structured content. Tool annotations state
 read-only, destructive, idempotent, and open-world behavior and agree with each tool's
@@ -888,6 +891,41 @@ authorization refusal, appears in the panel that made it, and the rest of the vi
 working. Every control is a button or an input reachable from the keyboard, with a
 visible focus ring; status and error lines are announced politely to assistive
 technology.
+
+## Knowledge
+
+Time expresses the knowledge contract, `ai.veoveo/knowledge`, with the SDK's ready-made
+PostgreSQL search: its template `time://events/{event_id}` is the collection
+`time.events`, and `search_knowledge` finds a person's own events by their name, under
+the same rule as `time://events`. A query may be words or media, as the contract
+allows; an event holds only its name.
+
+- **Columns.** `time.event` carries `knowledge_text`, generated from its name,
+  `knowledge_vector` and `knowledge_model`, with their GIN and HNSW indexes, in
+  migration `0002_knowledge.sql`. An event's key is unique across tenants by its
+  UUIDv7, and a hash index on `event_key` keys the SDK's reads and writes of one event,
+  leaving key ranges to `event_owner_key`. The index reads an event's name by its key
+  alone, which its statement's marker says, and pgvector comes from the installation's
+  `_extensions` schema.
+- **Read rule.** `time.knowledge_readable(e time.event, caller jsonb)` admits an event of
+  the caller's tenant that the caller owns, the rule the event listing uses. A hit is the
+  event's URI, its name as title, and a snippet of its due instant and state.
+- **Embedding.** `create_event` indexes the new event through the SDK after it commits:
+  for a person's own call in a Task named in its result, for another server's call
+  before it returns. Embedding is called for the event's owner, with the event's name as
+  the item. Until its vector is stored, an event is found by words. An event result
+  carries no indexing outcome: a failure is the index Task's, and for another server's
+  call it is logged, the event found by its words. A repeated call with the same
+  idempotency key indexes the event again.
+- **Calls.** Time declares use of `embedding.embeddings.create` when it registers. It has
+  no network policy of its own: it runs in the factory, whose base policy
+  (`kubernetes/policies/factory-base.yaml` of the installation template) already admits
+  the Hub's token endpoint and the public host. Its routes declare `starts_tasks`, and
+  its Task worker runs the index Tasks with its calls for each Task's owner.
+- **Not yet searched.** Calendar and epoch versions, which are immutable and addressed
+  by key and version.
+- **Skill.** `resolve-a-time`'s events guidance says how to call `time__search_knowledge`
+  and read a hit.
 
 ## Events
 
@@ -1313,6 +1351,14 @@ A unit test walks every tool's input and output schema and fails on a descriptio
 that holds a code block. Another checks that the embedded skills load and that the
 instructions name each skill's address. Schemars copies a type's doc comment into its description, so
 compile-fail examples live in module documentation.
+
+`src/registry/tests/knowledge.rs` runs Time on the SDK's in-process mesh over a fresh
+database with pgvector, with a synthetic stand-in for Embedding that serves Embedding's
+`embed` contract and answers vectors hashed from words and media types, never a
+model's: an event is found by its words at once and, after its index Task stored its
+vector, by words that are not all in its name; an image query on text events answers
+ranked hits; and a search finds only the caller's own events. The conformance check
+creates pgvector in `_extensions` before it migrates.
 
 `tests/acceptance.rs` qualifies Time through a live local installation and the Hub:
 discovery, tool calls, a schedule Task, future events with resource notifications and

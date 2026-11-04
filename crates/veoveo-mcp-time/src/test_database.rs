@@ -21,6 +21,8 @@ impl TimeDb {
     pub(crate) async fn new() -> Self {
         let fixture = TestDb::new().await;
         let slug = slug();
+        // pgvector in `_extensions`, as the installation's bootstrap creates it.
+        fixture.create_extensions(&["vector"]).await;
         fixture
             .migrate_server(&slug, crate::persistence::migrator())
             .await;

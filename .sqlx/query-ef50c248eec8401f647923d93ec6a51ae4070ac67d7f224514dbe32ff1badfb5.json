@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- veoveo: all tenants (the knowledge index embeds one event, whose key is unique across tenants)\n-- The name of one event, which its knowledge index embeds. The key's UUIDv7 makes it\n-- unique across tenants, which no index of `event_key` alone declares, so one row is\n-- the bound.\nSELECT name FROM time.event WHERE event_key = $1 LIMIT 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"time\".event",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ef50c248eec8401f647923d93ec6a51ae4070ac67d7f224514dbe32ff1badfb5"
+}

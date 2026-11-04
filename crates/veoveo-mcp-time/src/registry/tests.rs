@@ -9,6 +9,8 @@ mod due;
 mod events;
 #[cfg(feature = "mcp")]
 mod hosted;
+#[cfg(feature = "mcp")]
+mod knowledge;
 mod lifecycle;
 mod notifications;
 #[cfg(feature = "mcp")]

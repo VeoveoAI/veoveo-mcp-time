@@ -55,6 +55,7 @@ pub(super) fn register(routes: RoutesBuilder<TimeMcp>) -> RoutesBuilder<TimeMcp>
         )
         .template::<ReadEvent, _, _>(
             ResourceBuilder::new("Event")
+                .knowledge(super::knowledge::collection())
                 .reader(event)
                 .policy(policy())
                 .cache(ReadCache::Private),

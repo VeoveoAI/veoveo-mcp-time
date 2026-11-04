@@ -90,6 +90,21 @@ impl TimePersistence {
         .ok_or_else(|| conflict("event", event_key))
     }
 
+    /// The name of the event `event_key` of any tenant, for its knowledge index, which
+    /// embeds the event itself for its owner.
+    pub(crate) async fn time_event_name(
+        &self,
+        event_key: &EventId,
+    ) -> Result<Option<String>, PersistenceError> {
+        validate_key("event_key", event_key, "event-")?;
+        Ok(sqlx::query_file_scalar!(
+            "src/persistence/queries/event_knowledge.sql",
+            event_key as &EventId,
+        )
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     async fn time_event_for_idempotency(
         &self,
         tenant_id: TenantId,

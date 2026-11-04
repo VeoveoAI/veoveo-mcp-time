@@ -45,3 +45,14 @@ to a person with its zone and, when it is not exact, its uncertainty.
 - `time__create_event` schedules an event at a resolved instant; subscribe to its
   `time://events/{event_id}` to be told when it is due, and cancel it with
   `time__cancel_event` and the revision you last read.
+
+## Find an event
+
+`time__search_knowledge` finds the person's own events by their name: pass `parts`, one
+`text` part with the words, and optionally `limit`, 1 to 20, and
+`collections: ["time.events"]`. Each hit names the event by `time://events/{event_id}`,
+with its name as the title and its state and due instant as the snippet, best first;
+read that address for the event itself. A new event is found by its exact words at once
+and by words of the same meaning once its index Task finishes, which `time__create_event`
+names in its result's `_meta["io.modelcontextprotocol/related-task"]`. Calendars and
+epochs are not searched; read them by key and version.

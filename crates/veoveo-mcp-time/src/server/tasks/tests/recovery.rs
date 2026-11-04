@@ -107,7 +107,7 @@ async fn a_replica_whose_instance_is_reaped_mid_work_resumes_its_schedule_task_u
             .await
             .unwrap();
         let replica_stop = CancellationToken::new();
-        let replica_work = tokio::spawn(work(replica.clone(), replica_stop.clone()));
+        let replica_work = tokio::spawn(work(replica.clone(), None, replica_stop.clone()));
         while sqlx::query_file_scalar!("src/tests/queries/held_authority_readers.sql")
             .fetch_one(db.b.pool())
             .await
@@ -223,7 +223,7 @@ async fn held(db: &TimeDb, replica: &Arc<TimeApplication>) -> Held {
         .await
         .unwrap();
     let stop = CancellationToken::new();
-    let work = tokio::spawn(work(replica.clone(), stop.clone()));
+    let work = tokio::spawn(work(replica.clone(), None, stop.clone()));
     while sqlx::query_file_scalar!("src/tests/queries/held_authority_readers.sql")
         .fetch_one(db.b.pool())
         .await
@@ -281,7 +281,7 @@ async fn a_stopping_consumer_leaves_its_running_schedule_task_for_another_replic
         stopping.tasks.instance().shutdown().await.unwrap();
         let survivor = files.replica(&db.b).await;
         let survivor_stop = CancellationToken::new();
-        let survivor_work = tokio::spawn(work(survivor.clone(), survivor_stop.clone()));
+        let survivor_work = tokio::spawn(work(survivor.clone(), None, survivor_stop.clone()));
         let settled = terminal(&survivor.tasks, held.task_id).await;
         assert_eq!(settled.status, TaskStatus::Succeeded, "{:?}", settled.error);
         let output: ExpandScheduleOutput =
