@@ -153,7 +153,7 @@ leap second assumptions.
   `ActivationConflict` outcomes. Runtime library tests use `test_database::TimeDb`:
   `veoveo-fixtures`' PostgreSQL cluster, Time's migrations applied as
   `server_time` and two pools logged in as registration logins. Run them with the
-  PostgreSQL 18 programs on `PATH`.
+  PostgreSQL 19 programs on `PATH`.
 - `docker build --target check .` runs the gate, and the `runtime` stage builds the
   deployable image. No GPU requirement.
 - `src/catalog/tests.rs` qualifies SQL tenant and owner predicates, latest epoch

@@ -45,7 +45,7 @@ port         8800
 | TAI, UTC, TT, TDB, GPS, and Galileo system time | Typed projections from one integral TAI instant. The server records authority and uncertainty rather than treating scales as interchangeable strings. |
 | [NTPv4 RFC 5905](https://www.rfc-editor.org/rfc/rfc5905.html) and [Network Time Security RFC 8915](https://www.rfc-editor.org/rfc/rfc8915.html) | Approved node clocks may use NTP/NTS. Time MCP consumes a bounded `ntpd-rs` observation; it does not act as an NTP network endpoint. |
 | HTTPS | Registered IANA authority sources are acquired under fixed host, media, digest, size, and elapsed-time policy. |
-| [PostgreSQL 18](https://www.postgresql.org/docs/18/) | Server 18.6 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Its statements and schema follow that design's server schema rules, which a native conformance test checks. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. pgvector 0.8.7 in the installation's `_extensions` schema holds the knowledge vectors. |
+| [PostgreSQL 19](https://www.postgresql.org/docs/19/) | Server 19.0 through [sqlx](https://docs.rs/sqlx/0.9.0) 0.9.0, as the [installation database design](https://github.com/VeoveoAI/veoveo-core/blob/9a6b3ff95469ff19f9ccb513421a57ba6751aa9e/docs/DATABASE.md) describes. Time owns the schema `time`, applies its own migrations from `migrations/` and runs every statement from a `.sql` file that sqlx checks against the migrated schema. Its statements and schema follow that design's server schema rules, which a native conformance test checks. Row triggers publish changes on the `time` channel through `LISTEN`/`NOTIFY`; activation serializes on a transaction advisory lock and `SELECT … FOR UPDATE`. pgvector 0.8.7 in the installation's `_extensions` schema holds the knowledge vectors. |
 | [Veoveo knowledge contract](https://github.com/VeoveoAI/veoveo-hub-sdk) `ai.veoveo/knowledge` | `search_knowledge` over `time.events` through the SDK's ready-made PostgreSQL search, embedded through Embedding's `embed` tool with the client of `veoveo-mcp-embedding`; see [Knowledge](#knowledge) |
 
 Time JSON uses camelCase members and snake_case vocabulary; decoding rejects
@@ -1415,7 +1415,7 @@ Unit tests cover leap authority validation, positive-leap projection, RFC/GPS/DT
 equivalence, DST ambiguity, DST-aware schedule expansion, half-open interval algebra,
 timeline violations, clock policy, canonical URIs, acquisition configuration, and
 archive traversal rejection.
-Runtime tests run against `veoveo-fixtures`' PostgreSQL 18 cluster: each test
+Runtime tests run against `veoveo-fixtures`' PostgreSQL 19 cluster: each test
 clones a database with the kernel migrations, applies Time's migrations as
 `server_time` and connects two pools as two registration logins. They cover stored
 URL/ID admission, SQL isolation and pagination, requested epoch batches and

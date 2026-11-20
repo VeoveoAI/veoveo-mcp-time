@@ -44,7 +44,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 secrecy = "0.10.3"
 sha2 = "=0.11.0"
-# PostgreSQL 18 through the same sqlx release and features as veoveo-core. `sqlx-toml`
+# PostgreSQL 19 through the same sqlx release and features as veoveo-core. `sqlx-toml`
 # reads the crate's migration table from its `sqlx.toml`.
 sqlx = { version = "=0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots", "uuid", "chrono", "json", "migrate", "macros", "sqlx-toml"] }
 tokio = "1.53.1"

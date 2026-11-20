@@ -73,7 +73,7 @@ remaining limits.
 
 ## Database
 
-Time stores its catalog in the schema `time` of the PostgreSQL 18 database its
+Time stores its catalog in the schema `time` of the PostgreSQL 19 database its
 registration grant names. `migrations/` in the crate defines the schema, and every statement is a
 `.sql` file that sqlx checks at compile time. `.cargo/config.toml` sets `SQLX_OFFLINE`,
 so every build uses the committed `.sqlx` metadata. After changing a query or a
@@ -88,7 +88,7 @@ The metadata also covers the queries of the core crates, and prepare records onl
 crates it compiles, so it needs a target directory with no earlier build.
 
 The `check` stage of the `Dockerfile` builds that database and fails when the metadata
-is stale. Tests need the PostgreSQL 18 server programs on `PATH`; each test clones its
+is stale. Tests need the PostgreSQL 19 server programs on `PATH`; each test clones its
 own database from a migrated template.
 
 ## Gate
